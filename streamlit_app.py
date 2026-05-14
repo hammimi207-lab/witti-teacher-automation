@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # streamlit_app_corrected.py
-# 교사의 발견 Manual Automation 데모 앱
+# 한솔 재단 ｜ 아이키움 ｜ 교사의 발견 Manual Automation 데모 앱
 # 실행: streamlit run streamlit_app_corrected.py
 
 import re
@@ -12,11 +12,109 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+import matplotlib.pyplot as plt
+
 
 st.set_page_config(
     page_title="교사의 발견",
     page_icon="🌿",
     layout="wide"
+)
+
+st.markdown(
+    """
+    <style>
+    /* 전체 여백 정리 */
+    .block-container {
+        padding-top: 2rem;
+        padding-left: 3rem;
+        padding-right: 3rem;
+        max-width: 1100px;
+    }
+
+    /* 메인 제목 */
+    h1 {
+        font-size: 42px !important;
+        line-height: 1.25 !important;
+        letter-spacing: -1px !important;
+    }
+
+    h2, h3 {
+        letter-spacing: -0.5px !important;
+    }
+
+    /* 버튼 크기 */
+    .stButton > button {
+        min-height: 42px;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    /* 입력창, 선택창 */
+    input, textarea, select {
+        font-size: 16px !important;
+    }
+
+    /* 탭 글자 */
+    button[data-baseweb="tab"] {
+        font-size: 15px !important;
+        white-space: nowrap;
+    }
+
+    /* 안내 문구 */
+    .small-guide {
+        color:#9AA1A9;
+        font-size:13px;
+        margin-top:-6px;
+        margin-bottom:14px;
+    }
+
+    /* 모바일 대응 */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 1.2rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            max-width: 100%;
+        }
+
+        h1 {
+            font-size: 30px !important;
+            line-height: 1.25 !important;
+            letter-spacing: -0.8px !important;
+        }
+
+        h2 {
+            font-size: 24px !important;
+        }
+
+        h3 {
+            font-size: 21px !important;
+        }
+
+        p, div, span, label {
+            font-size: 15px !important;
+        }
+
+        .stButton > button {
+            width: 100%;
+            min-height: 46px;
+            font-size: 15px !important;
+        }
+
+        button[data-baseweb="tab"] {
+            font-size: 13px !important;
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+        }
+
+        .stSlider {
+            padding-bottom: 8px;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
 st.markdown(
@@ -268,38 +366,38 @@ def make_diary_message(summary: str, teacher_tone: str, daily_scope: str) -> str
 st.set_page_config(page_title="[교사의 발견] 현장 지원을 위한 업무 자동화 파일럿 서비스 ", page_icon="🌿", layout="wide")
 init_db()
 st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
-st.info("사진 선별 · 사진 기반 놀이 설명 자동 생성 · 이미지 자동 보정 · 알림장 작성 기능 등을 활용할 수 있습니다.")
-st.caption("💡본 플랫폼은 PC또는 노트북에서만 실행됩니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.")
-st.markdown(
-    """
-    <div style="
-        color:#9AA1A9;
-        font-size:13px;
-        margin-top:-8px;
-        margin-bottom:12px;
-    ">
-    💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있어요.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 with st.sidebar:
-    st.header("설정")
-    top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=5)
-    max_summary_sentences = st.slider("요약 문장 수", min_value=1, max_value=10, value=3)
+    st.header("⚙️ 설정")
+
+    top_k = st.slider(
+        "선별할 사진 수",
+        min_value=1,
+        max_value=20,
+        value=5
+    )
+
+    max_summary_sentences = st.slider(
+        "알림장 요약 문장 수",
+        min_value=1,
+        max_value=10,
+        value=3
+    )
+
     st.divider()
-    st.write("실행 전 확인")
-    st.write("1. `manual_automation_app.py`와 이 파일이 같은 폴더에 있어야 합니다.")
-    st.write("2. 필요한 패키지: streamlit, opencv-python, pillow, numpy")
+
+    st.markdown("### 🌿 이용 안내")
+    st.caption("☞ 사진 선별과 기록 , 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
+    st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
+    st.caption("☞ 본 플랫폼의 링크만 있으면, 모바일과 PC에서 모두 활용 가능합니다.")
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "💬 함께 소통해요",
     "📸 현명한 사진 선별과 기록",
     "✨ 초간편 사진 보정",
     "📝 3초 컷 알림장 작성",
     "🌿 지금 그리고 오늘, 교사의 온도",
-    "💬 함께 소통해요",
-    "🔐 관리자 페이지",
+    "🔐 관리자 모드",
 ])
 
 work_dir = Path(tempfile.mkdtemp())
@@ -309,6 +407,145 @@ input_image_dir.mkdir(parents=True, exist_ok=True)
 enhanced_dir.mkdir(parents=True, exist_ok=True)
 
 with tab1:
+    st.subheader("💬 함께 소통해요")
+    st.write("교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.")
+
+    st.markdown("### 1. 기관 기본 정보")
+
+    institution_name = st.text_input(
+        "기관명",
+        placeholder="예: 한솔 / 아이키움 "
+    )
+
+    institution_group = st.selectbox(
+        "기관 구분",
+        ["어린이집", "유치원"]
+    )
+
+    if institution_group == "유치원":
+        institution_type = st.selectbox(
+            "유치원 유형",
+            ["국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"]
+        )
+
+    else:
+        institution_type = st.selectbox(
+            "어린이집 유형",
+            ["국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"]
+        )
+
+    institution_feature = st.multiselect(
+        "기관 특성",
+        [
+            "일반",
+            "장애통합",
+            "다문화",
+            "야간연장",
+            "시간제보육",
+            "방과후 과정",
+            "숲·생태 특화",
+            "놀이중심 운영",
+            "부모참여 활성화",
+            "기타"
+        ]
+    )
+
+    st.caption(
+        "※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. "
+        "본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다."
+    )
+
+    st.markdown("### 2. 기관 연락처")
+
+    area_code = st.selectbox(
+        "지역번호",
+        ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"]
+    )
+
+    phone_number = st.text_input(
+        "기관 연락처",
+        placeholder="예: 1234-5678"
+    )
+
+    full_phone = f"{area_code}-{phone_number}" if phone_number else ""
+
+    st.markdown("### 3. 가입자 정보")
+
+    subscriber_name = st.text_input(
+        "가입자 성명",
+        placeholder="예: 홍길동"
+    )
+
+    position = st.selectbox(
+        "직책",
+        ["원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"]
+    )
+
+    st.markdown("### 4. 이메일 정보")
+
+    email_id = st.text_input(
+        "이메일 아이디",
+        placeholder="예: witti"
+    )
+
+    email_domain = st.selectbox(
+        "이메일 도메인",
+        ["gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"]
+    )
+
+    if email_domain == "직접 입력":
+        custom_domain = st.text_input(
+            "도메인 직접 입력",
+            placeholder="예: example.com"
+        )
+        email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
+    else:
+        email = f"{email_id}@{email_domain}" if email_id else ""
+
+    st.markdown("### 5. 동의 항목")
+
+    privacy_agree = st.checkbox(
+        "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다."
+    )
+
+    mailing_agree = st.checkbox(
+        "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다."
+    )
+
+    if st.button("정보 제출하기"):
+        if not institution_name:
+            st.warning("기관명을 입력해 주세요.")
+        elif not phone_number:
+            st.warning("기관 연락처를 입력해 주세요.")
+        elif not subscriber_name:
+            st.warning("가입자 성명을 입력해 주세요.")
+        elif not email_id:
+            st.warning("이메일 아이디를 입력해 주세요.")
+        elif email_domain == "직접 입력" and not custom_domain:
+            st.warning("이메일 도메인을 직접 입력해 주세요.")
+        elif not privacy_agree:
+            st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
+        else:
+            submitted_data = {
+                "기관명": institution_name,
+                "기관 구분": institution_group,
+                "기관 유형": institution_type,
+                "기관 특성": ", ".join(institution_feature),
+                "기관 연락처": full_phone,
+                "가입자 성명": subscriber_name,
+                "직책": position,
+                "이메일": email,
+                "개인정보 동의": privacy_agree,
+                "메일링 수신 동의": mailing_agree,
+            }
+
+            save_subscriber(submitted_data)
+
+            st.success("정보가 제출되었습니다.")
+            st.json(submitted_data)
+
+
+with tab2:
     st.subheader("📸 A급 사진 선별")
     st.write("20장 이내의 사진을 올리면 선명도와 밝기를 기준으로 상위 사진을 골라냅니다.")
 
@@ -459,7 +696,7 @@ with tab1:
             st.warning("사진 속 놀이 키워드를 입력해 주세요.")
 
 
-with tab2:
+with tab3:
     st.subheader("✨ 초간편 사진 보정")
     st.write("원본과 보정본을 비교하며 밝기, 대비, 채도, 선명도를 직접 조절할 수 있습니다.")
 
@@ -550,7 +787,7 @@ with tab2:
             mime="image/jpeg"
         )
 
-with tab3:
+with tab4:
     st.subheader("📝 알림장 요약 및 생성")
     st.write("알림장 초안을 입력하면 핵심 내용을 요약하고, 선택한 기록 성향에 맞게 알림장 문장을 생성합니다.")
 
@@ -654,7 +891,7 @@ with tab3:
         else:
             st.warning("요약할 일지 내용을 먼저 입력해 주세요.")
   
-with tab4:
+with tab5:
     st.subheader("🌡️ 지금 그리고 오늘, 교사의 온도")
 
     st.markdown(
@@ -973,227 +1210,197 @@ with tab4:
                 unsafe_allow_html=True
             )
 
-with tab5:
-    st.subheader("💬 함께 소통해요")
-    st.write("교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.")
-
-    st.markdown("### 1. 기관 기본 정보")
-
-    institution_name = st.text_input(
-        "기관명",
-        placeholder="예: 한솔 / 아이키움 "
-    )
-
-    institution_group = st.selectbox(
-        "기관 구분",
-        ["어린이집", "유치원"]
-    )
-
-    if institution_group == "유치원":
-        institution_type = st.selectbox(
-            "유치원 유형",
-            ["국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"]
-        )
-
-    else:
-        institution_type = st.selectbox(
-            "어린이집 유형",
-            ["국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"]
-        )
-
-    institution_feature = st.multiselect(
-        "기관 특성",
-        [
-            "일반",
-            "장애통합",
-            "다문화",
-            "야간연장",
-            "시간제보육",
-            "방과후 과정",
-            "숲·생태 특화",
-            "놀이중심 운영",
-            "부모참여 활성화",
-            "기타"
-        ]
-    )
-
-    st.caption(
-        "※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. "
-        "본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다."
-    )
-
-    st.markdown("### 2. 기관 연락처")
-
-    area_code = st.selectbox(
-        "지역번호",
-        ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"]
-    )
-
-    phone_number = st.text_input(
-        "기관 연락처",
-        placeholder="예: 1234-5678"
-    )
-
-    full_phone = f"{area_code}-{phone_number}" if phone_number else ""
-
-    st.markdown("### 3. 가입자 정보")
-
-    subscriber_name = st.text_input(
-        "가입자 성명",
-        placeholder="예: 홍길동"
-    )
-
-    position = st.selectbox(
-        "직책",
-        ["원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"]
-    )
-
-    st.markdown("### 4. 이메일 정보")
-
-    email_id = st.text_input(
-        "이메일 아이디",
-        placeholder="예: witti"
-    )
-
-    email_domain = st.selectbox(
-        "이메일 도메인",
-        ["gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"]
-    )
-
-    if email_domain == "직접 입력":
-        custom_domain = st.text_input(
-            "도메인 직접 입력",
-            placeholder="예: example.com"
-        )
-        email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
-    else:
-        email = f"{email_id}@{email_domain}" if email_id else ""
-
-    st.markdown("### 5. 동의 항목")
-
-    privacy_agree = st.checkbox(
-        "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다."
-    )
-
-    mailing_agree = st.checkbox(
-        "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다."
-    )
-
-    if st.button("정보 제출하기"):
-        if not institution_name:
-            st.warning("기관명을 입력해 주세요.")
-        elif not phone_number:
-            st.warning("기관 연락처를 입력해 주세요.")
-        elif not subscriber_name:
-            st.warning("가입자 성명을 입력해 주세요.")
-        elif not email_id:
-            st.warning("이메일 아이디를 입력해 주세요.")
-        elif email_domain == "직접 입력" and not custom_domain:
-            st.warning("이메일 도메인을 직접 입력해 주세요.")
-        elif not privacy_agree:
-            st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
-        else:
-            submitted_data = {
-                "기관명": institution_name,
-                "기관 구분": institution_group,
-                "기관 유형": institution_type,
-                "기관 특성": ", ".join(institution_feature),
-                "기관 연락처": full_phone,
-                "가입자 성명": subscriber_name,
-                "직책": position,
-                "이메일": email,
-                "개인정보 동의": privacy_agree,
-                "메일링 수신 동의": mailing_agree,
-            }
-
-            save_subscriber(submitted_data)
-
-            st.success("정보가 제출되었습니다.")
-            st.json(submitted_data)
 
 with tab6:
-    st.subheader("🔐 관리자 페이지")
-    st.write("관리자 전용 구역입니다. 잘못 누르면 일이 꽤 커질지도 몰라요.")
-
-    admin_id = st.text_input("관리자 아이디")
-    admin_pw = st.text_input("관리자 비밀번호", type="password")
-
     ADMIN_ID = "admin"
-    ADMIN_PW = "1234"
+    ADMIN_PW = "witti7942"
 
-    if st.button("관리자 로그인"):
-        if admin_id == ADMIN_ID and admin_pw == ADMIN_PW:
-            st.session_state["admin_logged_in"] = True
-            st.success("관리자 로그인에 성공했습니다.")
-        else:
-            st.session_state["admin_logged_in"] = False
-            st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+    st.subheader("🔐 관리자 모드")
 
-    if st.session_state.get("admin_logged_in"):
+    with st.expander("관리자 메뉴 열기", expanded=False):
+        st.write("가입자 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
 
-        admin_menu = st.selectbox(
-            "조회할 데이터 선택",
-            ["가입자 정보", "알림장 생성 기록", "교사의 온도 기록"]
-        )
+        admin_id = st.text_input("관리자 아이디", key="admin_id_input")
+        admin_pw = st.text_input("관리자 비밀번호", type="password", key="admin_pw_input")
 
-        if admin_menu == "가입자 정보":
-            df = load_table("subscribers")
-            file_name = "subscribers.csv"
+        if st.button("관리자 로그인", key="admin_login_button"):
+            if admin_id.strip() == ADMIN_ID and admin_pw.strip() == ADMIN_PW:
+                st.session_state["admin_logged_in"] = True
+                st.success("관리자 로그인에 성공했습니다.")
+            else:
+                st.session_state["admin_logged_in"] = False
+                st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
-        elif admin_menu == "알림장 생성 기록":
-            df = load_table("diary_logs")
-            file_name = "diary_logs.csv"
+        if st.session_state.get("admin_logged_in"):
 
-        else:
-            df = load_table("teacher_temperature_logs")
-            file_name = "teacher_temperature_logs.csv"
+            st.markdown("### 📊 데이터 분석 대시보드")
 
-        # 컬럼명 한글 변경
-        column_rename = {
-            "id": "번호",
-            "created_at": "생성일시",
+            dashboard_period = st.selectbox(
+                "조회 단위",
+                ["전체", "오늘", "최근 7일", "이번 달"],
+                key="dashboard_period_select"
+            )
 
-            # 가입자 정보
-            "institution_name": "기관명",
-            "institution_group": "기관 구분",
-            "institution_type": "기관 유형",
-            "institution_feature": "기관 특성",
-            "phone": "연락처",
-            "subscriber_name": "가입자 성명",
-            "position": "직책",
-            "email": "이메일",
-            "privacy_agree": "개인정보 동의",
-            "mailing_agree": "메일링 동의",
+            subscribers_df = load_table("subscribers")
+            diary_df = load_table("diary_logs")
+            temp_df = load_table("teacher_temperature_logs")
 
-            # 알림장
-            "teacher_tone": "교사의 기록 성향",
-            "daily_scope": "하루일과 전달 범위",
-            "original_text": "원문",
-            "summary": "요약 결과",
-            "generated_message": "생성된 알림장",
+            def filter_by_period(df, period):
+                if df.empty or "created_at" not in df.columns:
+                    return df
 
-            # 교사의 온도
-            "diary_type": "기록 유형",
-            "memory": "기억",
-            "emotion": "감정",
-            "temperature": "교사 온도",
-            "average_temp": "평균 마음온도",
-            "temp_message": "온도 해석",
-            "result_text": "생성 결과",
-        }
+                df = df.copy()
+                df["created_at_dt"] = pd.to_datetime(df["created_at"], errors="coerce")
+                now = pd.Timestamp.now()
 
-        df = df.rename(columns=column_rename)
+                if period == "오늘":
+                    return df[df["created_at_dt"].dt.date == now.date()]
 
-        st.dataframe(df, use_container_width=True)
+                elif period == "최근 7일":
+                    start_date = now - pd.Timedelta(days=7)
+                    return df[df["created_at_dt"] >= start_date]
 
-        csv = df.to_csv(index=False).encode("utf-8-sig")
+                elif period == "이번 달":
+                    return df[
+                        (df["created_at_dt"].dt.year == now.year)
+                        & (df["created_at_dt"].dt.month == now.month)
+                    ]
 
-        st.download_button(
-            label="CSV 다운로드",
-            data=csv,
-            file_name=file_name,
-            mime="text/csv"
-        )
+                return df
 
-        ADMIN_ID = "admin"
-        ADMIN_PW = "1234"
+            subscribers_filtered = filter_by_period(subscribers_df, dashboard_period)
+            diary_filtered = filter_by_period(diary_df, dashboard_period)
+            temp_filtered = filter_by_period(temp_df, dashboard_period)
+
+            total_subscribers = len(subscribers_filtered)
+            total_diary_logs = len(diary_filtered)
+            total_temp_logs = len(temp_filtered)
+
+            if not subscribers_filtered.empty and "mailing_agree" in subscribers_filtered.columns:
+                mailing_count = subscribers_filtered[
+                    subscribers_filtered["mailing_agree"].astype(str) == "True"
+                ].shape[0]
+            else:
+                mailing_count = 0
+
+            if not temp_filtered.empty and "average_temp" in temp_filtered.columns:
+                valid_temp = temp_filtered["average_temp"].dropna()
+                avg_teacher_temp = round(valid_temp.mean(), 1) if len(valid_temp) > 0 else 0
+            else:
+                avg_teacher_temp = 0
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            col1.metric("가입자 수", f"{total_subscribers}명")
+            col2.metric("메일링 동의", f"{mailing_count}명")
+            col3.metric("알림장 생성", f"{total_diary_logs}건")
+            col4.metric("교사의 온도 기록", f"{total_temp_logs}건")
+
+            st.metric(
+                label="평균 마음온도",
+                value=f"{avg_teacher_temp}℃" if avg_teacher_temp else "기록 없음"
+            )
+
+            st.divider()
+
+            col_a, col_b = st.columns(2)
+
+            def draw_pie_chart(series, title):
+                fig, ax = plt.subplots()
+                ax.pie(
+                    series.values,
+                    labels=series.index,
+                    autopct="%1.1f%%",
+                    startangle=90
+                )
+                ax.set_title(title)
+                ax.axis("equal")
+                st.pyplot(fig)
+
+            with col_a:
+                st.markdown("#### 기록 유형 분포")
+
+                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
+                    diary_type_counts = temp_filtered["diary_type"].value_counts()
+                    draw_pie_chart(diary_type_counts, "기록 유형 분포")
+                else:
+                    st.caption("해당 기간의 교사 온도 기록이 없습니다.")
+
+            with col_b:
+                st.markdown("#### 알림장 기록 성향 분포")
+
+                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
+                    tone_counts = diary_filtered["teacher_tone"].value_counts()
+                    draw_pie_chart(tone_counts, "알림장 기록 성향 분포")
+                else:
+                    st.caption("해당 기간의 알림장 생성 기록이 없습니다.")
+
+            st.divider()
+
+            admin_menu = st.selectbox(
+                "조회할 데이터 선택",
+                ["가입자 정보", "알림장 생성 기록", "교사의 온도 기록"],
+                key="admin_data_select"
+            )
+
+            if admin_menu == "가입자 정보":
+                df = load_table("subscribers")
+                file_name = "subscribers.csv"
+
+            elif admin_menu == "알림장 생성 기록":
+                df = load_table("diary_logs")
+                file_name = "diary_logs.csv"
+
+            else:
+                df = load_table("teacher_temperature_logs")
+                file_name = "teacher_temperature_logs.csv"
+
+            df = filter_by_period(df, dashboard_period)
+
+            column_rename = {
+                "id": "번호",
+                "created_at": "생성일시",
+
+                "institution_name": "기관명",
+                "institution_group": "기관 구분",
+                "institution_type": "기관 유형",
+                "institution_feature": "기관 특성",
+                "phone": "연락처",
+                "subscriber_name": "가입자 성명",
+                "position": "직책",
+                "email": "이메일",
+                "privacy_agree": "개인정보 동의",
+                "mailing_agree": "메일링 동의",
+
+                "teacher_tone": "교사 전달 말투",
+                "daily_scope": "하루일과 전달 범위",
+                "original_text": "원문",
+                "summary": "요약 결과",
+                "generated_message": "생성된 알림장",
+
+                "diary_type": "기록 유형",
+                "memory": "기억",
+                "emotion": "감정",
+                "temperature": "교사 온도",
+                "average_temp": "평균 마음온도",
+                "temp_message": "온도 해석",
+                "result_text": "생성 결과",
+                "created_at_dt": "조회용 날짜",
+            }
+
+            df = df.rename(columns=column_rename)
+
+            if "조회용 날짜" in df.columns:
+                df = df.drop(columns=["조회용 날짜"])
+
+            st.dataframe(df, use_container_width=True)
+
+            csv = df.to_csv(index=False).encode("utf-8-sig")
+
+            st.download_button(
+                label="CSV 다운로드",
+                data=csv,
+                file_name=file_name,
+                mime="text/csv",
+                key="admin_csv_download"
+            )
