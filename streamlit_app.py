@@ -55,12 +55,14 @@ button[data-baseweb="tab"] { font-size: 15px !important; white-space: nowrap; }
 </style>
 """, unsafe_allow_html=True)
 
+
 DB_PATH = "witti_data.db"
 
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS subscribers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,20 +76,25 @@ def init_db():
         position TEXT,
         email TEXT,
         privacy_agree TEXT,
-        mailing_agree TEXT
+        mailing_agree TEXT,
+        deleted INTEGER DEFAULT 0
     )
     """)
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS diary_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT,
+        record_type TEXT,
         teacher_tone TEXT,
         daily_scope TEXT,
         original_text TEXT,
         summary TEXT,
-        generated_message TEXT
+        generated_message TEXT,
+        deleted INTEGER DEFAULT 0
     )
     """)
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS teacher_temperature_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,9 +105,48 @@ def init_db():
         temperature TEXT,
         average_temp REAL,
         temp_message TEXT,
-        result_text TEXT
+        result_text TEXT,
+        deleted INTEGER DEFAULT 0
     )
     """)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_db_columns():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    required_columns = {
+        "subscribers": {
+            "deleted": "INTEGER DEFAULT 0"
+        },
+        "diary_logs": {
+            "record_type": "TEXT",
+            "deleted": "INTEGER DEFAULT 0"
+        },
+        "teacher_temperature_logs": {
+            "deleted": "INTEGER DEFAULT 0"
+        }
+    }
+
+    for table_name, columns_to_add in required_columns.items():
+        cur.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = [column[1] for column in cur.fetchall()]
+
+        for column_name, column_type in columns_to_add.items():
+            if column_name not in existing_columns:
+                cur.execute(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                )
+
+    cur.execute("""
+    UPDATE diary_logs
+    SET record_type = '알림장용'
+    WHERE record_type IS NULL OR record_type = ''
+    """)
+
     conn.commit()
     conn.close()
 
@@ -108,18 +154,36 @@ def init_db():
 def save_subscriber(data):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO subscribers (
-        created_at, institution_name, institution_group, institution_type,
-        institution_feature, phone, subscriber_name, position, email,
-        privacy_agree, mailing_agree
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at,
+        institution_name,
+        institution_group,
+        institution_type,
+        institution_feature,
+        phone,
+        subscriber_name,
+        position,
+        email,
+        privacy_agree,
+        mailing_agree
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data["기관명"], data["기관 구분"], data["기관 유형"], data["기관 특성"],
-        data["기관 연락처"], data["가입자 성명"], data["직책"], data["이메일"],
-        str(data["개인정보 동의"]), str(data["메일링 수신 동의"]),
+        data["기관명"],
+        data["기관 구분"],
+        data["기관 유형"],
+        data["기관 특성"],
+        data["기관 연락처"],
+        data["가입자 성명"],
+        data["직책"],
+        data["이메일"],
+        str(data["개인정보 동의"]),
+        str(data["메일링 수신 동의"]),
     ))
+
     conn.commit()
     conn.close()
 
@@ -152,82 +216,33 @@ def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summar
     conn.commit()
     conn.close()
 
+
 def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO teacher_temperature_logs (
-        created_at, diary_type, memory, emotion, temperature,
-        average_temp, temp_message, result_text
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        created_at,
+        diary_type,
+        memory,
+        emotion,
+        temperature,
+        average_temp,
+        temp_message,
+        result_text
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        diary_type, memory, emotion, temperature, average_temp, temp_message, result_text,
+        diary_type,
+        memory,
+        emotion,
+        temperature,
+        average_temp,
+        temp_message,
+        result_text,
     ))
-    conn.commit()
-    conn.close()
-
-
-def load_table(table_name):
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query(f"SELECT * FROM {table_name} ORDER BY id DESC", conn)
-    conn.close()
-    return df
-
-def draw_category_chart(series: pd.Series, title: str):
-    if series.empty:
-        st.caption("표시할 데이터가 없습니다.")
-        return
-
-    chart_df = series.reset_index()
-    chart_df.columns = ["범주", "건수"]
-
-    if alt is not None:
-        chart = alt.Chart(chart_df).mark_arc(innerRadius=45).encode(
-            theta=alt.Theta(field="건수", type="quantitative"),
-            color=alt.Color(field="범주", type="nominal", legend=alt.Legend(title=None)),
-            tooltip=["범주", "건수"],
-        ).properties(
-            height=260,
-            title=title
-        )
-
-        st.altair_chart(chart, use_container_width=True)
-    else:
-        st.bar_chart(chart_df.set_index("범주"))
-
-def soft_delete_record(table_name, record_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        f"UPDATE {table_name} SET deleted = 1 WHERE id = ?",
-        (record_id,)
-    )
-    conn.commit()
-    conn.close()
-
-def restore_record(table_name, record_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute(
-        f"UPDATE {table_name} SET deleted = 0 WHERE id = ?",
-        (record_id,)
-    )
-
-    conn.commit()
-    conn.close()
-
-def add_deleted_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    for table in ["subscribers", "diary_logs", "teacher_temperature_logs"]:
-        cur.execute(f"PRAGMA table_info({table})")
-        columns = [column[1] for column in cur.fetchall()]
-
-        if "deleted" not in columns:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN deleted INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -249,6 +264,7 @@ def load_table(table_name, include_deleted=False):
 
     df = pd.read_sql_query(query, conn)
     conn.close()
+
     return df
 
 
@@ -264,167 +280,42 @@ def soft_delete_record(table_name, record_id):
     conn.commit()
     conn.close()
 
-def add_record_type_column_if_missing():
+
+def restore_record(table_name, record_id):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+    cur.execute(
+        f"UPDATE {table_name} SET deleted = 0 WHERE id = ?",
+        (record_id,)
+    )
 
     conn.commit()
     conn.close()
-
-
-init_db()
-add_deleted_column_if_missing()
-add_record_type_column_if_missing()
-init_db()
-add_deleted_column_if_missing()
-add_record_type_column_if_missing()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
-
-def clean_sentence(sentence: str) -> str:
-    sentence = sentence.strip().replace("- ", "").replace("ㆍ", "")
-    sentence = re.sub(r"\s+", " ", sentence)
-    replacements = {
-        "하였다.": "했습니다.", "했다.": "했습니다.", "한다.": "합니다.",
-        "보았다.": "보았습니다.", "말했다.": "말했습니다.", "물었다.": "물었습니다.",
-        "가졌다.": "가졌습니다.", "나갔다.": "나갔습니다.", "먹었다.": "먹었습니다.",
-        "읽었다.": "읽었습니다.", "살펴보았다.": "살펴보았습니다.",
-        "참여하였다.": "참여했습니다.", "표현하였다.": "표현했습니다.",
-        "경험하였다.": "경험했습니다.", "놀이하였다.": "놀이했습니다.",
-    }
-    for old, new in replacements.items():
-        sentence = sentence.replace(old, new)
-    return sentence
-
-
-def split_sentences(text: str) -> list[str]:
-    raw = re.split(r"(?<=[.!?。])\s+|\n+", text)
-    sentences = []
-    for sentence in raw:
-        sentence = clean_sentence(sentence)
-        if len(sentence) >= 10:
-            sentences.append(sentence)
-    return sentences
-
-
-def make_core_summary(text: str, max_sentences: int = 3) -> str:
-    sentences = split_sentences(text)
-    keywords = ["동화", "놀이", "활동", "산책", "식사", "휴식", "대화", "질문", "탐색", "표현", "관찰", "친구", "교사", "참여", "관심", "경험", "만들", "그리", "읽", "말"]
-    scored = []
-    for idx, sentence in enumerate(sentences):
-        score = sum(1 for keyword in keywords if keyword in sentence)
-        score += max(0, 3 - idx) * 0.3
-        scored.append((idx, score, sentence))
-    if not scored:
-        return ""
-    selected = sorted(scored, key=lambda x: x[1], reverse=True)[:max_sentences]
-    selected = sorted(selected, key=lambda x: x[0])
-    return "\n".join([f"- {sentence}" for _, _, sentence in selected])
-
-
-def remove_bullets(summary: str) -> str:
-    text = summary.replace("- ", " ").replace("\n", " ")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def make_diary_message(summary: str, teacher_tone: str, daily_scope: str) -> str:
-    clean_summary = remove_bullets(summary)
-    scope_phrases = {
-        "놀이 장면 중심": "놀이 중 보인 참여와 상호작용을 중심으로 전해드립니다.",
-        "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 전해드립니다.",
-        "하루 전체 흐름": "하루 흐름 속에서 보인 아이들의 모습을 전해드립니다.",
-        "특별활동 중심": "특별활동에서 보인 아이들의 경험을 중심으로 전해드립니다.",
-    }
-    scope_sentence = scope_phrases.get(daily_scope, "")
-    if teacher_tone == "팩트 중심형":
-        return f"오늘 아이들의 모습을 간단히 전해드립니다.\n\n{clean_summary}\n\n{scope_sentence}"
-    if teacher_tone == "따뜻한 감성형":
-        return f"오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었어요.\n\n{clean_summary}\n\n아이들의 작은 표현과 반응이 참 소중하게 느껴지는 하루였습니다."
-    if teacher_tone == "이모티콘 활용형":
-        return f"오늘 우리 아이들은 즐겁게 하루를 보냈어요 😊\n\n{clean_summary}\n\n가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿"
-    if teacher_tone == "전문적 설명형":
-        return f"오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.\n\n{clean_summary}\n\n이러한 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다."
-    return clean_summary
-
-
-AGE_NOTICE = {
-    "0세": "눈으로 보고 손으로 만지며 감각적으로 경험했어요.",
-    "1세": "관심 있는 대상을 반복해서 살펴보며 즐겁게 참여했어요.",
-    "2세": "좋아하는 놀이에 관심을 보이며 말과 행동으로 표현해 보았어요.",
-    "3세": "상상과 역할을 더해 놀이를 확장해 보았어요.",
-    "4세": "친구들과 생각을 나누며 놀이를 이어갔어요.",
-    "5세": "규칙과 협력을 바탕으로 놀이를 주도해 보았어요.",
-}
-CURRICULUM_RECORD = {
-    "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됨.",
-    "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됨.",
-    "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됨.",
-    "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됨.",
-    "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됨.",
-}
-DEVELOPMENT_RECORD = {
-    "신체": "신체 조절력과 움직임의 자신감을 키워가는 과정이 나타남.",
-    "언어": "새로운 어휘와 표현을 시도하며 언어적 경험을 확장함.",
-    "인지": "비교하고 관찰하며 사고를 넓혀가는 모습이 나타남.",
-    "사회정서": "친구와 감정을 나누고 관계 속에서 안정감을 경험함.",
-    "창의성": "새로운 방법을 떠올리고 자신만의 방식으로 표현함.",
-}
-PARENT_TEMPLATES = {
-    "일반형": ["가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.", "OO이의 작은 표현과 반응을 함께 응원해 주세요.", "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다."],
-    "불안형": ["OO이의 속도에 맞추어 천천히 경험하고 있으니 편안하게 지켜봐 주세요.", "처음에는 조심스러워도 조금씩 놀이에 익숙해지는 모습을 보이고 있습니다.", "아이마다 참여하는 속도가 다르니 오늘의 작은 시도도 소중하게 봐주시면 좋겠습니다."],
-    "정보형": ["이 활동은 OO이가 직접 보고 만지고 표현해 보는 경험으로 이어졌습니다.", "놀이 과정에서 탐색, 표현, 관계 경험이 자연스럽게 함께 이루어졌습니다.", "오늘 활동은 OO이가 스스로 시도하고 주변을 살펴보는 데 도움이 되었습니다."],
-    "감성형": ["작은 손짓과 표정 속에서도 OO이의 즐거움이 잘 느껴졌습니다.", "OO이의 하루 안에 반짝이는 장면이 하나 더 쌓였습니다.", "오늘의 놀이가 OO이 마음속에 따뜻한 기억으로 남기를 바랍니다."],
-}
-OBSERVATION_TEMPLATES = {
-    "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO이는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
-    "관찰기록용": ["{keyword} 활동 중 {child}는 {action}을 보임.", "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.", "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.", "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임."],
-    "서술형 일지용": ["{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었다.", "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었다.", "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였다.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였다."],
-    "기관홍보용": ["오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.", "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.", "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.", "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다."],
-}
 
 
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
         st.caption("표시할 데이터가 없습니다.")
         return
+
     chart_df = series.reset_index()
     chart_df.columns = ["범주", "건수"]
+
     if alt is not None:
         chart = alt.Chart(chart_df).mark_arc(innerRadius=45).encode(
             theta=alt.Theta(field="건수", type="quantitative"),
-            color=alt.Color(field="범주", type="nominal", legend=alt.Legend(title=None)),
+            color=alt.Color(
+                field="범주",
+                type="nominal",
+                legend=alt.Legend(title=None)
+            ),
             tooltip=["범주", "건수"],
-        ).properties(height=260, title=title)
+        ).properties(
+            height=260,
+            title=title
+        )
+
         st.altair_chart(chart, use_container_width=True)
     else:
         st.bar_chart(chart_df.set_index("범주"))
@@ -433,18 +324,29 @@ def draw_category_chart(series: pd.Series, title: str):
 def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
     if df.empty or "created_at" not in df.columns:
         return df
+
     df = df.copy()
     df["created_at_dt"] = pd.to_datetime(df["created_at"], errors="coerce")
+
     now = pd.Timestamp.now()
+
     if period == "오늘":
         return df[df["created_at_dt"].dt.date == now.date()]
+
     if period == "최근 7일":
         start_date = now - pd.Timedelta(days=7)
         return df[df["created_at_dt"] >= start_date]
+
     if period == "이번 달":
-        return df[(df["created_at_dt"].dt.year == now.year) & (df["created_at_dt"].dt.month == now.month)]
+        return df[
+            (df["created_at_dt"].dt.year == now.year)
+            & (df["created_at_dt"].dt.month == now.month)
+        ]
+
     return df
 
+init_db()
+ensure_db_columns()
 
 st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
 st.markdown("""
@@ -1183,37 +1085,83 @@ with tab6:
 
             subscribers_df = load_table("subscribers")
             diary_df = load_table("diary_logs")
+            st.write("알림장 DB 확인")
             temp_df = load_table("teacher_temperature_logs")
+
 
             subscribers_filtered = filter_by_period(subscribers_df, dashboard_period)
             diary_filtered = filter_by_period(diary_df, dashboard_period)
             temp_filtered = filter_by_period(temp_df, dashboard_period)
 
-            col1, col2, col3, col4, col5 = st.columns(5)
+            mailing_count = 0
+            if not subscribers_filtered.empty and "mailing_agree" in subscribers_filtered.columns:
+                mailing_count = subscribers_filtered[
+                    subscribers_filtered["mailing_agree"].astype(str) == "True"
+                ].shape[0]
+
+            col1, col2, col3, col4 = st.columns(4)
             col1.metric("가입자 수", f"{len(subscribers_filtered)}명")
-            col2.metric("메일링 동의", f"{subscribers_filtered[subscribers_filtered['mailing_agree'].astype(str) == 'True'].shape[0] if not subscribers_filtered.empty and 'mailing_agree' in subscribers_filtered.columns else 0}명")
-            col3.metric("상황별 문구 자동 생성", f"{len(diary_filtered)}건")
-            col4.metric("알림장 생성", f"{len(diary_filtered)}건")
-            col5.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
+            col2.metric("메일링 동의", f"{mailing_count}명")
+            col3.metric("알림장 생성", f"{len(diary_filtered)}건")
+            col4.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
+
+            st.divider()
+            st.markdown("### 📈 기록 분포")
+
+            graph_col1, graph_col2, graph_col3 = st.columns(3)
+
+            with graph_col1:
+                st.markdown("#### 교사의 온도 기록 유형")
+                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
+                    temp_counts = temp_filtered["diary_type"].dropna()
+                    temp_counts = temp_counts[temp_counts != ""]
+                    if not temp_counts.empty:
+                        draw_category_chart(temp_counts.value_counts(), "교사의 온도 기록 유형")
+                    else:
+                        st.caption("교사의 온도 기록이 없습니다.")
+                else:
+                    st.caption("교사의 온도 기록이 없습니다.")
+
+            with graph_col2:
+                st.markdown("#### 알림장 기록 성향")
+                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
+                    tone_counts = diary_filtered["teacher_tone"].dropna()
+                    tone_counts = tone_counts[tone_counts != ""]
+                    if not tone_counts.empty:
+                        draw_category_chart(tone_counts.value_counts(), "알림장 기록 성향")
+                    else:
+                        st.caption("알림장 기록이 없습니다.")
+                else:
+                    st.caption("알림장 기록이 없습니다.")
+
+            with graph_col3:
+                st.markdown("#### 상황별 문구 자동 생성 유형")
+                if not diary_filtered.empty and "record_type" in diary_filtered.columns:
+                    record_type_counts = diary_filtered["record_type"].dropna()
+                    record_type_counts = record_type_counts[record_type_counts != ""]
+                    if not record_type_counts.empty:
+                        draw_category_chart(record_type_counts.value_counts(), "상황별 문구 자동 생성 유형")
+                    else:
+                        st.caption("상황별 문구 생성 기록이 없습니다.")
+                else:
+                    st.caption("상황별 문구 생성 기록이 없습니다.")
 
             st.divider()
 
             admin_menu = st.selectbox(
                 "조회할 데이터 선택",
-                ["가입자 정보", "상황별 문구 자동 생성", "알림장 생성 기록", "교사의 온도 기록"],
+                ["가입자 정보", "알림장 생성 기록", "교사의 온도 기록"],
                 key="admin_data_select"
             )
 
             table_map = {
                 "가입자 정보": "subscribers",
-                "상황별 문구 자동 생성": "diary_logs",
                 "알림장 생성 기록": "diary_logs",
                 "교사의 온도 기록": "teacher_temperature_logs"
             }
 
             file_map = {
                 "가입자 정보": "subscribers.csv",
-                "상황별 문구 자동 생성": "diary_logs.csv",
                 "알림장 생성 기록": "diary_logs.csv",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
@@ -1237,6 +1185,7 @@ with tab6:
                 "email": "이메일",
                 "privacy_agree": "개인정보 동의",
                 "mailing_agree": "메일링 동의",
+                "record_type": "기록 유형",
                 "teacher_tone": "교사 전달 말투",
                 "daily_scope": "하루일과 전달 범위",
                 "original_text": "원문",
@@ -1251,7 +1200,6 @@ with tab6:
                 "result_text": "생성 결과",
                 "created_at_dt": "조회용 날짜",
                 "deleted": "삭제 여부",
-                "record_type": "기록 유형",
             }
 
             display_df = df.rename(columns=column_rename)
@@ -1272,53 +1220,11 @@ with tab6:
                 key="admin_csv_download"
             )
 
-            st.divider()
-            st.markdown("### 📈 기록 분포")
 
-            col_a, col_b, col_c = st.columns(3)
-
-            with col_a:
-                st.markdown("#### 교사의 온도 기록 유형")
-
-                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
-                    draw_category_chart(
-                        temp_filtered["diary_type"].value_counts(),
-                        "교사의 온도 기록 유형"
-                    )
-                else:
-                    st.caption("해당 기간의 교사 온도 기록이 없습니다.")
-
-            with col_b:
-                st.markdown("#### 알림장 기록 성향")
-
-                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
-                    draw_category_chart(
-                        diary_filtered["teacher_tone"].value_counts(),
-                        "알림장 기록 성향"
-                    )
-                else:
-                    st.caption("해당 기간의 알림장 생성 기록이 없습니다.")
-
-                with col_c:
-                    st.markdown("#### 상황별 문구 자동 생성 유형")
-
-                    if not diary_filtered.empty and "record_type" in diary_filtered.columns:
-                        record_type_counts = diary_filtered["record_type"].dropna()
-                        record_type_counts = record_type_counts[record_type_counts != ""]
-
-                        if not record_type_counts.empty:
-                            draw_category_chart(
-                                record_type_counts.value_counts(),
-                                "상황별 문구 자동 생성 유형"
-                            )
-                        else:
-                            st.caption("상황별 문구 생성 유형 기록이 없습니다.")
-                    else:
-                        st.caption("상황별 문구 생성 유형 기록이 없습니다.")
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
-            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다. 복원 기능은 다음 단계에서 붙입니다.")
+            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다.")
 
             delete_df = load_table(table_name)
 
@@ -1339,19 +1245,13 @@ with tab6:
             st.divider()
             st.markdown("### ♻️ 삭제 기록 복원")
 
-            deleted_df = load_table(
-                table_name,
-                include_deleted=True
-            )
+            deleted_df = load_table(table_name, include_deleted=True)
 
             if "deleted" in deleted_df.columns:
-                deleted_df = deleted_df[
-                    deleted_df["deleted"] == 1
-                ]
+                deleted_df = deleted_df[deleted_df["deleted"] == 1]
 
             if deleted_df.empty:
                 st.caption("복원 가능한 삭제 기록이 없습니다.")
-
             else:
                 restore_id = st.selectbox(
                     "복원할 기록 ID 선택",
@@ -1361,7 +1261,5 @@ with tab6:
 
                 if st.button("선택 기록 복원", key="restore_button"):
                     restore_record(table_name, restore_id)
-
                     st.success("기록이 복원되었습니다.")
-
                     st.rerun()
