@@ -293,153 +293,6 @@ def restore_record(table_name, record_id):
     conn.commit()
     conn.close()
 
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
-add_deleted_column_if_missing()
-add_record_type_column_if_missing()
-init_db()
-add_deleted_column_if_missing()
-add_record_type_column_if_missing()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
-
-def clean_sentence(sentence: str) -> str:
-    sentence = sentence.strip().replace("- ", "").replace("ㆍ", "")
-    sentence = re.sub(r"\s+", " ", sentence)
-    replacements = {
-        "하였다.": "했습니다.", "했다.": "했습니다.", "한다.": "합니다.",
-        "보았다.": "보았습니다.", "말했다.": "말했습니다.", "물었다.": "물었습니다.",
-        "가졌다.": "가졌습니다.", "나갔다.": "나갔습니다.", "먹었다.": "먹었습니다.",
-        "읽었다.": "읽었습니다.", "살펴보았다.": "살펴보았습니다.",
-        "참여하였다.": "참여했습니다.", "표현하였다.": "표현했습니다.",
-        "경험하였다.": "경험했습니다.", "놀이하였다.": "놀이했습니다.",
-    }
-    for old, new in replacements.items():
-        sentence = sentence.replace(old, new)
-    return sentence
-
-
-def split_sentences(text: str) -> list[str]:
-    raw = re.split(r"(?<=[.!?。])\s+|\n+", text)
-    sentences = []
-    for sentence in raw:
-        sentence = clean_sentence(sentence)
-        if len(sentence) >= 10:
-            sentences.append(sentence)
-    return sentences
-
-
-def make_core_summary(text: str, max_sentences: int = 3) -> str:
-    sentences = split_sentences(text)
-    keywords = ["동화", "놀이", "활동", "산책", "식사", "휴식", "대화", "질문", "탐색", "표현", "관찰", "친구", "교사", "참여", "관심", "경험", "만들", "그리", "읽", "말"]
-    scored = []
-    for idx, sentence in enumerate(sentences):
-        score = sum(1 for keyword in keywords if keyword in sentence)
-        score += max(0, 3 - idx) * 0.3
-        scored.append((idx, score, sentence))
-    if not scored:
-        return ""
-    selected = sorted(scored, key=lambda x: x[1], reverse=True)[:max_sentences]
-    selected = sorted(selected, key=lambda x: x[0])
-    return "\n".join([f"- {sentence}" for _, _, sentence in selected])
-
-
-def remove_bullets(summary: str) -> str:
-    text = summary.replace("- ", " ").replace("\n", " ")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def make_diary_message(summary: str, teacher_tone: str, daily_scope: str) -> str:
-    clean_summary = remove_bullets(summary)
-    scope_phrases = {
-        "놀이 장면 중심": "놀이 중 보인 참여와 상호작용을 중심으로 전해드립니다.",
-        "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 전해드립니다.",
-        "하루 전체 흐름": "하루 흐름 속에서 보인 아이들의 모습을 전해드립니다.",
-        "특별활동 중심": "특별활동에서 보인 아이들의 경험을 중심으로 전해드립니다.",
-    }
-    scope_sentence = scope_phrases.get(daily_scope, "")
-    if teacher_tone == "팩트 중심형":
-        return f"오늘 아이들의 모습을 간단히 전해드립니다.\n\n{clean_summary}\n\n{scope_sentence}"
-    if teacher_tone == "따뜻한 감성형":
-        return f"오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었어요.\n\n{clean_summary}\n\n아이들의 작은 표현과 반응이 참 소중하게 느껴지는 하루였습니다."
-    if teacher_tone == "이모티콘 활용형":
-        return f"오늘 우리 아이들은 즐겁게 하루를 보냈어요 😊\n\n{clean_summary}\n\n가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿"
-    if teacher_tone == "전문적 설명형":
-        return f"오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.\n\n{clean_summary}\n\n이러한 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다."
-    return clean_summary
-
-
-AGE_NOTICE = {
-    "0세": "눈으로 보고 손으로 만지며 감각적으로 경험했어요.",
-    "1세": "관심 있는 대상을 반복해서 살펴보며 즐겁게 참여했어요.",
-    "2세": "좋아하는 놀이에 관심을 보이며 말과 행동으로 표현해 보았어요.",
-    "3세": "상상과 역할을 더해 놀이를 확장해 보았어요.",
-    "4세": "친구들과 생각을 나누며 놀이를 이어갔어요.",
-    "5세": "규칙과 협력을 바탕으로 놀이를 주도해 보았어요.",
-}
-CURRICULUM_RECORD = {
-    "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됨.",
-    "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됨.",
-    "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됨.",
-    "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됨.",
-    "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됨.",
-}
-DEVELOPMENT_RECORD = {
-    "신체": "신체 조절력과 움직임의 자신감을 키워가는 과정이 나타남.",
-    "언어": "새로운 어휘와 표현을 시도하며 언어적 경험을 확장함.",
-    "인지": "비교하고 관찰하며 사고를 넓혀가는 모습이 나타남.",
-    "사회정서": "친구와 감정을 나누고 관계 속에서 안정감을 경험함.",
-    "창의성": "새로운 방법을 떠올리고 자신만의 방식으로 표현함.",
-}
-PARENT_TEMPLATES = {
-    "일반형": ["가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.", "OO이의 작은 표현과 반응을 함께 응원해 주세요.", "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다."],
-    "불안형": ["OO이의 속도에 맞추어 천천히 경험하고 있으니 편안하게 지켜봐 주세요.", "처음에는 조심스러워도 조금씩 놀이에 익숙해지는 모습을 보이고 있습니다.", "아이마다 참여하는 속도가 다르니 오늘의 작은 시도도 소중하게 봐주시면 좋겠습니다."],
-    "정보형": ["이 활동은 OO이가 직접 보고 만지고 표현해 보는 경험으로 이어졌습니다.", "놀이 과정에서 탐색, 표현, 관계 경험이 자연스럽게 함께 이루어졌습니다.", "오늘 활동은 OO이가 스스로 시도하고 주변을 살펴보는 데 도움이 되었습니다."],
-    "감성형": ["작은 손짓과 표정 속에서도 OO이의 즐거움이 잘 느껴졌습니다.", "OO이의 하루 안에 반짝이는 장면이 하나 더 쌓였습니다.", "오늘의 놀이가 OO이 마음속에 따뜻한 기억으로 남기를 바랍니다."],
-}
-OBSERVATION_TEMPLATES = {
-    "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO이는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
-    "관찰기록용": ["{keyword} 활동 중 {child}는 {action}을 보임.", "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.", "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.", "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임."],
-    "서술형 일지용": ["{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었다.", "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었다.", "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였다.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였다."],
-    "기관홍보용": ["오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.", "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.", "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.", "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다."],
-}
 
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
@@ -833,7 +686,7 @@ with tab2:
     age_group = st.selectbox("연령 선택", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="photo_age_group")
     curriculum_area = st.selectbox("누리과정 영역 선택", ["- 선택 -", "신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"], key="photo_curriculum_area")
     development_area = st.selectbox("발달영역 선택", ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"], key="photo_development_area")
-    observation_type = st.selectbox("기록 유형 선택", ["- 선택 -", "알림장용", "관찰기록용", "서술형 일지용", "기관 홍보용"], key="photo_observation_type")
+    observation_type = st.selectbox("기록 유형 선택", ["- 선택 -", "알림장용", "관찰기록용", "서술형 일지용", "기관홍보용"], key="photo_observation_type")
 
     parent_type = None
     if observation_type == "알림장용":
@@ -1030,7 +883,7 @@ with tab4:
 
     record_type = st.selectbox(
         "기록 유형 선택",
-        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관홍보용"],
         key="record_type_select"
     )
 
