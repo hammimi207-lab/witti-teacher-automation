@@ -10,9 +10,13 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageEnhance
+from streamlit_javascript import st_javascript
 
 try:
     import altair as alt
@@ -157,8 +161,98 @@ def load_table(table_name):
     conn.close()
     return df
 
+def draw_category_chart(series: pd.Series, title: str):
+    if series.empty:
+        st.caption("표시할 데이터가 없습니다.")
+        return
+
+    chart_df = series.reset_index()
+    chart_df.columns = ["범주", "건수"]
+
+    if alt is not None:
+        chart = alt.Chart(chart_df).mark_arc(innerRadius=45).encode(
+            theta=alt.Theta(field="건수", type="quantitative"),
+            color=alt.Color(field="범주", type="nominal", legend=alt.Legend(title=None)),
+            tooltip=["범주", "건수"],
+        ).properties(
+            height=260,
+            title=title
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.bar_chart(chart_df.set_index("범주"))
+
+def soft_delete_record(table_name, record_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {table_name} SET deleted = 1 WHERE id = ?",
+        (record_id,)
+    )
+    conn.commit()
+    conn.close()
+
+def restore_record(table_name, record_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        f"UPDATE {table_name} SET deleted = 0 WHERE id = ?",
+        (record_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+def add_deleted_column_if_missing():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    for table in ["subscribers", "diary_logs", "teacher_temperature_logs"]:
+        cur.execute(f"PRAGMA table_info({table})")
+        columns = [column[1] for column in cur.fetchall()]
+
+        if "deleted" not in columns:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN deleted INTEGER DEFAULT 0")
+
+    conn.commit()
+    conn.close()
+
+
+def load_table(table_name, include_deleted=False):
+    conn = sqlite3.connect(DB_PATH)
+
+    query = f"SELECT * FROM {table_name}"
+
+    if not include_deleted:
+        columns = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
+        column_names = columns["name"].tolist()
+
+        if "deleted" in column_names:
+            query += " WHERE deleted = 0"
+
+    query += " ORDER BY id DESC"
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def soft_delete_record(table_name, record_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        f"UPDATE {table_name} SET deleted = 1 WHERE id = ?",
+        (record_id,)
+    )
+
+    conn.commit()
+    conn.close()
 
 init_db()
+add_deleted_column_if_missing()
 
 
 def clean_sentence(sentence: str) -> str:
@@ -299,8 +393,8 @@ def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
 st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
 st.markdown("""
 <div class="small-guide">
-💡 본 플랫폼은 PC와 노트북 환경에 최적화되어 있습니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
-💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있어요.
+💡 본 플랫폼은 PC 또는 모바일에서 활용 가능합니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
+💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있습니다.
 </div>
 """, unsafe_allow_html=True)
 
@@ -314,11 +408,90 @@ with st.sidebar:
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
     st.caption("☞ 본 플랫폼의 링크만 있으면 모바일과 PC에서 모두 활용 가능합니다.")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "📸 사진 선별", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
 input_image_dir.mkdir(parents=True, exist_ok=True)
+
+
+def send_verification_email(to_email, code):
+    sender_email = st.secrets["email"]["sender"]
+    app_password = st.secrets["email"]["password"]
+
+    subject = "[교사의 발견] 이메일 인증번호 안내"
+
+    body = f"""
+<html>
+<body style="
+    font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+    background:#f7f8fc;
+    padding:40px 20px;
+    color:#222;
+">
+
+<div style="
+    max-width:520px;
+    margin:0 auto;
+    background:white;
+    border-radius:20px;
+    padding:40px 32px;
+    box-shadow:0 6px 24px rgba(0,0,0,0.06);
+">
+
+    <div style="font-size:28px; font-weight:700; margin-bottom:12px; color:#1f2c4f;">
+        🌿 교사의 발견
+    </div>
+
+    <div style="font-size:20px; font-weight:600; margin-bottom:24px;">
+        이메일 인증번호 안내
+    </div>
+
+    <div style="font-size:16px; line-height:1.8; margin-bottom:28px;">
+        안녕하세요.<br>
+        교사의 발견 이메일 인증번호를 안내드립니다.<br><br>
+        아래 인증번호를 입력해 인증을 완료해 주세요.
+    </div>
+
+    <div style="
+        background:#f2f5ff;
+        border:2px dashed #8ea8ff;
+        border-radius:16px;
+        padding:24px;
+        text-align:center;
+        margin-bottom:32px;
+    ">
+        <div style="font-size:14px; color:#666; margin-bottom:10px;">
+            인증번호
+        </div>
+
+        <div style="font-size:38px; font-weight:800; letter-spacing:8px; color:#304ffe;">
+            {code}
+        </div>
+    </div>
+
+    <div style="font-size:14px; color:#777; line-height:1.7;">
+        인증번호 메일이 보이지 않으면<br>
+        스팸함 또는 프로모션함을 확인해 주세요. 
+    </div>
+
+
+</div>
+
+</body>
+</html>
+"""
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.attach(MIMEText(body, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(sender_email, app_password)
+        server.send_message(message)
+
 
 # =========================
 # TAB 1. 소통
@@ -328,44 +501,180 @@ with tab1:
     st.write("교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.")
 
     st.markdown("### 1. 기관 기본 정보")
-    institution_name = st.text_input("기관명", placeholder="예: 한솔어린이집 / 아이키움유치원", key="join_institution_name")
-    institution_group = st.selectbox("기관 구분", ["- 선택 -", "어린이집", "유치원"], key="join_institution_group")
+    institution_name = st.text_input(
+        "기관명",
+        placeholder="예: 한솔 / 아이키움",
+        key="join_institution_name"
+    )
+
+    institution_group = st.selectbox(
+        "기관 구분",
+        ["- 선택 -", "어린이집", "유치원"],
+        key="join_institution_group"
+    )
 
     if institution_group == "유치원":
-        institution_type = st.selectbox("유치원 유형", ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"], key="join_kinder_type")
+        institution_type = st.selectbox(
+            "유치원 유형",
+            ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"],
+            key="join_kinder_type"
+        )
     elif institution_group == "어린이집":
-        institution_type = st.selectbox("어린이집 유형", ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"], key="join_childcare_type")
+        institution_type = st.selectbox(
+            "어린이집 유형",
+            ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"],
+            key="join_childcare_type"
+        )
     else:
         institution_type = "- 선택 -"
 
-    institution_feature = st.multiselect("기관 특성", ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"], key="join_institution_feature")
+    institution_feature = st.multiselect(
+        "기관 특성",
+        ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"],
+        key="join_institution_feature"
+    )
+
     st.caption("※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. 본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다.")
 
     st.markdown("### 2. 기관 연락처")
-    area_code = st.selectbox("지역번호", ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"], key="join_area_code")
-    phone_number = st.text_input("기관 연락처", placeholder="예: 1234-5678", key="join_phone_number")
+    phone_col1, phone_col2 = st.columns([1, 3])
+
+    with phone_col1:
+        area_code = st.selectbox(
+            "지역번호",
+            ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"],
+            key="join_area_code"
+        )
+
+    with phone_col2:
+        phone_number = st.text_input(
+            "기관 연락처",
+            placeholder="예: 1234-5678",
+            key="join_phone_number"
+        )
+    st.caption("※ 기관 연락처를 정확하게 입력해주세요.")
+
     full_phone = f"{area_code}-{phone_number}" if phone_number else ""
 
     st.markdown("### 3. 가입자 정보")
-    subscriber_name = st.text_input("가입자 성명", placeholder="예: 홍길동", key="join_subscriber_name")
-    position = st.selectbox("직책", ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"], key="join_position")
+    user_col1, user_col2 = st.columns([2, 2])
 
-    st.markdown("### 4. 이메일 정보")
-    email_id = st.text_input("이메일 아이디", placeholder="예: witti", key="join_email_id")
-    email_domain = st.selectbox("이메일 도메인", ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"], key="join_email_domain")
+    with user_col1:
+        subscriber_name = st.text_input(
+            "가입자 성명",
+            placeholder="예: 홍길동",
+            key="join_subscriber_name"
+        )
+
+    st.caption("※ 본 플랫폼은 개별 맞춤 정보 제공을 위해 개인 회원가입 후 이용이 가능합니다.")
+
+    with user_col2:
+        position = st.selectbox(
+            "직책",
+            ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
+            key="join_position"
+        )
+
+    st.markdown("### 4. 이메일 정보 및 인증")
+
+    email_col1, email_col2 = st.columns([2, 2])
+
+    with email_col1:
+        email_id = st.text_input(
+            "이메일 아이디",
+            placeholder="예: witti",
+            key="join_email_id"
+        )
+
+    with email_col2:
+        email_domain = st.selectbox(
+            "이메일 도메인",
+            ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"],
+            key="join_email_domain"
+        )
 
     custom_domain = ""
     if email_domain == "직접 입력":
-        custom_domain = st.text_input("도메인 직접 입력", placeholder="예: example.com", key="join_custom_domain")
+        custom_domain = st.text_input(
+            "도메인 직접 입력",
+            placeholder="예: example.com",
+            key="join_custom_domain"
+        )
         email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
     elif email_domain != "- 선택 -":
         email = f"{email_id}@{email_domain}" if email_id else ""
     else:
         email = ""
 
-    st.markdown("### 5. 동의 항목")
-    privacy_agree = st.checkbox("개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다.", key="join_privacy_agree")
-    mailing_agree = st.checkbox("메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다.", key="join_mailing_agree")
+    if "email_verification_code" not in st.session_state:
+        st.session_state["email_verification_code"] = ""
+
+    if "email_verified" not in st.session_state:
+        st.session_state["email_verified"] = False
+
+    st.markdown("#### 이메일 인증")
+
+    verify_col1, verify_col2, verify_col3 = st.columns([1.2, 2.2, 1])
+
+    with verify_col1:
+        send_code = st.button(
+            "인증번호 받기",
+            key="create_email_code",
+            use_container_width=True
+        )
+
+    with verify_col2:
+        input_code = st.text_input(
+            "인증번호 입력",
+            placeholder="6자리 인증번호 입력",
+            label_visibility="collapsed",
+            key="email_code_input"
+        )
+
+    with verify_col3:
+        verify_email = st.button(
+            "인증 확인",
+            key="check_email_code",
+            use_container_width=True
+        )
+
+    if send_code:
+        if not email:
+            st.warning("이메일을 먼저 입력해 주세요.")
+        else:
+            code = str(random.randint(100000, 999999))
+            st.session_state["email_verification_code"] = code
+            st.session_state["email_verified"] = False
+
+            try:
+                send_verification_email(email, code)
+                st.success("인증번호를 이메일로 보냈습니다.")
+            except Exception as e:
+                st.error("이메일 발송 중 오류가 발생했습니다.")
+                st.caption(str(e))
+
+    if verify_email:
+        if input_code == st.session_state["email_verification_code"] and input_code:
+            st.session_state["email_verified"] = True
+            st.success("이메일 인증이 완료되었습니다.")
+        else:
+            st.session_state["email_verified"] = False
+            st.warning("인증번호가 일치하지 않습니다.")
+
+    st.caption("※ 인증번호 메일이 보이지 않으면 스팸함 또는 프로모션함을 확인해 주세요.")
+    st.caption("※ 5분 이내에 인증 메일이 도착하지 않으면 다시 시도해 주세요.")
+
+
+    st.markdown("### 5. 제공 정보 동의 및 제출")
+    privacy_agree = st.checkbox(
+        "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다.",
+        key="join_privacy_agree"
+    )
+
+    mailing_agree = st.checkbox(
+        "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다.",
+        key="join_mailing_agree"
+    )
 
     if st.button("정보 제출하기", key="join_submit"):
         if not institution_name:
@@ -386,6 +695,8 @@ with tab1:
             st.warning("이메일 도메인을 선택해 주세요.")
         elif email_domain == "직접 입력" and not custom_domain:
             st.warning("이메일 도메인을 직접 입력해 주세요.")
+        elif not st.session_state.get("email_verified"):
+            st.warning("이메일 인증을 완료해 주세요.")
         elif not privacy_agree:
             st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
         else:
@@ -401,35 +712,16 @@ with tab1:
                 "개인정보 동의": privacy_agree,
                 "메일링 수신 동의": mailing_agree,
             }
+
             save_subscriber(submitted_data)
             st.success("정보가 제출되었습니다.")
             st.json(submitted_data)
 
-
 # =========================
-# TAB 2. 사진 선별
+# TAB 2. 기록 요정
 # =========================
 with tab2:
-    st.subheader("📸 A급 사진 선별")
-    st.write("20장 이내의 사진을 올리면 선명도와 밝기를 기준으로 상위 사진을 골라냅니다.")
-
-    uploaded_images = st.file_uploader("사진을 업로드하세요", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="photo_selector")
-
-    if uploaded_images:
-        for uploaded_file in uploaded_images:
-            save_path = input_image_dir / uploaded_file.name
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-
-        ranked = rank_images(str(input_image_dir))
-        selected = ranked[:top_k]
-        st.success(f"총 {len(uploaded_images)}장 중 상위 {len(selected)}장을 선별했습니다.")
-
-        for idx, (image_path, score) in enumerate(selected):
-            st.image(image_path, caption=f"Top {idx + 1} / 점수: {score:.1f}", use_container_width=True)
-
-    st.divider()
-    st.subheader("💡 상황별 문구 자동 생성")
+    st.subheader("🧚‍♀️ 상황별 문구 자동 생성")
     st.write("사진 장면을 바탕으로 놀이 의미, 발달 의미, 부모 전달 문장을 함께 생성합니다.")
 
     play_keyword = st.text_input("사진 속 놀이 키워드 입력", placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이", key="photo_play_keyword")
@@ -476,6 +768,27 @@ with tab2:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
 
+    st.divider()
+
+    st.subheader("📸 A급 사진 선별")
+    st.write("20장 이내의 사진을 올리면 선명도와 밝기를 기준으로 상위 사진을 골라냅니다.")
+
+    uploaded_images = st.file_uploader("사진을 업로드하세요", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="photo_selector")
+
+    if uploaded_images:
+        for uploaded_file in uploaded_images:
+            save_path = input_image_dir / uploaded_file.name
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+        ranked = rank_images(str(input_image_dir))
+        selected = ranked[:top_k]
+        st.success(f"총 {len(uploaded_images)}장 중 상위 {len(selected)}장을 선별했습니다.")
+
+        for idx, (image_path, score) in enumerate(selected):
+            st.image(image_path, caption=f"Top {idx + 1} / 점수: {score:.1f}", use_container_width=True)
+
+
 # =========================
 # TAB 3. 사진 보정
 # =========================
@@ -483,27 +796,71 @@ with tab3:
     st.subheader("✨ 초간편 사진 보정")
     st.write("원본과 보정본을 비교하며 밝기, 대비, 채도, 선명도를 직접 조절할 수 있습니다.")
 
-    uploaded_for_enhance = st.file_uploader("보정할 사진을 업로드하세요", type=["jpg", "jpeg", "png"], accept_multiple_files=False, key="photo_enhancer")
+    uploaded_for_enhance = st.file_uploader(
+        "보정할 사진을 업로드하세요",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="photo_enhancer"
+    )
 
     auto_enhance = st.button("⚡ 자동 보정 적용", key="auto_enhance_button")
-    if auto_enhance:
-        brightness_default = 1.15
-        contrast_default = 1.25
-        saturation_default = 1.20
-        sharpness_default = 1.35
-    else:
-        brightness_default = 1.1
-        contrast_default = 1.2
-        saturation_default = 1.2
-        sharpness_default = 1.3
 
-    brightness_value = st.slider("밝기", 0.5, 2.0, brightness_default, 0.1, key="brightness_slider")
-    contrast_value = st.slider("대비", 0.5, 2.0, contrast_default, 0.1, key="contrast_slider")
-    saturation_value = st.slider("채도", 0.5, 2.0, saturation_default, 0.1, key="saturation_slider")
-    sharpness_value = st.slider("선명도", 0.5, 2.0, sharpness_default, 0.1, key="sharpness_slider")
+    if auto_enhance:
+        brightness_default = 1.0
+        contrast_default = 0.90
+        saturation_default = 1.0
+        sharpness_default = 1.0
+    else:
+        brightness_default = 1.10
+        contrast_default = 1.20
+        saturation_default = 1.20
+        sharpness_default = 1.30
+
+    st.markdown("#### 보정값 조절")
+
+    col_b1, col_b2 = st.columns(2)
+
+    with col_b1:
+        brightness_value = st.slider(
+            "밝기",
+            min_value=0.5,
+            max_value=2.0,
+            value=brightness_default,
+            step=0.1,
+            key="brightness_slider"
+        )
+
+        saturation_value = st.slider(
+            "채도",
+            min_value=0.5,
+            max_value=2.0,
+            value=saturation_default,
+            step=0.1,
+            key="saturation_slider"
+        )
+
+    with col_b2:
+        contrast_value = st.slider(
+            "대비",
+            min_value=0.5,
+            max_value=2.0,
+            value=contrast_default,
+            step=0.1,
+            key="contrast_slider"
+        )
+
+        sharpness_value = st.slider(
+            "선명도",
+            min_value=0.5,
+            max_value=2.0,
+            value=sharpness_default,
+            step=0.1,
+            key="sharpness_slider"
+        )
 
     if uploaded_for_enhance:
         original_image = Image.open(uploaded_for_enhance).convert("RGB")
+
         enhanced_image = original_image.copy()
         enhanced_image = ImageEnhance.Brightness(enhanced_image).enhance(brightness_value)
         enhanced_image = ImageEnhance.Contrast(enhanced_image).enhance(contrast_value)
@@ -511,16 +868,53 @@ with tab3:
         enhanced_image = ImageEnhance.Sharpness(enhanced_image).enhance(sharpness_value)
 
         st.success("이미지 보정이 적용되었습니다.")
-        st.markdown("### 원본 사진")
-        st.image(original_image, use_container_width=True)
-        st.markdown("### 보정 사진")
-        st.image(enhanced_image, use_container_width=True)
+
+        screen_width = st_javascript(
+            "window.innerWidth",
+            key="screen_width"
+        )
+
+        is_mobile = False
+
+        try:
+            if screen_width and int(screen_width) < 768:
+                is_mobile = True
+        except:
+            pass
+
+        st.markdown("### 이미지 비교")
+
+        if is_mobile:
+            st.markdown("#### 원본 사진")
+            st.image(original_image, use_container_width=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            st.markdown("#### 보정 사진")
+            st.image(enhanced_image, use_container_width=True)
+
+        else:
+            col_img1, col_img2 = st.columns(2)
+
+            with col_img1:
+                st.markdown("#### 원본 사진")
+                st.image(original_image, use_container_width=True)
+
+            with col_img2:
+                st.markdown("#### 보정 사진")
+                st.image(enhanced_image, use_container_width=True)
 
         img_buffer = io.BytesIO()
         enhanced_image.save(img_buffer, format="JPEG")
         img_buffer.seek(0)
-        st.download_button("보정 이미지 다운로드", data=img_buffer, file_name="enhanced_image.jpg", mime="image/jpeg", key="enhanced_download")
 
+        st.download_button(
+            label="보정 이미지 다운로드",
+            data=img_buffer,
+            file_name="enhanced_image.jpg",
+            mime="image/jpeg",
+            key="enhanced_download"
+        )
 
 # =========================
 # TAB 4. 알림장
@@ -641,6 +1035,7 @@ with tab5:
                 st.markdown("### 생성 결과")
                 st.markdown(f"<div class='letter-box'>{result}</div>", unsafe_allow_html=True)
 
+
 # =========================
 # TAB 6. 관리자
 # =========================
@@ -665,6 +1060,7 @@ with tab6:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
         if st.session_state.get("admin_logged_in"):
+
             st.markdown("### 📊 데이터 분석 대시보드")
 
             dashboard_period = st.selectbox(
@@ -681,67 +1077,39 @@ with tab6:
             diary_filtered = filter_by_period(diary_df, dashboard_period)
             temp_filtered = filter_by_period(temp_df, dashboard_period)
 
-            total_subscribers = len(subscribers_filtered)
-            total_diary_logs = len(diary_filtered)
-            total_temp_logs = len(temp_filtered)
-
-            if not subscribers_filtered.empty and "mailing_agree" in subscribers_filtered.columns:
-                mailing_count = subscribers_filtered[subscribers_filtered["mailing_agree"].astype(str) == "True"].shape[0]
-            else:
-                mailing_count = 0
-
-            if not temp_filtered.empty and "average_temp" in temp_filtered.columns:
-                valid_temp = temp_filtered["average_temp"].dropna()
-                avg_teacher_temp = round(valid_temp.mean(), 1) if len(valid_temp) > 0 else 0
-            else:
-                avg_teacher_temp = 0
-
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("가입자 수", f"{total_subscribers}명")
-            col2.metric("메일링 동의", f"{mailing_count}명")
-            col3.metric("알림장 생성", f"{total_diary_logs}건")
-            col4.metric("교사의 온도 기록", f"{total_temp_logs}건")
-
-            st.metric(
-                label="평균 마음온도",
-                value=f"{avg_teacher_temp}℃" if avg_teacher_temp else "기록 없음"
-            )
-
-            st.divider()
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.markdown("#### 기록 유형 분포")
-                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
-                    draw_category_chart(temp_filtered["diary_type"].value_counts(), "기록 유형 분포")
-                else:
-                    st.caption("해당 기간의 교사 온도 기록이 없습니다.")
-
-            with col_b:
-                st.markdown("#### 알림장 기록 성향 분포")
-                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
-                    draw_category_chart(diary_filtered["teacher_tone"].value_counts(), "알림장 기록 성향 분포")
-                else:
-                    st.caption("해당 기간의 알림장 생성 기록이 없습니다.")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("가입자 수", f"{len(subscribers_filtered)}명")
+            col2.metric("메일링 동의", f"{subscribers_filtered[subscribers_filtered['mailing_agree'].astype(str) == 'True'].shape[0] if not subscribers_filtered.empty and 'mailing_agree' in subscribers_filtered.columns else 0}명")
+            col3.metric("상황별 문구 자동 생성", f"{len(diary_filtered)}건")
+            col4.metric("알림장 생성", f"{len(diary_filtered)}건")
+            col5.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
 
             st.divider()
 
             admin_menu = st.selectbox(
                 "조회할 데이터 선택",
-                ["가입자 정보", "알림장 생성 기록", "교사의 온도 기록"],
+                ["가입자 정보", "상황별 문구 자동 생성", "알림장 생성 기록", "교사의 온도 기록"],
                 key="admin_data_select"
             )
 
-            if admin_menu == "가입자 정보":
-                df = load_table("subscribers")
-                file_name = "subscribers.csv"
-            elif admin_menu == "알림장 생성 기록":
-                df = load_table("diary_logs")
-                file_name = "diary_logs.csv"
-            else:
-                df = load_table("teacher_temperature_logs")
-                file_name = "teacher_temperature_logs.csv"
+            table_map = {
+                "가입자 정보": "subscribers",
+                "상황별 문구 자동 생성": "diary_logs",
+                "알림장 생성 기록": "diary_logs",
+                "교사의 온도 기록": "teacher_temperature_logs"
+            }
 
+            file_map = {
+                "가입자 정보": "subscribers.csv",
+                "상황별 문구 자동 생성": "diary_logs.csv",
+                "알림장 생성 기록": "diary_logs.csv",
+                "교사의 온도 기록": "teacher_temperature_logs.csv"
+            }
+
+            table_name = table_map[admin_menu]
+            file_name = file_map[admin_menu]
+
+            df = load_table(table_name)
             df = filter_by_period(df, dashboard_period)
 
             column_rename = {
@@ -770,14 +1138,19 @@ with tab6:
                 "temp_message": "온도 해석",
                 "result_text": "생성 결과",
                 "created_at_dt": "조회용 날짜",
+                "deleted": "삭제 여부",
             }
 
-            df = df.rename(columns=column_rename)
-            if "조회용 날짜" in df.columns:
-                df = df.drop(columns=["조회용 날짜"])
+            display_df = df.rename(columns=column_rename)
 
-            st.dataframe(df, use_container_width=True)
-            csv = df.to_csv(index=False).encode("utf-8-sig")
+            if "조회용 날짜" in display_df.columns:
+                display_df = display_df.drop(columns=["조회용 날짜"])
+
+            st.markdown("### 📁 데이터 조회 및 다운로드")
+            st.dataframe(display_df, use_container_width=True)
+
+            csv = display_df.to_csv(index=False).encode("utf-8-sig")
+
             st.download_button(
                 label="CSV 다운로드",
                 data=csv,
@@ -785,3 +1158,91 @@ with tab6:
                 mime="text/csv",
                 key="admin_csv_download"
             )
+
+            st.divider()
+            st.markdown("### 📈 기록 분포")
+
+            col_a, col_b, col_c = st.columns(3)
+
+            with col_a:
+                st.markdown("#### 교사의 온도 기록 유형")
+
+                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
+                    draw_category_chart(
+                        temp_filtered["diary_type"].value_counts(),
+                        "교사의 온도 기록 유형"
+                    )
+                else:
+                    st.caption("해당 기간의 교사 온도 기록이 없습니다.")
+
+            with col_b:
+                st.markdown("#### 알림장 기록 성향")
+
+                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
+                    draw_category_chart(
+                        diary_filtered["teacher_tone"].value_counts(),
+                        "알림장 기록 성향"
+                    )
+                else:
+                    st.caption("해당 기간의 알림장 생성 기록이 없습니다.")
+
+            with col_c:
+                st.markdown("#### 상황별 문구 자동 생성 성향")
+
+                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
+                    draw_category_chart(
+                        diary_filtered["teacher_tone"].value_counts(),
+                        "상황별 문구 자동 생성 성향"
+                    )
+                else:
+                    st.caption("해당 기간의 자동 기록 생성 내역이 없습니다.")
+
+            st.divider()
+            st.markdown("### 🛠️ 기록 삭제")
+            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다. 복원 기능은 다음 단계에서 붙입니다.")
+
+            delete_df = load_table(table_name)
+
+            if delete_df.empty:
+                st.caption("삭제할 기록이 없습니다.")
+            else:
+                delete_id = st.selectbox(
+                    "삭제할 기록 ID 선택",
+                    delete_df["id"].tolist(),
+                    key="delete_record_id_select"
+                )
+
+                if st.button("선택 기록 삭제", key="soft_delete_button"):
+                    soft_delete_record(table_name, delete_id)
+                    st.success("선택한 기록을 삭제 처리했습니다.")
+                    st.rerun()
+
+            st.divider()
+            st.markdown("### ♻️ 삭제 기록 복원")
+
+            deleted_df = load_table(
+                table_name,
+                include_deleted=True
+            )
+
+            if "deleted" in deleted_df.columns:
+                deleted_df = deleted_df[
+                    deleted_df["deleted"] == 1
+                ]
+
+            if deleted_df.empty:
+                st.caption("복원 가능한 삭제 기록이 없습니다.")
+
+            else:
+                restore_id = st.selectbox(
+                    "복원할 기록 ID 선택",
+                    deleted_df["id"].tolist(),
+                    key="restore_record_id_select"
+                )
+
+                if st.button("선택 기록 복원", key="restore_button"):
+                    restore_record(table_name, restore_id)
+
+                    st.success("기록이 복원되었습니다.")
+
+                    st.rerun()
