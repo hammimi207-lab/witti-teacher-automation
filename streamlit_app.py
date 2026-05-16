@@ -124,20 +124,33 @@ def save_subscriber(data):
     conn.close()
 
 
-def save_diary_log(teacher_tone, daily_scope, original_text, summary, generated_message):
+def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summary, generated_message):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO diary_logs (
-        created_at, teacher_tone, daily_scope, original_text, summary, generated_message
-    ) VALUES (?, ?, ?, ?, ?, ?)
+        created_at,
+        record_type,
+        teacher_tone,
+        daily_scope,
+        original_text,
+        summary,
+        generated_message
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        teacher_tone, daily_scope, original_text, summary, generated_message,
+        record_type,
+        teacher_tone,
+        daily_scope,
+        original_text,
+        summary,
+        generated_message,
     ))
+
     conn.commit()
     conn.close()
-
 
 def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
     conn = sqlite3.connect(DB_PATH)
@@ -251,9 +264,52 @@ def soft_delete_record(table_name, record_id):
     conn.commit()
     conn.close()
 
+def add_record_type_column_if_missing():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("PRAGMA table_info(diary_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    if "record_type" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+
+    conn.commit()
+    conn.close()
+
+def add_record_type_column_if_missing():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("PRAGMA table_info(diary_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    if "record_type" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+
+    conn.commit()
+    conn.close()
+
+
 init_db()
 add_deleted_column_if_missing()
+add_record_type_column_if_missing()
+init_db()
+add_deleted_column_if_missing()
+add_record_type_column_if_missing()
 
+def add_record_type_column_if_missing():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("PRAGMA table_info(diary_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    if "record_type" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+
+    conn.commit()
+    conn.close()
 
 def clean_sentence(sentence: str) -> str:
     sentence = sentence.strip().replace("- ", "").replace("ㆍ", "")
@@ -923,29 +979,82 @@ with tab4:
     st.subheader("📝 알림장 요약 및 생성")
     st.write("알림장 초안을 입력하면 핵심 내용을 요약하고, 선택한 기록 성향에 맞게 알림장 문장을 생성합니다.")
 
-    teacher_tone = st.selectbox("기록 성향 선택", ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"], key="diary_teacher_tone")
-    daily_scope = st.selectbox("하루일과 전달 범위 선택", ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"], key="diary_daily_scope")
-    diary_text = st.text_area("일지 내용을 붙여넣으세요", height=250, placeholder="예: 오늘은 아이들과 함께 봄 소풍을 다녀왔다...", key="diary_input_text")
+    record_type = st.selectbox(
+        "기록 유형 선택",
+        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        key="record_type_select"
+    )
+
+    teacher_tone = st.selectbox(
+        "기록 성향 선택",
+        ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
+        key="diary_teacher_tone"
+    )
+
+    daily_scope = st.selectbox(
+        "하루일과 전달 범위 선택",
+        ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
+        key="diary_daily_scope"
+    )
+
+    diary_text = st.text_area(
+        "일지 내용을 붙여넣으세요",
+        height=250,
+        placeholder="예: 오늘은 아이들과 함께 봄 소풍을 다녀왔다...",
+        key="diary_input_text"
+    )
 
     if st.button("알림장 요약 및 생성하기", key="diary_generate_button"):
-        if teacher_tone == "- 선택 -":
+        if record_type == "- 선택 -":
+            st.warning("기록 유형을 선택해 주세요.")
+        elif teacher_tone == "- 선택 -":
             st.warning("기록 성향을 선택해 주세요.")
         elif daily_scope == "- 선택 -":
             st.warning("하루일과 전달 범위를 선택해 주세요.")
         elif not diary_text.strip():
             st.warning("요약할 일지 내용을 먼저 입력해 주세요.")
         else:
-            summary = make_core_summary(diary_text, max_sentences=max_summary_sentences)
-            generated_message = make_diary_message(summary, teacher_tone, daily_scope)
-            save_diary_log(teacher_tone, daily_scope, diary_text, summary, generated_message)
+            summary = make_core_summary(
+                diary_text,
+                max_sentences=max_summary_sentences
+            )
+
+            generated_message = make_diary_message(
+                summary,
+                teacher_tone,
+                daily_scope
+            )
+
+            save_diary_log(
+                record_type=record_type,
+                teacher_tone=teacher_tone,
+                daily_scope=daily_scope,
+                original_text=diary_text,
+                summary=summary,
+                generated_message=generated_message
+            )
 
             st.success("알림장 요약과 생성이 완료되었습니다.")
-            st.markdown("### 요약 결과")
-            st.markdown(f"<div class='result-card-gray'>{summary}</div>", unsafe_allow_html=True)
-            st.markdown("### 생성된 알림장 문장")
-            st.markdown(f"<div class='result-card-blue'>{generated_message}</div>", unsafe_allow_html=True)
-            st.download_button("생성된 알림장 다운로드", data=generated_message.encode("utf-8"), file_name="generated_diary_message.txt", mime="text/plain", key="diary_download")
 
+            st.markdown("### 요약 결과")
+            st.markdown(
+                f"<div class='result-card-gray'>{summary}</div>",
+                unsafe_allow_html=True
+            )
+
+            st.markdown("### 생성된 알림장 문장")
+            st.markdown(
+                f"<div class='result-card-blue'>{generated_message}</div>",
+                unsafe_allow_html=True
+            )
+
+            st.download_button(
+                "생성된 알림장 다운로드",
+                data=generated_message.encode("utf-8"),
+                file_name="generated_diary_message.txt",
+                mime="text/plain",
+                key="diary_download"
+            )
 
 # =========================
 # TAB 5. 교사의 온도
@@ -1189,13 +1298,13 @@ with tab6:
             with col_c:
                 st.markdown("#### 상황별 문구 자동 생성 성향")
 
-                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
+                if not diary_filtered.empty and "record_type" in diary_filtered.columns:
                     draw_category_chart(
-                        diary_filtered["teacher_tone"].value_counts(),
-                        "상황별 문구 자동 생성 성향"
+                        diary_filtered["record_type"].value_counts(),
+                        "상황별 문구 자동 생성 유형"
                     )
                 else:
-                    st.caption("해당 기간의 자동 기록 생성 내역이 없습니다.")
+                    st.caption("상황별 문구 생성 유형 기록이 없습니다.")
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
