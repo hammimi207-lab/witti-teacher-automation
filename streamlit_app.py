@@ -1025,6 +1025,9 @@ with tab4:
                 daily_scope
             )
 
+
+            st.write("저장될 기록 유형:", record_type)
+
             save_diary_log(
                 record_type=record_type,
                 teacher_tone=teacher_tone,
@@ -1248,6 +1251,7 @@ with tab6:
                 "result_text": "생성 결과",
                 "created_at_dt": "조회용 날짜",
                 "deleted": "삭제 여부",
+                "record_type": "기록 유형",
             }
 
             display_df = df.rename(columns=column_rename)
@@ -1295,16 +1299,22 @@ with tab6:
                 else:
                     st.caption("해당 기간의 알림장 생성 기록이 없습니다.")
 
-            with col_c:
-                st.markdown("#### 상황별 문구 자동 생성 성향")
+                with col_c:
+                    st.markdown("#### 상황별 문구 자동 생성 유형")
 
-                if not diary_filtered.empty and "record_type" in diary_filtered.columns:
-                    draw_category_chart(
-                        diary_filtered["record_type"].value_counts(),
-                        "상황별 문구 자동 생성 유형"
-                    )
-                else:
-                    st.caption("상황별 문구 생성 유형 기록이 없습니다.")
+                    if not diary_filtered.empty and "record_type" in diary_filtered.columns:
+                        record_type_counts = diary_filtered["record_type"].dropna()
+                        record_type_counts = record_type_counts[record_type_counts != ""]
+
+                        if not record_type_counts.empty:
+                            draw_category_chart(
+                                record_type_counts.value_counts(),
+                                "상황별 문구 자동 생성 유형"
+                            )
+                        else:
+                            st.caption("상황별 문구 생성 유형 기록이 없습니다.")
+                    else:
+                        st.caption("상황별 문구 생성 유형 기록이 없습니다.")
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
