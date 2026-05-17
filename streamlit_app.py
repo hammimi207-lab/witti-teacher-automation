@@ -164,7 +164,7 @@ def ensure_db_columns():
         "teacher_temperature_logs": {
             "deleted": "INTEGER DEFAULT 0"
         },
-            "phrase_logs": {
+        "phrase_logs": {
             "record_type": "TEXT",
             "play_keyword": "TEXT",
             "age_group": "TEXT",
