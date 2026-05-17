@@ -247,6 +247,36 @@ def save_temperature_log(diary_type, memory, emotion, temperature, average_temp,
     conn.commit()
     conn.close()
 
+def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO phrase_logs (
+        created_at,
+        record_type,
+        play_keyword,
+        age_group,
+        curriculum_area,
+        development_area,
+        child_action,
+        generated_text
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        record_type,
+        play_keyword,
+        age_group,
+        curriculum_area,
+        development_area,
+        child_action,
+        generated_text
+    ))
+
+    conn.commit()
+    conn.close()
+
 
 def load_table(table_name, include_deleted=False):
     conn = sqlite3.connect(DB_PATH)
@@ -817,6 +847,7 @@ OBSERVATION_TEMPLATES = {
 }
 
 with tab2:
+
     st.subheader("🧚‍♀️ 상황별 문구 자동 생성")
     st.write("사진 장면을 바탕으로 놀이 의미, 발달 의미, 부모 전달 문장을 함께 생성합니다.")
 
@@ -867,6 +898,16 @@ with tab2:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
 
+                save_phrase_log(
+                    record_type=observation_type,
+                    play_keyword=play_keyword,
+                    age_group=age_group,
+                    curriculum_area=curriculum_area,
+                    development_area=development_area,
+                    child_action=child_action,
+                    generated_text=final_result
+                )
+
     st.subheader("📸 A급 사진 선별")
     st.write("20장 이내의 사진을 올리면 선명도와 밝기를 기준으로 상위 사진을 골라냅니다.")
 
@@ -890,6 +931,7 @@ with tab2:
 # TAB 3. 사진 보정
 # =========================
 with tab3:
+
     st.subheader("✨ 초간편 사진 보정")
     st.write("원본과 보정본을 비교하며 밝기, 대비, 채도, 선명도를 직접 조절할 수 있습니다.")
 
@@ -1017,6 +1059,7 @@ with tab3:
 # TAB 4. 알림장
 # =========================
 with tab4:
+
     st.subheader("📝 알림장 요약 및 생성")
     st.write("알림장 초안을 입력하면 핵심 내용을 요약하고, 선택한 기록 성향에 맞게 알림장 문장을 생성합니다.")
 
@@ -1238,11 +1281,12 @@ with tab6:
                     subscribers_filtered["mailing_agree"].astype(str) == "True"
                 ].shape[0]
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             col1.metric("가입자 수", f"{len(subscribers_filtered)}명")
             col2.metric("메일링 동의", f"{mailing_count}명")
             col3.metric("알림장 생성", f"{len(diary_filtered)}건")
-            col4.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
+            col4.metric("상황별 문구 생성", f"{len(phrase_filtered)}건")
+            col5.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
 
             st.divider()
             st.markdown("### 📈 기록 분포")
@@ -1293,19 +1337,21 @@ with tab6:
 
             admin_menu = st.selectbox(
                 "조회할 데이터 선택",
-                ["가입자 정보", "알림장 생성 기록", "교사의 온도 기록"],
+                ["가입자 정보", "알림장 생성 기록", "상황별 문구 생성 기록", "교사의 온도 기록"],
                 key="admin_data_select"
             )
 
             table_map = {
                 "가입자 정보": "subscribers",
                 "알림장 생성 기록": "diary_logs",
+                "상황별 문구 생성 기록": "phrase_logs",
                 "교사의 온도 기록": "teacher_temperature_logs"
             }
 
             file_map = {
                 "가입자 정보": "subscribers.csv",
                 "알림장 생성 기록": "diary_logs.csv",
+                "상황별 문구 생성 기록": "phrase_logs.csv",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
 
@@ -1328,12 +1374,21 @@ with tab6:
                 "email": "이메일",
                 "privacy_agree": "개인정보 동의",
                 "mailing_agree": "메일링 동의",
+
                 "record_type": "기록 유형",
+                "play_keyword": "놀이 키워드",
+                "age_group": "연령",
+                "curriculum_area": "누리과정 영역",
+                "development_area": "발달 영역",
+                "child_action": "아이 모습",
+                "generated_text": "생성 문구",
+
                 "teacher_tone": "교사 전달 말투",
                 "daily_scope": "하루일과 전달 범위",
                 "original_text": "원문",
                 "summary": "요약 결과",
                 "generated_message": "생성된 알림장",
+
                 "diary_type": "기록 유형",
                 "memory": "기억",
                 "emotion": "감정",
@@ -1350,6 +1405,8 @@ with tab6:
             if "조회용 날짜" in display_df.columns:
                 display_df = display_df.drop(columns=["조회용 날짜"])
 
+
+
             st.markdown("### 📁 데이터 조회 및 다운로드")
             st.dataframe(display_df, use_container_width=True)
 
@@ -1362,7 +1419,6 @@ with tab6:
                 mime="text/csv",
                 key="admin_csv_download"
             )
-
 
 
             st.divider()
@@ -1406,3 +1462,4 @@ with tab6:
                     restore_record(table_name, restore_id)
                     st.success("기록이 복원되었습니다.")
                     st.rerun()
+
