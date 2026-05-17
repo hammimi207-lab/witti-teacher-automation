@@ -195,6 +195,31 @@ def ensure_db_columns():
     conn.commit()
     conn.close()
 
+    def force_fix_phrase_logs_columns():
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        cur.execute("PRAGMA table_info(phrase_logs)")
+        columns = [column[1] for column in cur.fetchall()]
+
+        needed = {
+            "record_type": "TEXT",
+            "play_keyword": "TEXT",
+            "age_group": "TEXT",
+            "curriculum_area": "TEXT",
+            "development_area": "TEXT",
+            "child_action": "TEXT",
+            "generated_text": "TEXT",
+            "deleted": "INTEGER DEFAULT 0"
+        }
+
+    for column_name, column_type in needed.items():
+        if column_name not in columns:
+            cur.execute(f"ALTER TABLE phrase_logs ADD COLUMN {column_name} {column_type}")
+
+    conn.commit()
+    conn.close()
+
 
 def save_subscriber(data):
     conn = sqlite3.connect(DB_PATH)
