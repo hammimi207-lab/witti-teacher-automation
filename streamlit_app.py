@@ -118,7 +118,7 @@ def create_phrase_logs_table():
     cur = conn.cursor()
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS phrase_logs (
+    CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT,
         record_type TEXT,
@@ -322,7 +322,7 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO phrase_logs (
+    INSERT INTO phrase_logs_v2 (
         created_at,
         record_type,
         play_keyword,
@@ -856,14 +856,29 @@ AGE_NOTICE = {
     "4세": "친구들과 생각을 나누며 놀이를 이어갔어요.",
     "5세": "규칙과 협력을 바탕으로 놀이를 주도해 보았어요.",
 }
-CURRICULUM_RECORD = {
+CURRICULUM_RECORD = FORMA = {
+    "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됩니다.",
+    "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됩니다.",
+    "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됩니다.",
+    "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됩니다.",
+    "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됩니다.",
+}
+CURRICULUM_RECORD_NOTE = {
     "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됨.",
     "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됨.",
     "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됨.",
     "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됨.",
     "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됨.",
 }
-DEVELOPMENT_RECORD = {
+DEVELOPMENT_RECORD_FORMAL = {
+    "신체": "신체 조절력과 움직임의 자신감을 키워가는 과정이 나타납니다.",
+    "언어": "새로운 어휘와 표현을 시도하며 언어적 경험을 확장합니다.",
+    "인지": "비교하고 관찰하며 사고를 넓혀가는 모습이 나타납니다.",
+    "사회정서": "친구와 감정을 나누고 관계 속에서 안정감을 경험합니다.",
+    "창의성": "새로운 방법을 떠올리고 자신만의 방식으로 표현합니다.",
+}
+
+DEVELOPMENT_RECORD_NOTE = {
     "신체": "신체 조절력과 움직임의 자신감을 키워가는 과정이 나타남.",
     "언어": "새로운 어휘와 표현을 시도하며 언어적 경험을 확장함.",
     "인지": "비교하고 관찰하며 사고를 넓혀가는 모습이 나타남.",
@@ -879,9 +894,10 @@ PARENT_TEMPLATES = {
 OBSERVATION_TEMPLATES = {
     "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO이는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
     "관찰 기록용": ["{keyword} 활동 중 {child}는 {action}을 보임.", "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.", "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.", "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임."],
-    "서술형 일지용": ["{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었다.", "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었다.", "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였다.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였다."],
+    "서술형 일지용": ["{keyword} 활동을 통해 OO이가 놀이에 참여하는 모습을 관찰할 수 있었음.", "오늘 {keyword} 활동에서는 OO의 참여 과정과 반응을 중심으로 살펴볼 수 있었음.", "{keyword} 놀이 과정에서 OO이는 자신의 방식으로 활동에 참여하였음.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였음."],
     "기관 홍보용": ["오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.", "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.", "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.", "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다."],
 }
+
 
 with tab2:
 
@@ -926,24 +942,61 @@ with tab2:
                 if observation_type == "알림장용":
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]} {random.choice(PARENT_TEMPLATES[parent_type])}"
                 elif observation_type == "관찰 기록용":
-                    final_result = f"{base_sentence} {DEVELOPMENT_RECORD[development_area]}"
+                    final_result = f"{base_sentence} {DEVELOPMENT_RECORD_NOTE[development_area]}"
                 elif observation_type == "서술형 일지용":
-                    final_result = f"{base_sentence} {CURRICULUM_RECORD[curriculum_area]} {DEVELOPMENT_RECORD[development_area]}"
+                    final_result = f"{base_sentence} {CURRICULUM_RECORD_NOTE[curriculum_area]} {DEVELOPMENT_RECORD_NOTE[development_area]}"
                 elif observation_type == "기관 홍보용":
-                    final_result = f"{base_sentence} {CURRICULUM_RECORD[curriculum_area]} {DEVELOPMENT_RECORD[development_area]}"
+                    final_result = f"{base_sentence} {CURRICULUM_RECORD[curriculum_area]} {DEVELOPMENT_RECORD_FORMAL[development_area]}"
                 else:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
 
-                save_phrase_log(
-                    record_type=observation_type,
-                    play_keyword=play_keyword,
-                    age_group=age_group,
-                    curriculum_area=curriculum_area,
-                    development_area=development_area,
-                    child_action=child_action,
-                    generated_text=final_result
-                )
+        def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT,
+                record_type TEXT,
+                play_keyword TEXT,
+                age_group TEXT,
+                curriculum_area TEXT,
+                development_area TEXT,
+                child_action TEXT,
+                generated_text TEXT,
+                deleted INTEGER DEFAULT 0
+            )
+            """)
+
+            cur.execute("""
+            INSERT INTO phrase_logs_v2 (
+                created_at,
+                record_type,
+                play_keyword,
+                age_group,
+                curriculum_area,
+                development_area,
+                child_action,
+                generated_text
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                record_type,
+                play_keyword,
+                age_group,
+                curriculum_area,
+                development_area,
+                child_action,
+                generated_text
+            ))
+
+            conn.commit()
+            conn.close()
+
+    st.divider()
 
     st.subheader("📸 A급 사진 선별")
     st.write("20장 이내의 사진을 올리면 선명도와 밝기를 기준으로 상위 사진을 골라냅니다.")
@@ -1305,7 +1358,7 @@ with tab6:
             subscribers_df = load_table("subscribers")
             diary_df = load_table("diary_logs")
             temp_df = load_table("teacher_temperature_logs")
-            phrase_df = load_table("phrase_logs")
+            phrase_df = load_table("phrase_logs_v2")
 
             subscribers_filtered = filter_by_period(subscribers_df, dashboard_period)
             diary_filtered = filter_by_period(diary_df, dashboard_period)
@@ -1381,14 +1434,14 @@ with tab6:
             table_map = {
                 "가입자 정보": "subscribers",
                 "알림장 생성 기록": "diary_logs",
-                "상황별 문구 생성 기록": "phrase_logs",
+                "상황별 문구 생성 기록": "phrase_logs_v2",
                 "교사의 온도 기록": "teacher_temperature_logs"
             }
 
             file_map = {
                 "가입자 정보": "subscribers.csv",
                 "알림장 생성 기록": "diary_logs.csv",
-                "상황별 문구 생성 기록": "phrase_logs.csv",
+                "상황별 문구 생성 기록": "phrase_logs.csv_v2",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
 
