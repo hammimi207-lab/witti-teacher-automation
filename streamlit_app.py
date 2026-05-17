@@ -164,7 +164,7 @@ def ensure_db_columns():
         "teacher_temperature_logs": {
             "deleted": "INTEGER DEFAULT 0"
         },
-        "phrase_logs": {
+        "phrase_logs_v2": {
             "record_type": "TEXT",
             "play_keyword": "TEXT",
             "age_group": "TEXT",
@@ -195,11 +195,11 @@ def ensure_db_columns():
     conn.commit()
     conn.close()
 
-    def force_fix_phrase_logs_columns():
+    def force_fix_phrase_logs_v2_columns():
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        cur.execute("PRAGMA table_info(phrase_logs)")
+        cur.execute("PRAGMA table_info(phrase_logs_v2)")
         columns = [column[1] for column in cur.fetchall()]
 
         needed = {
@@ -215,7 +215,7 @@ def ensure_db_columns():
 
     for column_name, column_type in needed.items():
         if column_name not in columns:
-            cur.execute(f"ALTER TABLE phrase_logs ADD COLUMN {column_name} {column_type}")
+            cur.execute(f"ALTER TABLE phrase_logs_v2 ADD COLUMN {column_name} {column_type}")
 
     conn.commit()
     conn.close()
@@ -353,32 +353,26 @@ def load_table(table_name, include_deleted=False):
 
     query = f"SELECT * FROM {table_name}"
 
-    if not include_deleted:
-        columns = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
-        column_names = columns["name"].tolist()
+    try:
+        if not include_deleted:
+            columns = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
+            column_names = columns["name"].tolist()
 
-        if "deleted" in column_names:
-            query += " WHERE deleted = 0"
+            if not column_names:
+                conn.close()
+                return pd.DataFrame()
 
-    query += " ORDER BY id DESC"
+            if "deleted" in column_names:
+                query += " WHERE deleted = 0"
 
-    df = pd.read_sql_query(query, conn)
+        query += " ORDER BY id DESC"
+        df = pd.read_sql_query(query, conn)
+
+    except Exception:
+        df = pd.DataFrame()
+
     conn.close()
-
     return df
-
-
-def soft_delete_record(table_name, record_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute(
-        f"UPDATE {table_name} SET deleted = 1 WHERE id = ?",
-        (record_id,)
-    )
-
-    conn.commit()
-    conn.close()
 
 
 def restore_record(table_name, record_id):
@@ -856,7 +850,7 @@ AGE_NOTICE = {
     "4세": "친구들과 생각을 나누며 놀이를 이어갔어요.",
     "5세": "규칙과 협력을 바탕으로 놀이를 주도해 보았어요.",
 }
-CURRICULUM_RECORD = FORMA = {
+CURRICULUM_RECORD = FORMAL = {
     "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됩니다.",
     "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됩니다.",
     "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됩니다.",
@@ -886,15 +880,15 @@ DEVELOPMENT_RECORD_NOTE = {
     "창의성": "새로운 방법을 떠올리고 자신만의 방식으로 표현함.",
 }
 PARENT_TEMPLATES = {
-    "일반형": ["가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.", "OO이의 작은 표현과 반응을 함께 응원해 주세요.", "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다."],
+    "일반형": ["가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.", "OO의 작은 표현과 반응을 함께 응원해 주세요.", "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다."],
     "불안형": ["OO이의 속도에 맞추어 천천히 경험하고 있으니 편안하게 지켜봐 주세요.", "처음에는 조심스러워도 조금씩 놀이에 익숙해지는 모습을 보이고 있습니다.", "아이마다 참여하는 속도가 다르니 오늘의 작은 시도도 소중하게 봐주시면 좋겠습니다."],
     "정보형": ["이 활동은 OO이가 직접 보고 만지고 표현해 보는 경험으로 이어졌습니다.", "놀이 과정에서 탐색, 표현, 관계 경험이 자연스럽게 함께 이루어졌습니다.", "오늘 활동은 OO이가 스스로 시도하고 주변을 살펴보는 데 도움이 되었습니다."],
     "감성형": ["작은 손짓과 표정 속에서도 OO이의 즐거움이 잘 느껴졌습니다.", "OO이의 하루 안에 반짝이는 장면이 하나 더 쌓였습니다.", "오늘의 놀이가 OO이 마음속에 따뜻한 기억으로 남기를 바랍니다."],
 }
 OBSERVATION_TEMPLATES = {
-    "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO이는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
+    "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
     "관찰 기록용": ["{keyword} 활동 중 {child}는 {action}을 보임.", "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.", "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.", "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임."],
-    "서술형 일지용": ["{keyword} 활동을 통해 OO이가 놀이에 참여하는 모습을 관찰할 수 있었음.", "오늘 {keyword} 활동에서는 OO의 참여 과정과 반응을 중심으로 살펴볼 수 있었음.", "{keyword} 놀이 과정에서 OO이는 자신의 방식으로 활동에 참여하였음.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였음."],
+    "서술형 일지용": ["{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었음.", "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었음.", "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였음.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였음."],
     "기관 홍보용": ["오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.", "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.", "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.", "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다."],
 }
 
@@ -995,6 +989,19 @@ with tab2:
 
             conn.commit()
             conn.close()
+
+            save_phrase_log(
+                record_type=observation_type,
+                play_keyword=play_keyword,
+                age_group=age_group,
+                curriculum_area=curriculum_area,
+                development_area=development_area,
+                child_action=child_action,
+                generated_text=final_result
+            )
+
+            st.success("상황별 문구 생성 기록이 DB에 저장되었습니다.")
+
 
     st.divider()
 
@@ -1364,7 +1371,6 @@ with tab6:
             diary_filtered = filter_by_period(diary_df, dashboard_period)
             temp_filtered = filter_by_period(temp_df, dashboard_period)
             phrase_filtered = filter_by_period(phrase_df, dashboard_period)
-
             mailing_count = 0
             if not subscribers_filtered.empty and "mailing_agree" in subscribers_filtered.columns:
                 mailing_count = subscribers_filtered[
@@ -1441,7 +1447,7 @@ with tab6:
             file_map = {
                 "가입자 정보": "subscribers.csv",
                 "알림장 생성 기록": "diary_logs.csv",
-                "상황별 문구 생성 기록": "phrase_logs.csv_v2",
+                "상황별 문구 생성 기록": "phrase_logs_v2.csv",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
 
