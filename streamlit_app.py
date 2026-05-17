@@ -113,6 +113,41 @@ def init_db():
     conn.commit()
     conn.close()
 
+def create_phrase_logs_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS phrase_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT,
+        record_type TEXT,
+        play_keyword TEXT,
+        age_group TEXT,
+        curriculum_area TEXT,
+        development_area TEXT,
+        child_action TEXT,
+        generated_text TEXT,
+        deleted INTEGER DEFAULT 0
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def add_record_type_column_if_missing():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("PRAGMA table_info(diary_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    if "record_type" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+
+    conn.commit()
+    conn.close()
+
 
 def ensure_db_columns():
     conn = sqlite3.connect(DB_PATH)
@@ -127,6 +162,16 @@ def ensure_db_columns():
             "deleted": "INTEGER DEFAULT 0"
         },
         "teacher_temperature_logs": {
+            "deleted": "INTEGER DEFAULT 0"
+        },
+            "phrase_logs": {
+            "record_type": "TEXT",
+            "play_keyword": "TEXT",
+            "age_group": "TEXT",
+            "curriculum_area": "TEXT",
+            "development_area": "TEXT",
+            "child_action": "TEXT",
+            "generated_text": "TEXT",
             "deleted": "INTEGER DEFAULT 0"
         }
     }
@@ -376,40 +421,7 @@ def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
     return df
 
 
-def create_phrase_logs_table():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS phrase_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        record_type TEXT,
-        play_keyword TEXT,
-        age_group TEXT,
-        curriculum_area TEXT,
-        development_area TEXT,
-        child_action TEXT,
-        generated_text TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
 
 
 
