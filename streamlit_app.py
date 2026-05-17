@@ -199,7 +199,7 @@ def ensure_db_columns():
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        cur.execute("PRAGMA table_info(phrase_logs_v2)")
+        cur.execute("PRAGMA table_info(phrase_logs)")
         columns = [column[1] for column in cur.fetchall()]
 
         needed = {
@@ -215,15 +215,11 @@ def ensure_db_columns():
 
     for column_name, column_type in needed.items():
         if column_name not in columns:
-            cur.execute(f"ALTER TABLE phrase_logs_v2 ADD COLUMN {column_name} {column_type}")
+            cur.execute(f"ALTER TABLE phrase_logs ADD COLUMN {column_name} {column_type}")
 
     conn.commit()
     conn.close()
 
-
-def save_subscriber(data):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
 
     cur.execute("""
     INSERT INTO subscribers (
@@ -318,6 +314,8 @@ def save_temperature_log(diary_type, memory, emotion, temperature, average_temp,
     conn.close()
 
 def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
+    create_phrase_logs_table()
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
@@ -441,7 +439,9 @@ def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
 
 
 
-
+    init_db()
+    create_phrase_logs_table()
+    ensure_db_columns()
 
 
 
@@ -917,7 +917,7 @@ with tab2:
         elif age_group == "- 선택 -":
             st.warning("연령을 선택해 주세요.")
         elif curriculum_area == "- 선택 -":
-            st.warning("누리과정 영역을 선택해 주세요.")
+            st.warning("표준보육과정·누리과정 영역을 선택해 주세요.")
         elif development_area == "- 선택 -":
             st.warning("발달영역을 선택해 주세요.")
         elif observation_type == "- 선택 -":
@@ -945,50 +945,6 @@ with tab2:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
 
-        def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT,
-                record_type TEXT,
-                play_keyword TEXT,
-                age_group TEXT,
-                curriculum_area TEXT,
-                development_area TEXT,
-                child_action TEXT,
-                generated_text TEXT,
-                deleted INTEGER DEFAULT 0
-            )
-            """)
-
-            cur.execute("""
-            INSERT INTO phrase_logs_v2 (
-                created_at,
-                record_type,
-                play_keyword,
-                age_group,
-                curriculum_area,
-                development_area,
-                child_action,
-                generated_text
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                record_type,
-                play_keyword,
-                age_group,
-                curriculum_area,
-                development_area,
-                child_action,
-                generated_text
-            ))
-
-            conn.commit()
-            conn.close()
 
             save_phrase_log(
                 record_type=observation_type,
@@ -999,8 +955,6 @@ with tab2:
                 child_action=child_action,
                 generated_text=final_result
             )
-
-            st.success("상황별 문구 생성 기록이 DB에 저장되었습니다.")
 
 
     st.divider()
