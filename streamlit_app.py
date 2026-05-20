@@ -857,25 +857,147 @@ def remove_bullets(summary: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def make_diary_message(summary: str, teacher_tone: str, daily_scope: str) -> str:
+def make_diary_message(summary: str, teacher_tone: str, daily_scope: str, record_type: str) -> str:
     clean_summary = remove_bullets(summary)
-    scope_phrases = {
+
+    scope_phrases_plain = {
+        "놀이 장면 중심": "놀이 중 나타난 참여와 상호작용을 중심으로 살펴보았다.",
+        "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 살펴보았다.",
+        "하루 전체 흐름": "하루 일과의 흐름 속에서 나타난 아이의 모습을 살펴보았다.",
+        "특별활동 중심": "특별활동에서 나타난 아이의 경험과 반응을 중심으로 살펴보았다.",
+    }
+
+    scope_phrases_polite = {
         "놀이 장면 중심": "놀이 중 보인 참여와 상호작용을 중심으로 전해드립니다.",
         "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 전해드립니다.",
         "하루 전체 흐름": "하루 흐름 속에서 보인 아이들의 모습을 전해드립니다.",
         "특별활동 중심": "특별활동에서 보인 아이들의 경험을 중심으로 전해드립니다.",
     }
-    scope_sentence = scope_phrases.get(daily_scope, "")
-    if teacher_tone == "팩트 중심형":
-        return f"오늘 아이들의 모습을 간단히 전해드립니다.\n\n{clean_summary}\n\n{scope_sentence}"
-    if teacher_tone == "따뜻한 감성형":
-        return f"오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었어요.\n\n{clean_summary}\n\n아이들의 작은 표현과 반응이 참 소중하게 느껴지는 하루였습니다."
-    if teacher_tone == "이모티콘 활용형":
-        return f"오늘 우리 아이들은 즐겁게 하루를 보냈어요 😊\n\n{clean_summary}\n\n가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿"
-    if teacher_tone == "전문적 설명형":
-        return f"오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.\n\n{clean_summary}\n\n이러한 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다."
-    return clean_summary
 
+    scope_plain = scope_phrases_plain.get(daily_scope, "")
+    scope_polite = scope_phrases_polite.get(daily_scope, "")
+
+    # 1. 관찰 기록용: 종결어미 ~다.
+    if record_type == "관찰 기록용":
+        if teacher_tone == "팩트 중심형":
+            return (
+                f"{clean_summary}\n\n"
+                f"{scope_plain}\n"
+                f"관찰 내용은 아이의 참여 과정, 반응, 상호작용을 중심으로 정리하였다."
+            )
+
+        if teacher_tone == "따뜻한 감성형":
+            return (
+                f"{clean_summary}\n\n"
+                f"아이의 작은 반응과 시도를 중심으로 관찰하였다.\n"
+                f"해당 장면에서 아이가 편안하게 경험에 참여하려는 모습이 나타났다."
+            )
+
+        if teacher_tone == "이모티콘 활용형":
+            return (
+                f"{clean_summary}\n\n"
+                f"{scope_plain}\n"
+                f"관찰 기록에서는 이모티콘을 사용하지 않고, 아이의 행동과 반응을 객관적으로 정리하였다."
+            )
+
+        if teacher_tone == "전문적 설명형":
+            return (
+                f"{clean_summary}\n\n"
+                f"해당 장면은 아이의 탐색, 표현, 관계 경험을 확인할 수 있는 상황으로 볼 수 있다.\n"
+                f"교사는 아이의 반응을 관찰하며 필요한 지원을 제공하였다."
+            )
+
+    # 2. 서술형 일지용: 종결어미 ~다.
+    if record_type == "서술형 일지용":
+        if teacher_tone == "팩트 중심형":
+            return (
+                f"오늘 일과에서는 {scope_plain}\n\n"
+                f"{clean_summary}\n\n"
+                f"교사는 아이들의 반응을 살피며 일과가 안정적으로 이어질 수 있도록 지원하였다."
+            )
+
+        if teacher_tone == "따뜻한 감성형":
+            return (
+                f"오늘 일과 속에서 아이들의 작은 시도와 반응을 살펴볼 수 있었다.\n\n"
+                f"{clean_summary}\n\n"
+                f"교사는 아이들이 자신의 속도에 맞게 경험에 참여할 수 있도록 정서적으로 지원하였다."
+            )
+
+        if teacher_tone == "이모티콘 활용형":
+            return (
+                f"오늘 일과에서는 {scope_plain}\n\n"
+                f"{clean_summary}\n\n"
+                f"서술형 일지는 공식 기록의 성격을 고려하여 이모티콘 없이 문장으로 정리하였다."
+            )
+
+        if teacher_tone == "전문적 설명형":
+            return (
+                f"오늘의 일과는 아이들의 참여 과정과 반응을 중심으로 구성되었다.\n\n"
+                f"{clean_summary}\n\n"
+                f"해당 경험은 아이들의 탐색, 표현, 사회적 관계 형성과 연결되며, 교사는 놀이와 일상 경험이 자연스럽게 이어질 수 있도록 지원하였다."
+            )
+
+    # 3. 기관 홍보용: 종결어미 ~습니다.
+    if record_type == "기관 홍보용":
+        if teacher_tone == "팩트 중심형":
+            return (
+                f"오늘 우리 아이들은 {daily_scope}을/를 중심으로 다양한 경험에 참여했습니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"우리 기관은 아이들의 일상 속 배움과 성장을 세심하게 기록하고 있습니다."
+            )
+
+        if teacher_tone == "따뜻한 감성형":
+            return (
+                f"오늘도 아이들의 하루에는 작고 소중한 배움의 장면이 있었습니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"우리 기관은 아이들이 놀이 속에서 편안하게 경험하고 성장할 수 있도록 함께하고 있습니다."
+            )
+
+        if teacher_tone == "이모티콘 활용형":
+            return (
+                f"오늘 우리 아이들은 즐겁게 하루를 보냈습니다 🌿\n\n"
+                f"{clean_summary}\n\n"
+                f"놀이 속 작은 경험이 아이들의 배움으로 이어질 수 있도록 따뜻하게 지원하고 있습니다 😊"
+            )
+
+        if teacher_tone == "전문적 설명형":
+            return (
+                f"오늘의 활동은 아이들의 참여, 탐색, 표현 경험을 중심으로 이루어졌습니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"우리 기관은 놀이와 일상 경험이 아이들의 발달적 성장으로 연결될 수 있도록 교육적 환경을 구성하고 있습니다."
+            )
+
+    # 4. 알림장용: 종결어미 ~습니다 / ~어요 가능
+    if record_type == "알림장용":
+        if teacher_tone == "팩트 중심형":
+            return (
+                f"오늘 아이들의 모습을 간단히 전해드립니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"{scope_polite}"
+            )
+
+        if teacher_tone == "따뜻한 감성형":
+            return (
+                f"오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었습니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"아이들의 작은 표현과 반응이 참 소중하게 느껴지는 하루였습니다."
+            )
+
+        if teacher_tone == "이모티콘 활용형":
+            return (
+                f"오늘 우리 아이들은 즐겁게 하루를 보냈습니다 😊\n\n"
+                f"{clean_summary}\n\n"
+                f"가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿"
+            )
+
+        if teacher_tone == "전문적 설명형":
+            return (
+                f"오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.\n\n"
+                f"{clean_summary}\n\n"
+                f"이러한 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다."
+            )
+
+    return clean_summary
 
 AGE_NOTICE = {
     "0세": "눈으로 보고 손으로 만지며 감각적으로 경험했어요.",
@@ -1181,12 +1303,20 @@ with tab4:
             generated_message = make_diary_message(
                 summary,
                 teacher_tone,
-                daily_scope
+                daily_scope,
+                record_type
             )
-
 
             st.write("저장될 기록 유형:", record_type)
 
+            save_diary_log(
+                record_type=record_type,
+                teacher_tone=teacher_tone,
+                daily_scope=daily_scope,
+                original_text=diary_text,
+                summary=summary,
+                generated_message=generated_message
+            )
 
             st.success("알림장 요약과 생성이 완료되었습니다.")
 
