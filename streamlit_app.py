@@ -28,33 +28,71 @@ from manual_automation_app import rank_images
 st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide")
 
 st.markdown("""
-<meta name="google" content="notranslate">
 <style>
-body { translate: no; }
-.block-container { padding-top: 2rem; padding-left: 3rem; padding-right: 3rem; max-width: 1100px; }
-h1 { font-size: 42px !important; line-height: 1.25 !important; letter-spacing: -1px !important; }
-h2, h3 { letter-spacing: -0.5px !important; }
-.stButton > button { min-height: 42px; border-radius: 10px; font-weight: 600; }
-input, textarea, select { font-size: 16px !important; }
-button[data-baseweb="tab"] { font-size: 15px !important; white-space: nowrap; }
-.small-guide { color:#9AA1A9; font-size:13px; margin-top:-6px; margin-bottom:14px; }
-.letter-box { font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif; font-size: 18px; line-height: 1.8; color: #333333; background-color: #FFF9F2; padding: 24px; border-radius: 18px; border: 1px solid #F1DEC8; white-space: pre-wrap; letter-spacing: -0.2px; margin-top: 12px; }
-.result-card-blue { color:#1E5EFF; background-color:#EEF4FF; padding:16px; border-radius:10px; line-height:1.8; white-space:pre-wrap; }
-.result-card-gray { color:#111111; background-color:#F5F5F5; padding:16px; border-radius:10px; line-height:1.8; white-space:pre-wrap; }
+html, body, [class*="css"] {
+    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
+}
+
 @media (max-width: 768px) {
-    .block-container { padding-top: 1.2rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }
-    h1 { font-size: 36px !important; line-height: 1.18 !important; letter-spacing: -1px !important; }
-    h2 { font-size: 25px !important; }
-    h3 { font-size: 22px !important; }
-    p, div, span, label { font-size: 15px !important; }
-    .stButton > button { width: 100%; min-height: 46px; font-size: 15px !important; }
-    button[data-baseweb="tab"] { font-size: 13px !important; padding-left: 8px !important; padding-right: 8px !important; }
-    .stSlider { padding-top: 0px !important; padding-bottom: 4px !important; }
-    .letter-box { font-size: 17px !important; line-height: 1.75 !important; padding: 18px !important; }
+    .block-container {
+        padding-top: 1.2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        max-width: 100%;
+    }
+
+    h1 {
+        font-size: 32px !important;
+        line-height: 1.25 !important;
+        letter-spacing: -1px !important;
+    }
+
+    h2 {
+        font-size: 24px !important;
+        line-height: 1.3 !important;
+    }
+
+    h3 {
+        font-size: 21px !important;
+        line-height: 1.35 !important;
+    }
+
+    h4 {
+        font-size: 18px !important;
+        line-height: 1.35 !important;
+    }
+
+    label, p {
+        font-size: 15px !important;
+        line-height: 1.55 !important;
+    }
+
+    textarea, input, select {
+        font-size: 16px !important;
+    }
+
+    .stButton > button {
+        width: 100%;
+        min-height: 46px;
+        font-size: 15px !important;
+    }
+
+    button[data-baseweb="tab"] {
+        font-size: 13px !important;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }
+
+    .letter-box,
+    .result-card-blue,
+    .result-card-gray {
+        font-size: 16px !important;
+        line-height: 1.75 !important;
+        padding: 16px !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
-
 
 DB_PATH = "witti_data.db"
 
