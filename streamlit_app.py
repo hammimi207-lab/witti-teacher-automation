@@ -314,10 +314,23 @@ def save_temperature_log(diary_type, memory, emotion, temperature, average_temp,
     conn.close()
 
 def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
-    create_phrase_logs_table()
-
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT,
+        record_type TEXT,
+        play_keyword TEXT,
+        age_group TEXT,
+        curriculum_area TEXT,
+        development_area TEXT,
+        child_action TEXT,
+        generated_text TEXT,
+        deleted INTEGER DEFAULT 0
+    )
+    """)
 
     cur.execute("""
     INSERT INTO phrase_logs_v2 (
@@ -944,17 +957,6 @@ with tab2:
                 else:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
-
-
-            save_phrase_log(
-                record_type=observation_type,
-                play_keyword=play_keyword,
-                age_group=age_group,
-                curriculum_area=curriculum_area,
-                development_area=development_area,
-                child_action=child_action,
-                generated_text=final_result
-            )
 
 
     st.divider()
