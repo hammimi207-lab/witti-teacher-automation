@@ -33,34 +33,41 @@ html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
 }
 
+.letter-box {
+    font-size: 18px;
+    line-height: 1.8;
+    color: #333333;
+    background-color: #FFF9F2;
+    padding: 24px;
+    border-radius: 18px;
+    border: 1px solid #F1DEC8;
+    white-space: pre-wrap;
+    margin-top: 12px;
+}
+
+.result-card-blue {
+    color: #1E5EFF;
+    background-color: #EEF4FF;
+    padding: 16px;
+    border-radius: 10px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+}
+
+.result-card-gray {
+    color: #111111;
+    background-color: #F5F5F5;
+    padding: 16px;
+    border-radius: 10px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+}
+
 @media (max-width: 768px) {
-    .block-container {
-        padding-top: 1.2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        max-width: 100%;
-    }
-
-    h1 {
-        font-size: 32px !important;
-        line-height: 1.25 !important;
-        letter-spacing: -1px !important;
-    }
-
-    h2 {
-        font-size: 24px !important;
-        line-height: 1.3 !important;
-    }
-
-    h3 {
-        font-size: 21px !important;
-        line-height: 1.35 !important;
-    }
-
-    h4 {
-        font-size: 18px !important;
-        line-height: 1.35 !important;
-    }
+    h1 { font-size: 32px !important; }
+    h2 { font-size: 24px !important; }
+    h3 { font-size: 21px !important; }
+    h4 { font-size: 18px !important; }
 
     label, p {
         font-size: 15px !important;
@@ -71,28 +78,18 @@ html, body, [class*="css"] {
         font-size: 16px !important;
     }
 
-    .stButton > button {
-        width: 100%;
-        min-height: 46px;
-        font-size: 15px !important;
-    }
-
-    button[data-baseweb="tab"] {
-        font-size: 13px !important;
-        padding-left: 8px !important;
-        padding-right: 8px !important;
-    }
-
     .letter-box,
     .result-card-blue,
     .result-card-gray {
         font-size: 16px !important;
         line-height: 1.75 !important;
         padding: 16px !important;
+        border-radius: 14px !important;
     }
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 DB_PATH = "witti_data.db"
 
