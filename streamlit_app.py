@@ -310,6 +310,41 @@ def save_temperature_log(diary_type, memory, emotion, temperature, average_temp,
     cur = conn.cursor()
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS teacher_temperature_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT,
+        diary_type TEXT,
+        memory TEXT,
+        emotion TEXT,
+        temperature TEXT,
+        average_temp REAL,
+        temp_message TEXT,
+        result_text TEXT,
+        deleted INTEGER DEFAULT 0
+    )
+    """)
+
+    cur.execute("PRAGMA table_info(teacher_temperature_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    required = {
+        "diary_type": "TEXT",
+        "memory": "TEXT",
+        "emotion": "TEXT",
+        "temperature": "TEXT",
+        "average_temp": "REAL",
+        "temp_message": "TEXT",
+        "result_text": "TEXT",
+        "deleted": "INTEGER DEFAULT 0",
+    }
+
+    for column_name, column_type in required.items():
+        if column_name not in columns:
+            cur.execute(
+                f"ALTER TABLE teacher_temperature_logs ADD COLUMN {column_name} {column_type}"
+            )
+
+    cur.execute("""
     INSERT INTO teacher_temperature_logs (
         created_at,
         diary_type,
