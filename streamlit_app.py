@@ -259,6 +259,29 @@ def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summar
     cur = conn.cursor()
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS diary_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT,
+        record_type TEXT,
+        teacher_tone TEXT,
+        daily_scope TEXT,
+        original_text TEXT,
+        summary TEXT,
+        generated_message TEXT,
+        deleted INTEGER DEFAULT 0
+    )
+    """)
+
+    cur.execute("PRAGMA table_info(diary_logs)")
+    columns = [column[1] for column in cur.fetchall()]
+
+    if "record_type" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
+
+    if "deleted" not in columns:
+        cur.execute("ALTER TABLE diary_logs ADD COLUMN deleted INTEGER DEFAULT 0")
+
+    cur.execute("""
     INSERT INTO diary_logs (
         created_at,
         record_type,
@@ -281,7 +304,6 @@ def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summar
 
     conn.commit()
     conn.close()
-
 
 def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
     conn = sqlite3.connect(DB_PATH)
@@ -1165,14 +1187,6 @@ with tab4:
 
             st.write("저장될 기록 유형:", record_type)
 
-            save_diary_log(
-                record_type=record_type,
-                teacher_tone=teacher_tone,
-                daily_scope=daily_scope,
-                original_text=diary_text,
-                summary=summary,
-                generated_message=generated_message
-            )
 
             st.success("알림장 요약과 생성이 완료되었습니다.")
 
