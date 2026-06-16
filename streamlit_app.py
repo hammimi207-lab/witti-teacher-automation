@@ -254,24 +254,38 @@ div[data-baseweb="select"] > div,
 .stButton > button, .stDownloadButton > button {
     min-height: 42px;
     border-radius: 12px !important;
+    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
     font-weight: 800 !important;
-    border: 1px solid #0AAFCB !important;
-    background: linear-gradient(135deg, #0897B2 0%, #0CC0DF 52%, #38D9F2 100%) !important;
+    letter-spacing: -0.2px !important;
+    border: 1px solid #12385A !important;
+    background: linear-gradient(135deg, #102A43 0%, #163E63 52%, #1F5F89 100%) !important;
     color: #FFFFFF !important;
-    box-shadow: 0 8px 18px rgba(12, 192, 223, 0.22);
-    transition: all 0.16s ease;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    transition: background 0.16s ease, border-color 0.16s ease, filter 0.16s ease;
 }
 
 .stButton > button:hover, .stDownloadButton > button:hover {
-    background: linear-gradient(135deg, #078CA5 0%, #0CC0DF 58%, #4BE3F6 100%) !important;
-    border-color: #0897B2 !important;
-    box-shadow: 0 10px 22px rgba(12, 192, 223, 0.28);
-    transform: translateY(-1px);
+    background: linear-gradient(135deg, #0B2239 0%, #12385A 55%, #1A5278 100%) !important;
+    border-color: #0B2239 !important;
+    color: #FFFFFF !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: brightness(1.02);
 }
 
 .stButton > button:active, .stDownloadButton > button:active {
-    transform: translateY(0);
-    box-shadow: 0 5px 14px rgba(12, 192, 223, 0.20);
+    background: linear-gradient(135deg, #081B2E 0%, #0F2F4F 55%, #164765 100%) !important;
+    color: #FFFFFF !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.stButton > button:focus, .stDownloadButton > button:focus {
+    color: #FFFFFF !important;
+    box-shadow: none !important;
+    outline: 2px solid rgba(31, 95, 137, 0.28) !important;
+    outline-offset: 2px !important;
 }
 
 .menu-card {
@@ -495,7 +509,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-tab2-clean-defaults-0cc0df-v2"
+APP_VERSION = "2026-06-17-tab2-tab4-clean-defaults-0cc0df-v3"
 
 
 def platform_info_text() -> str:
@@ -3245,7 +3259,35 @@ with tab3:
 # =========================
 # TAB 4. 알림장
 # =========================
+def reset_tab4_inputs_once():
+    """알림장 탭의 이전 입력값이 처음 화면에 남아 보이지 않도록 한 번만 초기화합니다.
+
+    Streamlit은 같은 key를 가진 위젯 값을 브라우저 세션에 보관할 수 있습니다.
+    그래서 코드상 기본값이 "- 선택 -"이어도 이전에 선택한 값이 다시 보일 수 있습니다.
+    이 함수는 앱 갱신 후 첫 렌더링에서만 기존 알림장 입력값을 지우고,
+    사용자가 이후 선택하거나 입력한 값은 정상적으로 유지되게 합니다.
+    """
+    reset_flag = "_tab4_initial_values_cleared_20260617_v3"
+    if st.session_state.get(reset_flag):
+        return
+
+    keys_to_clear = [
+        "record_type_select",
+        "diary_age_group",
+        "diary_teacher_tone",
+        "diary_daily_scope",
+        "diary_input_text",
+    ]
+
+    for key in keys_to_clear:
+        st.session_state.pop(key, None)
+
+    st.session_state[reset_flag] = True
+
+
 with tab4:
+
+    reset_tab4_inputs_once()
 
     render_menu_card(
         "📝 일지 요약 및 알림장 생성",
@@ -3256,29 +3298,34 @@ with tab4:
     record_type = st.selectbox(
         "기록 유형 선택",
         ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        index=0,
         key="record_type_select"
     )
 
     diary_age_group = st.selectbox(
         "연령 선택",
         ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
+        index=0,
         key="diary_age_group"
     )
 
     teacher_tone = st.selectbox(
         "기록 성향 선택",
         ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
+        index=0,
         key="diary_teacher_tone"
     )
 
     daily_scope = st.selectbox(
         "하루일과 전달 범위 선택",
         ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
+        index=0,
         key="diary_daily_scope"
     )
 
     diary_text = st.text_area(
         "일지 내용을 붙여넣으세요",
+        value="",
         height=250,
         placeholder="단어만 입력하면 생성되지 않습니다. 예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다.",
         key="diary_input_text"
