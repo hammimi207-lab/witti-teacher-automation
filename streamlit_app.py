@@ -492,8 +492,8 @@ st.markdown(f"""
 <div class="small-guide">
 💡 본 플랫폼은 PC 또는 모바일에서 활용 가능합니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
 💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있습니다.<br>
-🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+🔗 교사의 발견 플랫폼: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+✉️ 업무 자동화 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
 </div>
 """, unsafe_allow_html=True)
 
