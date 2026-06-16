@@ -5,7 +5,6 @@
 import re
 import io
 import random
-import sqlite3
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -29,54 +28,191 @@ st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide
 
 st.markdown("""
 <style>
+:root {
+    --witti-sky-50:#F2F9FF;
+    --witti-sky-100:#E3F2FF;
+    --witti-sky-200:#CDEAFF;
+    --witti-sky-300:#9BD4FF;
+    --witti-blue:#2F80ED;
+    --witti-blue-deep:#1B4D89;
+    --witti-navy:#16324F;
+    --witti-yellow:#FFE88A;
+    --witti-line:#D9ECFF;
+    --witti-card:#FFFFFF;
+}
+
 html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
+}
+
+.stApp {
+    background: linear-gradient(180deg, #F4FAFF 0%, #FFFFFF 34%, #F8FCFF 100%);
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-left: 3rem;
+    padding-right: 3rem;
+    max-width: 1180px;
+}
+
+h1, h2, h3, h4 {
+    color: var(--witti-navy) !important;
+    letter-spacing: -0.6px !important;
+}
+
+.small-guide {
+    color:#5F7188;
+    font-size:14px;
+    line-height:1.75;
+    background: #F7FBFF;
+    border: 1px solid var(--witti-line);
+    border-radius: 16px;
+    padding: 14px 18px;
+    margin: 8px 0 22px 0;
+}
+
+/* 탭 메뉴바 */
+div[data-testid="stTabs"] button[data-baseweb="tab"] {
+    background: #EAF6FF !important;
+    border: 1px solid #CFEAFF !important;
+    border-radius: 999px !important;
+    padding: 9px 14px !important;
+    margin-right: 6px !important;
+    color: #315A7D !important;
+    font-weight: 700 !important;
+}
+
+div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(135deg, #4DA3FF 0%, #8FD3FF 100%) !important;
+    color: white !important;
+    border-color: #4DA3FF !important;
+    box-shadow: 0 6px 16px rgba(47,128,237,0.18);
+}
+
+/* 입력 요소 */
+.stTextInput input, .stTextArea textarea, div[data-baseweb="select"] > div {
+    border-radius: 12px !important;
+    border-color: #CFE6FA !important;
+    background-color: #FFFFFF !important;
+}
+
+.stButton > button, .stDownloadButton > button {
+    min-height: 44px;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    border: 1px solid #9ED3FF !important;
+    background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%) !important;
+    color: white !important;
+    box-shadow: 0 6px 15px rgba(47,128,237,0.18);
+}
+
+.stButton > button:hover, .stDownloadButton > button:hover {
+    filter: brightness(0.98);
+    border-color: #56CCF2 !important;
+}
+
+.menu-card {
+    background: rgba(255,255,255,0.88);
+    border: 1px solid #D7ECFF;
+    border-left: 7px solid #6EC6FF;
+    border-radius: 22px;
+    padding: 20px 22px;
+    margin: 10px 0 20px 0;
+    box-shadow: 0 10px 30px rgba(47, 128, 237, 0.08);
+}
+
+.menu-card-title {
+    font-size: 23px;
+    font-weight: 800;
+    color: #16324F;
+    margin-bottom: 8px;
+}
+
+.menu-card-desc {
+    font-size: 15px;
+    line-height: 1.7;
+    color: #526A7F;
+}
+
+.info-chip {
+    display:inline-block;
+    background:#EAF6FF;
+    color:#1B4D89;
+    border:1px solid #CFEAFF;
+    border-radius:999px;
+    padding:6px 11px;
+    font-size:13px;
+    font-weight:700;
+    margin: 4px 4px 4px 0;
 }
 
 .letter-box {
     font-size: 18px;
     line-height: 1.8;
-    color: #333333;
-    background-color: #FFF9F2;
+    color: #273849;
+    background: linear-gradient(180deg, #FFFDF8 0%, #F7FBFF 100%);
     padding: 24px;
     border-radius: 18px;
-    border: 1px solid #F1DEC8;
+    border: 1px solid #D7ECFF;
     white-space: pre-wrap;
     margin-top: 12px;
+    box-shadow: 0 8px 22px rgba(47,128,237,0.06);
 }
 
 .result-card-blue {
-    color: #1E5EFF;
-    background-color: #EEF4FF;
-    padding: 16px;
-    border-radius: 10px;
-    line-height: 1.8;
-    white-space: pre-wrap;
+    color:#16324F;
+    background-color:#EEF7FF;
+    border: 1px solid #CFEAFF;
+    padding:18px;
+    border-radius:16px;
+    line-height:1.8;
+    white-space:pre-wrap;
 }
 
 .result-card-gray {
-    color: #111111;
-    background-color: #F5F5F5;
-    padding: 16px;
-    border-radius: 10px;
-    line-height: 1.8;
-    white-space: pre-wrap;
+    color:#1F2933;
+    background-color:#F8FAFC;
+    border: 1px solid #E5EDF5;
+    padding:18px;
+    border-radius:16px;
+    line-height:1.8;
+    white-space:pre-wrap;
+}
+
+[data-testid="stMetric"] {
+    background:#FFFFFF;
+    border:1px solid #D7ECFF;
+    border-radius:18px;
+    padding:14px;
+    box-shadow:0 8px 22px rgba(47,128,237,0.06);
 }
 
 @media (max-width: 768px) {
-    h1 { font-size: 32px !important; }
+    .block-container {
+        padding-top: 1.2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        max-width: 100%;
+    }
+
+    h1 { font-size: 31px !important; line-height:1.25 !important; }
     h2 { font-size: 24px !important; }
     h3 { font-size: 21px !important; }
     h4 { font-size: 18px !important; }
 
-    label, p {
-        font-size: 15px !important;
-        line-height: 1.55 !important;
+    label, p { font-size: 15px !important; line-height: 1.55 !important; }
+    textarea, input, select { font-size: 16px !important; }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 13px !important;
+        padding: 8px 10px !important;
+        margin-right: 4px !important;
     }
 
-    textarea, input, select {
-        font-size: 16px !important;
-    }
+    .menu-card { padding: 16px !important; border-radius: 18px !important; }
+    .menu-card-title { font-size: 20px !important; }
+    .menu-card-desc { font-size: 14px !important; }
 
     .letter-box,
     .result-card-blue,
@@ -91,404 +227,131 @@ html, body, [class*="css"] {
 """, unsafe_allow_html=True)
 
 
-DB_PATH = "witti_data.db"
+# =========================
+# Supabase DB 설정 및 공통 함수
+# =========================
+# 주의: SQLite(witti_data.db)는 배포 환경에서 PC/세션마다 기록이 달라질 수 있어 사용하지 않습니다.
+# 모든 누적 기록은 Supabase 테이블에 저장하고, 관리자 페이지도 Supabase에서 다시 불러옵니다.
+
+try:
+    from supabase import create_client, Client
+except Exception:
+    create_client = None
+    Client = None
 
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+@st.cache_resource
+def get_supabase_client():
+    if create_client is None:
+        st.error("Supabase 라이브러리가 설치되지 않았습니다. requirements.txt에 supabase를 추가해 주세요.")
+        st.stop()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS subscribers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        institution_name TEXT,
-        institution_group TEXT,
-        institution_type TEXT,
-        institution_feature TEXT,
-        phone TEXT,
-        subscriber_name TEXT,
-        position TEXT,
-        email TEXT,
-        privacy_agree TEXT,
-        mailing_agree TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["service_role_key"]
+    except Exception:
+        st.error("Supabase secrets가 설정되지 않았습니다. Streamlit Cloud Secrets에 [supabase] url, service_role_key를 등록해 주세요.")
+        st.stop()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS diary_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        record_type TEXT,
-        teacher_tone TEXT,
-        daily_scope TEXT,
-        original_text TEXT,
-        summary TEXT,
-        generated_message TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS teacher_temperature_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        diary_type TEXT,
-        memory TEXT,
-        emotion TEXT,
-        temperature TEXT,
-        average_temp REAL,
-        temp_message TEXT,
-        result_text TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-def create_phrase_logs_table():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        record_type TEXT,
-        play_keyword TEXT,
-        age_group TEXT,
-        curriculum_area TEXT,
-        development_area TEXT,
-        child_action TEXT,
-        generated_text TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-def add_record_type_column_if_missing():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    conn.commit()
-    conn.close()
+    return create_client(url, key)
 
 
-def ensure_db_columns():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+supabase = get_supabase_client()
 
-    required_columns = {
-        "subscribers": {
-            "deleted": "INTEGER DEFAULT 0"
-        },
-        "diary_logs": {
-            "record_type": "TEXT",
-            "deleted": "INTEGER DEFAULT 0"
-        },
-        "teacher_temperature_logs": {
-            "deleted": "INTEGER DEFAULT 0"
-        },
-        "phrase_logs_v2": {
-            "record_type": "TEXT",
-            "play_keyword": "TEXT",
-            "age_group": "TEXT",
-            "curriculum_area": "TEXT",
-            "development_area": "TEXT",
-            "child_action": "TEXT",
-            "generated_text": "TEXT",
-            "deleted": "INTEGER DEFAULT 0"
-        }
+
+TABLE_NAMES = {
+    "subscribers": "subscribers",
+    "diary_logs": "diary_logs",
+    "phrase_logs": "phrase_logs",
+    "teacher_temperature_logs": "teacher_temperature_logs",
+}
+
+
+def _response_data(response):
+    return getattr(response, "data", []) or []
+
+
+def save_subscriber(data):
+    """소통 탭에서 입력받은 구독자/기관 정보를 Supabase에 저장합니다."""
+    payload = {
+        "institution_name": data.get("기관명", ""),
+        "institution_group": data.get("기관 구분", ""),
+        "institution_type": data.get("기관 유형", ""),
+        "institution_feature": data.get("기관 특성", ""),
+        "phone": data.get("기관 연락처", ""),
+        "subscriber_name": data.get("가입자 성명", ""),
+        "position": data.get("직책", ""),
+        "email": data.get("이메일", ""),
+        "privacy_agree": str(data.get("개인정보 동의", False)),
+        "mailing_agree": str(data.get("메일링 수신 동의", False)),
+        "deleted": False,
     }
-
-    for table_name, columns_to_add in required_columns.items():
-        cur.execute(f"PRAGMA table_info({table_name})")
-        existing_columns = [column[1] for column in cur.fetchall()]
-
-        for column_name, column_type in columns_to_add.items():
-            if column_name not in existing_columns:
-                cur.execute(
-                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
-                )
-
-    cur.execute("""
-    UPDATE diary_logs
-    SET record_type = '알림장용'
-    WHERE record_type IS NULL OR record_type = ''
-    """)
-
-    conn.commit()
-    conn.close()
-
-    def force_fix_phrase_logs_v2_columns():
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-
-        cur.execute("PRAGMA table_info(phrase_logs)")
-        columns = [column[1] for column in cur.fetchall()]
-
-        needed = {
-            "record_type": "TEXT",
-            "play_keyword": "TEXT",
-            "age_group": "TEXT",
-            "curriculum_area": "TEXT",
-            "development_area": "TEXT",
-            "child_action": "TEXT",
-            "generated_text": "TEXT",
-            "deleted": "INTEGER DEFAULT 0"
-        }
-
-    for column_name, column_type in needed.items():
-        if column_name not in columns:
-            cur.execute(f"ALTER TABLE phrase_logs ADD COLUMN {column_name} {column_type}")
-
-    conn.commit()
-    conn.close()
-
-
-    cur.execute("""
-    INSERT INTO subscribers (
-        created_at,
-        institution_name,
-        institution_group,
-        institution_type,
-        institution_feature,
-        phone,
-        subscriber_name,
-        position,
-        email,
-        privacy_agree,
-        mailing_agree
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data["기관명"],
-        data["기관 구분"],
-        data["기관 유형"],
-        data["기관 특성"],
-        data["기관 연락처"],
-        data["가입자 성명"],
-        data["직책"],
-        data["이메일"],
-        str(data["개인정보 동의"]),
-        str(data["메일링 수신 동의"]),
-    ))
-
-    conn.commit()
-    conn.close()
+    supabase.table("subscribers").insert(payload).execute()
 
 
 def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summary, generated_message):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS diary_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        record_type TEXT,
-        teacher_tone TEXT,
-        daily_scope TEXT,
-        original_text TEXT,
-        summary TEXT,
-        generated_message TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    cur.execute("PRAGMA table_info(diary_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    if "record_type" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN record_type TEXT")
-
-    if "deleted" not in columns:
-        cur.execute("ALTER TABLE diary_logs ADD COLUMN deleted INTEGER DEFAULT 0")
-
-    cur.execute("""
-    INSERT INTO diary_logs (
-        created_at,
-        record_type,
-        teacher_tone,
-        daily_scope,
-        original_text,
-        summary,
-        generated_message
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        record_type,
-        teacher_tone,
-        daily_scope,
-        original_text,
-        summary,
-        generated_message,
-    ))
-
-    conn.commit()
-    conn.close()
-
-def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS teacher_temperature_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        diary_type TEXT,
-        memory TEXT,
-        emotion TEXT,
-        temperature TEXT,
-        average_temp REAL,
-        temp_message TEXT,
-        result_text TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
-
-    cur.execute("PRAGMA table_info(teacher_temperature_logs)")
-    columns = [column[1] for column in cur.fetchall()]
-
-    required = {
-        "diary_type": "TEXT",
-        "memory": "TEXT",
-        "emotion": "TEXT",
-        "temperature": "TEXT",
-        "average_temp": "REAL",
-        "temp_message": "TEXT",
-        "result_text": "TEXT",
-        "deleted": "INTEGER DEFAULT 0",
+    """TAB4 알림장/관찰기록/서술형일지/기관홍보 생성 기록을 저장합니다."""
+    payload = {
+        "record_type": record_type,
+        "teacher_tone": teacher_tone,
+        "daily_scope": daily_scope,
+        "original_text": original_text,
+        "summary": summary,
+        "generated_message": generated_message,
+        "deleted": False,
     }
+    supabase.table("diary_logs").insert(payload).execute()
 
-    for column_name, column_type in required.items():
-        if column_name not in columns:
-            cur.execute(
-                f"ALTER TABLE teacher_temperature_logs ADD COLUMN {column_name} {column_type}"
-            )
-
-    cur.execute("""
-    INSERT INTO teacher_temperature_logs (
-        created_at,
-        diary_type,
-        memory,
-        emotion,
-        temperature,
-        average_temp,
-        temp_message,
-        result_text
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        diary_type,
-        memory,
-        emotion,
-        temperature,
-        average_temp,
-        temp_message,
-        result_text,
-    ))
-
-    conn.commit()
-    conn.close()
 
 def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    """TAB2 상황별 문구 자동 생성 기록을 저장합니다."""
+    payload = {
+        "record_type": record_type,
+        "play_keyword": play_keyword,
+        "age_group": age_group,
+        "curriculum_area": curriculum_area,
+        "development_area": development_area,
+        "child_action": child_action,
+        "generated_text": generated_text,
+        "deleted": False,
+    }
+    supabase.table("phrase_logs").insert(payload).execute()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS phrase_logs_v2 (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT,
-        record_type TEXT,
-        play_keyword TEXT,
-        age_group TEXT,
-        curriculum_area TEXT,
-        development_area TEXT,
-        child_action TEXT,
-        generated_text TEXT,
-        deleted INTEGER DEFAULT 0
-    )
-    """)
 
-    cur.execute("""
-    INSERT INTO phrase_logs_v2 (
-        created_at,
-        record_type,
-        play_keyword,
-        age_group,
-        curriculum_area,
-        development_area,
-        child_action,
-        generated_text
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        record_type,
-        play_keyword,
-        age_group,
-        curriculum_area,
-        development_area,
-        child_action,
-        generated_text
-    ))
-
-    conn.commit()
-    conn.close()
+def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
+    """TAB5 교사의 온도 기록을 저장합니다."""
+    payload = {
+        "diary_type": diary_type,
+        "memory": memory,
+        "emotion": emotion,
+        "temperature": temperature,
+        "average_temp": average_temp,
+        "temp_message": temp_message,
+        "result_text": result_text,
+        "deleted": False,
+    }
+    supabase.table("teacher_temperature_logs").insert(payload).execute()
 
 
 def load_table(table_name, include_deleted=False):
-    conn = sqlite3.connect(DB_PATH)
-
-    query = f"SELECT * FROM {table_name}"
-
+    """관리자 페이지에서 Supabase 테이블을 DataFrame으로 불러옵니다."""
     try:
+        query = supabase.table(table_name).select("*").order("id", desc=True)
         if not include_deleted:
-            columns = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
-            column_names = columns["name"].tolist()
+            query = query.eq("deleted", False)
+        response = query.execute()
+        return pd.DataFrame(_response_data(response))
+    except Exception as e:
+        st.warning(f"{table_name} 데이터를 불러오지 못했습니다: {e}")
+        return pd.DataFrame()
 
-            if not column_names:
-                conn.close()
-                return pd.DataFrame()
 
-            if "deleted" in column_names:
-                query += " WHERE deleted = 0"
-
-        query += " ORDER BY id DESC"
-        df = pd.read_sql_query(query, conn)
-
-    except Exception:
-        df = pd.DataFrame()
-
-    conn.close()
-    return df
+def soft_delete_record(table_name, record_id):
+    supabase.table(table_name).update({"deleted": True}).eq("id", int(record_id)).execute()
 
 
 def restore_record(table_name, record_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute(
-        f"UPDATE {table_name} SET deleted = 0 WHERE id = ?",
-        (record_id,)
-    )
-
-    conn.commit()
-    conn.close()
+    supabase.table(table_name).update({"deleted": False}).eq("id", int(record_id)).execute()
 
 
 def draw_category_chart(series: pd.Series, title: str):
@@ -512,7 +375,6 @@ def draw_category_chart(series: pd.Series, title: str):
             height=260,
             title=title
         )
-
         st.altair_chart(chart, use_container_width=True)
     else:
         st.bar_chart(chart_df.set_index("범주"))
@@ -523,31 +385,41 @@ def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    df["created_at_dt"] = pd.to_datetime(df["created_at"], errors="coerce")
+    df["created_at_dt"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
+    df = df.dropna(subset=["created_at_dt"])
 
-    now = pd.Timestamp.now()
+    now_kr = pd.Timestamp.now(tz="Asia/Seoul")
+    created_kr = df["created_at_dt"].dt.tz_convert("Asia/Seoul")
 
     if period == "오늘":
-        return df[df["created_at_dt"].dt.date == now.date()]
+        return df[created_kr.dt.date == now_kr.date()]
 
     if period == "최근 7일":
-        start_date = now - pd.Timedelta(days=7)
-        return df[df["created_at_dt"] >= start_date]
+        start_date_utc = (now_kr - pd.Timedelta(days=7)).tz_convert("UTC")
+        return df[df["created_at_dt"] >= start_date_utc]
 
     if period == "이번 달":
         return df[
-            (df["created_at_dt"].dt.year == now.year)
-            & (df["created_at_dt"].dt.month == now.month)
+            (created_kr.dt.year == now_kr.year)
+            & (created_kr.dt.month == now_kr.month)
         ]
 
     return df
 
 
-
-    init_db()
-    create_phrase_logs_table()
-    ensure_db_columns()
-
+def render_menu_card(title: str, description: str, chips: list[str] | None = None):
+    chips = chips or []
+    chip_html = "".join([f"<span class='info-chip'>{chip}</span>" for chip in chips])
+    st.markdown(
+        f"""
+        <div class="menu-card">
+            <div class="menu-card-title">{title}</div>
+            <div class="menu-card-desc">{description}</div>
+            <div>{chip_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
@@ -560,8 +432,8 @@ st.markdown("""
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=5)
-    max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=3)
+    top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
+    max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
     st.divider()
     st.markdown("### 🌿 이용 안내")
     st.caption("☞ 사진 선별과 기록, 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
@@ -657,8 +529,11 @@ def send_verification_email(to_email, code):
 # TAB 1. 소통
 # =========================
 with tab1:
-    st.subheader("💬 함께 소통해요")
-    st.write("교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.")
+    render_menu_card(
+        "💬 함께 소통해요",
+        "교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.",
+        ["회원가입", "이메일 인증", "자료 안내"]
+    )
 
     st.markdown("### 1. 기관 기본 정보")
     institution_name = st.text_input(
@@ -874,6 +749,7 @@ with tab1:
             }
 
             save_subscriber(submitted_data)
+            st.session_state["is_subscribed"] = True
             st.success("정보가 제출되었습니다.")
             st.json(submitted_data)
 
@@ -909,7 +785,11 @@ def split_sentences(text: str) -> list[str]:
 
 def make_core_summary(text: str, max_sentences: int = 3) -> str:
     sentences = split_sentences(text)
-    keywords = ["동화", "놀이", "활동", "산책", "식사", "휴식", "대화", "질문", "탐색", "표현", "관찰", "친구", "교사", "참여", "관심", "경험", "만들", "그리", "읽", "말"]
+    keywords = [
+        "동화", "놀이", "활동", "산책", "식사", "휴식", "대화", "질문", "탐색", "표현",
+        "관찰", "친구", "교사", "참여", "관심", "경험", "만들", "그리", "읽", "말",
+        "협력", "반복", "시도", "감각", "역할", "상상", "조절", "선택", "공유", "발견"
+    ]
     scored = []
     for idx, sentence in enumerate(sentences):
         score = sum(1 for keyword in keywords if keyword in sentence)
@@ -926,171 +806,331 @@ def remove_bullets(summary: str) -> str:
     text = summary.replace("- ", " ").replace("\n", " ")
     return re.sub(r"\s+", " ", text).strip()
 
+def remove_bullets(summary: str) -> str:
+    text = summary.replace("- ", " ").replace("\n", " ")
+    return re.sub(r"\s+", " ", text).strip()
 
-def make_diary_message(summary: str, teacher_tone: str, daily_scope: str, record_type: str) -> str:
-    clean_summary = remove_bullets(summary)
+def extract_play_meaning(original_text: str, summary: str, daily_scope: str, record_type: str) -> dict:
+    clean_text = remove_bullets(summary)
 
-    scope_phrases_plain = {
-        "놀이 장면 중심": "놀이 중 나타난 참여와 상호작용을 중심으로 살펴보았다.",
-        "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 살펴보았다.",
-        "하루 전체 흐름": "하루 일과의 흐름 속에서 나타난 아이의 모습을 살펴보았다.",
-        "특별활동 중심": "특별활동에서 나타난 아이의 경험과 반응을 중심으로 살펴보았다.",
+    activity_keywords = {
+        "색깔": "색을 살펴보고 구분해보는 놀이",
+        "색": "색을 살펴보고 구분해보는 놀이",
+        "블록": "블록을 구성하고 공간을 만들어보는 놀이",
+        "물감": "색과 재료를 감각적으로 탐색하는 미술 놀이",
+        "역할": "상상한 내용을 말과 행동으로 표현하는 역할 놀이",
+        "바깥": "몸을 움직이며 주변 환경을 탐색하는 바깥놀이",
+        "산책": "주변 자연과 환경을 살펴보는 산책 활동",
+        "동화": "이야기를 듣고 생각과 느낌을 나누는 동화 활동",
+        "노래": "리듬과 소리를 느끼며 표현하는 음악 활동",
+        "점프": "몸의 움직임을 조절하며 참여하는 신체 놀이",
+        "공": "공을 주고받으며 신체 조절을 경험하는 놀이",
+        "모래": "모래의 촉감과 형태를 탐색하는 감각 놀이",
+        "물": "물의 움직임과 변화를 탐색하는 감각 놀이",
     }
 
-    scope_phrases_polite = {
-        "놀이 장면 중심": "놀이 중 보인 참여와 상호작용을 중심으로 전해드립니다.",
-        "일상생활 중심": "식사, 휴식, 전이 등 일상 속 모습을 중심으로 전해드립니다.",
-        "하루 전체 흐름": "하루 흐름 속에서 보인 아이들의 모습을 전해드립니다.",
-        "특별활동 중심": "특별활동에서 보인 아이들의 경험을 중심으로 전해드립니다.",
+    activity = "놀이와 일상 속 경험"
+    for keyword, value in activity_keywords.items():
+        if keyword in original_text or keyword in summary:
+            activity = value
+            break
+
+    scope_intro = {
+        "놀이 장면 중심": "오늘 아이들은 놀이 장면 속에서",
+        "일상생활 중심": "오늘 아이들은 일상생활 속에서",
+        "하루 전체 흐름": "오늘 하루의 흐름 속에서",
+        "특별활동 중심": "오늘 특별활동을 통해",
+    }.get(daily_scope, "오늘 아이들은")
+
+    meaning_map = {
+        "알림장용": "이 과정은 아이들이 주변을 관찰하고 자신의 생각을 표현하며 배움을 넓혀가는 경험으로 이어졌습니다.",
+        "기관 홍보용": "이러한 경험은 아이들이 놀이 속에서 자연스럽게 배우고 성장하는 과정으로 연결되었습니다.",
+        "관찰 기록용": "해당 장면은 아이의 탐색, 표현, 상호작용 과정을 살펴볼 수 있는 의미 있는 관찰 장면이었다.",
+        "서술형 일지용": "이 경험은 아이들의 흥미와 반응을 바탕으로 놀이가 확장되는 과정으로 볼 수 있었다.",
     }
 
-    scope_plain = scope_phrases_plain.get(daily_scope, "")
-    scope_polite = scope_phrases_polite.get(daily_scope, "")
+    return {
+        "activity": activity,
+        "summary_text": clean_text,
+        "scope_intro": scope_intro,
+        "meaning": meaning_map.get(record_type, meaning_map["알림장용"]),
+    }
 
-    # 1. 관찰 기록용: 종결어미 ~다.
-    if record_type == "관찰 기록용":
-        if teacher_tone == "팩트 중심형":
-            return (
-                f"{clean_summary}\n\n"
-                f"{scope_plain}\n"
-                f"관찰 내용은 아이의 참여 과정, 반응, 상호작용을 중심으로 정리하였다."
-            )
 
-        if teacher_tone == "따뜻한 감성형":
-            return (
-                f"{clean_summary}\n\n"
-                f"아이의 작은 반응과 시도를 중심으로 관찰하였다.\n"
-                f"해당 장면에서 아이가 편안하게 경험에 참여하려는 모습이 나타났다."
-            )
+def build_restructured_diary(original_text: str, summary: str, daily_scope: str, record_type: str) -> str:
+    info = extract_play_meaning(original_text, summary, daily_scope, record_type)
 
-        if teacher_tone == "이모티콘 활용형":
-            return (
-                f"{clean_summary}\n\n"
-                f"{scope_plain}\n"
-                f"관찰 기록에서는 이모티콘을 사용하지 않고, 아이의 행동과 반응을 객관적으로 정리하였다."
-            )
+    if record_type in ["관찰 기록용", "서술형 일지용"]:
+        return (
+            f"{info['scope_intro']} {info['activity']}에 참여하는 모습이 나타났다.\n\n"
+            f"주요 장면은 {info['summary_text']}\n\n"
+            f"{info['meaning']}"
+        )
 
-        if teacher_tone == "전문적 설명형":
-            return (
-                f"{clean_summary}\n\n"
-                f"해당 장면은 아이의 탐색, 표현, 관계 경험을 확인할 수 있는 상황으로 볼 수 있다.\n"
-                f"교사는 아이의 반응을 관찰하며 필요한 지원을 제공하였다."
-            )
+    return (
+        f"{info['scope_intro']} {info['activity']}에 즐겁게 참여했습니다.\n\n"
+        f"아이들은 활동 과정에서 관심을 보이고, 자신의 방식으로 탐색하고 표현하는 모습을 보였습니다.\n\n"
+        f"{info['meaning']}"
+    )
 
-    # 2. 서술형 일지용: 종결어미 ~다.
-    if record_type == "서술형 일지용":
-        if teacher_tone == "팩트 중심형":
-            return (
-                f"오늘 일과에서는 {scope_plain}\n\n"
-                f"{clean_summary}\n\n"
-                f"교사는 아이들의 반응을 살피며 일과가 안정적으로 이어질 수 있도록 지원하였다."
-            )
+DIARY_MESSAGE_BANK = {
+    "알림장용": {
+        "팩트 중심형": [
+            "오늘 아이들의 모습을 간단히 전해드립니다.",
+            "오늘 하루 중 의미 있었던 장면을 중심으로 전해드립니다.",
+            "오늘 원에서 보인 아이들의 활동 모습을 정리해드립니다.",
+            "오늘의 놀이와 일상 모습을 중심으로 안내드립니다.",
+            "오늘 아이들이 참여한 활동 내용을 간단히 공유드립니다.",
+            "오늘 하루 흐름 속에서 보인 모습을 전해드립니다.",
+            "오늘 아이들의 참여 장면을 중심으로 알려드립니다.",
+            "오늘 관찰된 주요 활동 모습을 공유드립니다.",
+            "오늘의 경험 중 가정과 함께 나누면 좋을 장면을 전해드립니다.",
+            "오늘 아이들이 경험한 놀이 장면을 정리해드립니다.",
+        ],
+        "따뜻한 감성형": [
+            "오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었습니다.",
+            "오늘 교실에는 아이들의 작은 웃음과 시도가 함께 담긴 장면이 있었습니다.",
+            "오늘 아이들의 표정과 반응 속에서 따뜻한 배움의 순간을 볼 수 있었습니다.",
+            "오늘 아이들은 각자의 속도로 놀이에 다가가며 하루를 채워갔습니다.",
+            "오늘의 작은 표현들이 모여 의미 있는 하루가 되었습니다.",
+            "아이들의 눈빛과 손짓에서 즐거운 참여가 느껴졌습니다.",
+            "오늘 하루에도 아이들만의 반짝이는 장면이 있었습니다.",
+            "아이들은 편안한 분위기 속에서 자신의 방식으로 경험을 이어갔습니다.",
+            "오늘의 놀이 속에서 아이들의 마음이 조금씩 열리는 모습을 볼 수 있었습니다.",
+            "작은 시도 하나도 소중하게 느껴지는 하루였습니다.",
+        ],
+        "이모티콘 활용형": [
+            "오늘 우리 아이들은 즐겁게 하루를 보냈습니다 😊",
+            "오늘도 교실에는 아이들의 웃음이 가득했습니다 🌿",
+            "아이들이 놀이 속에서 즐거운 경험을 쌓았습니다 ✨",
+            "오늘의 작은 시도가 아이들에게 좋은 기억이 되었기를 바랍니다 😊",
+            "아이들이 자신의 방식으로 놀이에 참여했습니다 🌱",
+            "오늘 하루도 아이들의 반짝이는 장면이 있었습니다 💛",
+            "놀이 속에서 아이들의 호기심이 자라났습니다 🔍",
+            "가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿",
+            "아이들의 즐거운 참여를 함께 응원해 주세요 😊",
+            "오늘의 경험이 따뜻한 대화로 이어지길 바랍니다 ✨",
+        ],
+        "전문적 설명형": [
+            "오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.",
+            "해당 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다.",
+            "놀이 과정에서 아이들은 자신의 생각을 표현하고 주변과 상호작용했습니다.",
+            "오늘의 장면은 아이들의 자발적 참여와 의미 구성 과정을 보여주었습니다.",
+            "활동 중 아이들은 관찰, 비교, 표현의 과정을 자연스럽게 경험했습니다.",
+            "일상 속 경험이 놀이와 연결되며 배움의 흐름을 만들었습니다.",
+            "아이들의 반응은 발달적 특성과 현재의 관심을 이해하는 단서가 되었습니다.",
+            "교사는 아이들의 흥미를 바탕으로 놀이가 이어질 수 있도록 지원했습니다.",
+            "이 경험은 아이들의 자기표현과 관계 형성에 긍정적으로 연결되었습니다.",
+            "오늘 활동은 놀이 중심 교육과정의 의미를 확인할 수 있는 장면이었습니다.",
+        ],
+    },
+    "관찰 기록용": {
+        "팩트 중심형": [
+            "관찰 내용은 아이의 참여 과정, 반응, 상호작용을 중심으로 정리하였다.",
+            "해당 장면에서 아이의 행동과 반응을 객관적으로 기록하였다.",
+            "관찰은 활동 참여 여부와 반응의 변화를 중심으로 이루어졌다.",
+            "아이의 관심, 시도, 반응을 중심으로 관찰 내용을 정리하였다.",
+            "놀이 상황에서 나타난 행동 특성을 중심으로 기록하였다.",
+            "활동 중 보인 언어적·비언어적 반응을 중심으로 살펴보았다.",
+            "아이의 자발적 참여와 교사의 지원에 대한 반응을 기록하였다.",
+            "자료 탐색과 또래 반응을 중심으로 관찰하였다.",
+            "놀이의 시작, 지속, 전환 과정에서 나타난 모습을 정리하였다.",
+            "관찰 장면에서 나타난 행동 단서를 중심으로 기록하였다.",
+        ],
+        "따뜻한 감성형": [
+            "아이의 작은 반응과 시도를 중심으로 관찰하였다.",
+            "해당 장면에서 아이가 편안하게 경험에 참여하려는 모습이 나타났다.",
+            "아이의 조심스러운 시도와 관심 표현을 의미 있게 관찰하였다.",
+            "놀이 안에서 아이가 자신의 속도로 참여하는 모습이 나타났다.",
+            "아이의 표정과 행동에서 활동에 대한 흥미를 확인할 수 있었다.",
+            "교사의 지원 속에서 아이가 안정적으로 참여하는 모습이 관찰되었다.",
+            "작은 표현 안에서 아이의 관심과 즐거움이 드러났다.",
+            "아이의 반복적인 시도는 놀이에 대한 몰입으로 볼 수 있었다.",
+            "아이의 반응을 존중하며 참여 과정을 살펴보았다.",
+            "해당 장면은 아이의 정서적 안정감과 참여 의지를 보여주었다.",
+        ],
+        "이모티콘 활용형": [
+            "관찰 기록에서는 이모티콘을 사용하지 않고, 아이의 행동과 반응을 객관적으로 정리하였다.",
+            "공식 기록의 성격을 고려하여 행동 중심 문장으로 기록하였다.",
+            "아이의 반응은 객관적 표현으로 정리하였다.",
+            "관찰 내용은 놀이 상황에서 나타난 행동 사실을 중심으로 기록하였다.",
+            "감정 표현보다 관찰 가능한 행동 단서를 중심으로 정리하였다.",
+            "아이의 참여 과정은 사실 문장으로 기록하였다.",
+            "관찰 기록은 행동, 반응, 지원 내용을 중심으로 구성하였다.",
+            "교사의 해석은 최소화하고 관찰 장면을 중심으로 기술하였다.",
+            "놀이 중 나타난 시도와 반응을 문장으로 기록하였다.",
+            "아이의 행동 흐름을 객관적인 문체로 정리하였다.",
+        ],
+        "전문적 설명형": [
+            "해당 장면은 아이의 탐색, 표현, 관계 경험을 확인할 수 있는 상황으로 볼 수 있다.",
+            "교사는 아이의 반응을 관찰하며 필요한 지원을 제공하였다.",
+            "놀이 과정은 아이의 현재 흥미와 발달적 요구를 이해하는 단서가 되었다.",
+            "아이의 행동은 주변 환경과 상호작용하며 의미를 구성하는 과정으로 볼 수 있다.",
+            "해당 경험은 아이의 자기조절과 사회적 반응을 살펴볼 수 있는 장면이었다.",
+            "교사는 아이의 참여 수준을 고려하여 활동 지속을 지원하였다.",
+            "관찰 장면은 아이의 언어, 인지, 사회정서 발달과 관련하여 해석할 수 있다.",
+            "놀이 맥락에서 나타난 반응은 교육적 지원 방향을 설정하는 근거가 되었다.",
+            "아이의 시도와 반응은 발달 과정을 이해하는 중요한 자료가 되었다.",
+            "교사는 아이의 흥미를 존중하며 놀이가 확장될 수 있도록 환경을 조성하였다.",
+        ],
+    },
+    "서술형 일지용": {
+        "팩트 중심형": [
+            "교사는 아이들의 반응을 살피며 일과가 안정적으로 이어질 수 있도록 지원하였다.",
+            "오늘 일과는 활동 참여와 일상 흐름을 중심으로 진행되었다.",
+            "아이들은 각자의 방식으로 활동에 참여하며 경험을 이어갔다.",
+            "교사는 활동 전개 과정에서 아이들의 반응을 관찰하였다.",
+            "일과 중 나타난 참여 장면을 중심으로 기록하였다.",
+            "아이들의 활동 과정과 교사의 지원 내용을 중심으로 정리하였다.",
+            "오늘의 일지는 놀이와 일상 경험의 흐름을 중심으로 작성하였다.",
+            "활동 중 아이들의 반응과 참여 양상을 살펴보았다.",
+            "교사는 아이들이 활동에 안정적으로 참여할 수 있도록 지원하였다.",
+            "일과 전반에서 나타난 의미 있는 장면을 중심으로 정리하였다.",
+        ],
+        "따뜻한 감성형": [
+            "교사는 아이들이 자신의 속도에 맞게 경험에 참여할 수 있도록 정서적으로 지원하였다.",
+            "오늘 일과 속에서 아이들의 작은 시도와 반응을 살펴볼 수 있었다.",
+            "아이들의 표정과 움직임 속에서 놀이에 대한 즐거움이 나타났다.",
+            "교사는 아이들의 마음이 안정될 수 있도록 따뜻하게 상호작용하였다.",
+            "아이들은 편안한 분위기 속에서 하루의 경험을 이어갔다.",
+            "작은 장면 안에서도 아이들의 성장과 시도를 확인할 수 있었다.",
+            "오늘 일과는 아이들의 흥미와 정서적 안정감을 바탕으로 이어졌다.",
+            "교사는 아이들의 반응을 존중하며 놀이가 자연스럽게 전개되도록 지원하였다.",
+            "아이들은 서로의 모습을 살피며 함께하는 즐거움을 경험하였다.",
+            "오늘의 장면은 아이들의 따뜻한 관계 경험을 보여주었다.",
+        ],
+        "이모티콘 활용형": [
+            "서술형 일지는 공식 기록의 성격을 고려하여 이모티콘 없이 문장으로 정리하였다.",
+            "오늘의 일과는 문장 중심의 기록으로 정리하였다.",
+            "아이들의 경험은 객관적이고 서술적인 문장으로 기술하였다.",
+            "교사는 활동 흐름과 아이들의 반응을 중심으로 기록하였다.",
+            "일지는 놀이의 의미와 일과의 흐름을 함께 담아 작성하였다.",
+            "아이들의 참여 장면은 공식 기록에 적합한 표현으로 정리하였다.",
+            "감성 표현보다 일과와 지원 과정을 중심으로 기록하였다.",
+            "아이들의 시도와 교사의 지원 내용을 균형 있게 서술하였다.",
+            "오늘의 장면은 일지 형식에 맞추어 차분하게 정리하였다.",
+            "활동 과정은 문장형 기록으로 남겼다.",
+        ],
+        "전문적 설명형": [
+            "해당 경험은 아이들의 탐색, 표현, 사회적 관계 형성과 연결되며, 교사는 놀이와 일상 경험이 자연스럽게 이어질 수 있도록 지원하였다.",
+            "오늘의 일과는 아이들의 참여 과정과 반응을 중심으로 구성되었다.",
+            "교사는 놀이 맥락 안에서 아이들의 발달적 의미를 살펴보았다.",
+            "아이들의 경험은 교육과정과 발달 영역이 통합적으로 나타나는 장면이었다.",
+            "활동은 아이들의 흥미를 바탕으로 전개되었으며 교사는 필요한 지원을 제공하였다.",
+            "해당 장면은 아이들의 자기표현과 관계 경험을 이해하는 자료가 되었다.",
+            "교사는 아이들의 반응을 토대로 놀이 환경을 조정하였다.",
+            "오늘 일과는 놀이 중심 교육과정의 흐름 속에서 의미 있게 전개되었다.",
+            "아이들의 행동은 탐색과 표현, 상호작용의 관점에서 살펴볼 수 있었다.",
+            "교사는 관찰 내용을 바탕으로 다음 놀이 지원 방향을 고려하였다.",
+        ],
+    },
+    "기관 홍보용": {
+        "팩트 중심형": [
+            "우리 기관은 아이들의 일상 속 배움과 성장을 세심하게 기록하고 있습니다.",
+            "아이들은 놀이를 통해 다양한 경험에 참여했습니다.",
+            "오늘의 활동은 아이들의 자발적 참여를 중심으로 이루어졌습니다.",
+            "우리 기관은 놀이와 일상 속 배움을 균형 있게 지원하고 있습니다.",
+            "아이들은 활동 과정에서 탐색과 표현을 경험했습니다.",
+            "오늘도 교실에서는 의미 있는 놀이 장면이 이어졌습니다.",
+            "우리 기관은 아이들의 작은 시도도 소중한 배움으로 바라보고 있습니다.",
+            "아이들의 참여 과정은 성장의 중요한 장면으로 기록되고 있습니다.",
+            "오늘의 경험은 아이들의 일상 속 배움으로 연결되었습니다.",
+            "우리 기관은 아이들이 안전하고 즐겁게 성장할 수 있도록 지원하고 있습니다.",
+        ],
+        "따뜻한 감성형": [
+            "우리 기관은 아이들이 놀이 속에서 편안하게 경험하고 성장할 수 있도록 함께하고 있습니다.",
+            "오늘도 아이들의 하루에는 작고 소중한 배움의 장면이 있었습니다.",
+            "아이들의 웃음과 호기심이 교실을 따뜻하게 채웠습니다.",
+            "우리 기관은 아이들의 반짝이는 순간을 놓치지 않고 기록하고 있습니다.",
+            "작은 손짓과 표정도 아이들의 성장 이야기로 소중히 바라보고 있습니다.",
+            "아이들은 따뜻한 관계 속에서 놀이의 즐거움을 경험했습니다.",
+            "오늘의 교실에는 아이들의 마음이 열리는 순간들이 있었습니다.",
+            "우리 기관은 아이들이 자신답게 자라날 수 있도록 곁에서 지원하고 있습니다.",
+            "놀이 속 작은 발견이 아이들의 행복한 배움으로 이어지고 있습니다.",
+            "아이들의 하루를 따뜻하게 기록하고 나누는 기관이 되겠습니다.",
+        ],
+        "이모티콘 활용형": [
+            "놀이 속 작은 경험이 아이들의 배움으로 이어질 수 있도록 따뜻하게 지원하고 있습니다 😊",
+            "오늘 우리 아이들은 즐겁게 하루를 보냈습니다 🌿",
+            "아이들의 호기심이 반짝이는 하루였습니다 ✨",
+            "우리 기관은 아이들의 작은 발견을 함께 응원합니다 💛",
+            "놀이 안에서 자라는 아이들의 모습을 소중히 기록하고 있습니다 🌱",
+            "오늘도 교실에는 웃음과 배움이 함께했습니다 😊",
+            "아이들의 하루가 따뜻한 경험으로 채워졌습니다 🌼",
+            "작은 놀이가 큰 성장으로 이어지고 있습니다 ✨",
+            "아이들의 반응 하나하나를 소중히 바라보고 있습니다 🌿",
+            "앞으로도 아이들의 즐거운 배움을 함께 만들어가겠습니다 😊",
+        ],
+        "전문적 설명형": [
+            "우리 기관은 놀이와 일상 경험이 아이들의 발달적 성장으로 연결될 수 있도록 교육적 환경을 구성하고 있습니다.",
+            "오늘의 활동은 아이들의 참여, 탐색, 표현 경험을 중심으로 이루어졌습니다.",
+            "놀이 중심 교육과정 안에서 아이들은 주도성과 상호작용을 경험했습니다.",
+            "우리 기관은 아이들의 발달 특성과 흥미를 반영하여 교육 환경을 마련하고 있습니다.",
+            "아이들의 활동 과정은 교육과정과 발달 경험이 통합적으로 나타나는 장면입니다.",
+            "교사는 아이들의 반응을 관찰하며 놀이가 확장될 수 있도록 지원하고 있습니다.",
+            "아이들은 놀이 안에서 문제 해결, 표현, 관계 경험을 자연스럽게 쌓아가고 있습니다.",
+            "우리 기관은 관찰과 기록을 바탕으로 아이들의 배움을 세심하게 지원합니다.",
+            "오늘의 장면은 아이들의 자발성과 탐구 과정이 드러난 의미 있는 사례입니다.",
+            "앞으로도 아이들의 성장 과정을 교육적으로 해석하고 지원하겠습니다.",
+        ],
+    },
+}
 
-        if teacher_tone == "따뜻한 감성형":
-            return (
-                f"오늘 일과 속에서 아이들의 작은 시도와 반응을 살펴볼 수 있었다.\n\n"
-                f"{clean_summary}\n\n"
-                f"교사는 아이들이 자신의 속도에 맞게 경험에 참여할 수 있도록 정서적으로 지원하였다."
-            )
+def make_diary_message(restructured_text: str, teacher_tone: str, daily_scope: str, record_type: str) -> str:
+    sentence_bank = DIARY_MESSAGE_BANK.get(record_type, DIARY_MESSAGE_BANK["알림장용"]).get(teacher_tone, [])
+    selected_sentences = random.sample(sentence_bank, k=min(2, len(sentence_bank))) if sentence_bank else []
+    selected_text = "\n".join([f"- {s}" for s in selected_sentences])
 
-        if teacher_tone == "이모티콘 활용형":
-            return (
-                f"오늘 일과에서는 {scope_plain}\n\n"
-                f"{clean_summary}\n\n"
-                f"서술형 일지는 공식 기록의 성격을 고려하여 이모티콘 없이 문장으로 정리하였다."
-            )
+    if record_type in ["관찰 기록용", "서술형 일지용"]:
+        return (
+            f"{restructured_text}\n\n"
+            f"{selected_text}"
+        )
 
-        if teacher_tone == "전문적 설명형":
-            return (
-                f"오늘의 일과는 아이들의 참여 과정과 반응을 중심으로 구성되었다.\n\n"
-                f"{clean_summary}\n\n"
-                f"해당 경험은 아이들의 탐색, 표현, 사회적 관계 형성과 연결되며, 교사는 놀이와 일상 경험이 자연스럽게 이어질 수 있도록 지원하였다."
-            )
-
-    # 3. 기관 홍보용: 종결어미 ~습니다.
     if record_type == "기관 홍보용":
-        if teacher_tone == "팩트 중심형":
-            return (
-                f"오늘 우리 아이들은 {daily_scope}을/를 중심으로 다양한 경험에 참여했습니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"우리 기관은 아이들의 일상 속 배움과 성장을 세심하게 기록하고 있습니다."
-            )
+        return (
+            f"{restructured_text}\n\n"
+            f"{selected_text}"
+        )
 
-        if teacher_tone == "따뜻한 감성형":
-            return (
-                f"오늘도 아이들의 하루에는 작고 소중한 배움의 장면이 있었습니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"우리 기관은 아이들이 놀이 속에서 편안하게 경험하고 성장할 수 있도록 함께하고 있습니다."
-            )
+    return (
+        f"{restructured_text}\n\n"
+        f"{selected_text}"
+    )
 
-        if teacher_tone == "이모티콘 활용형":
-            return (
-                f"오늘 우리 아이들은 즐겁게 하루를 보냈습니다 🌿\n\n"
-                f"{clean_summary}\n\n"
-                f"놀이 속 작은 경험이 아이들의 배움으로 이어질 수 있도록 따뜻하게 지원하고 있습니다 😊"
-            )
-
-        if teacher_tone == "전문적 설명형":
-            return (
-                f"오늘의 활동은 아이들의 참여, 탐색, 표현 경험을 중심으로 이루어졌습니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"우리 기관은 놀이와 일상 경험이 아이들의 발달적 성장으로 연결될 수 있도록 교육적 환경을 구성하고 있습니다."
-            )
-
-    # 4. 알림장용: 종결어미 ~습니다 / ~어요 가능
-    if record_type == "알림장용":
-        if teacher_tone == "팩트 중심형":
-            return (
-                f"오늘 아이들의 모습을 간단히 전해드립니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"{scope_polite}"
-            )
-
-        if teacher_tone == "따뜻한 감성형":
-            return (
-                f"오늘 아이들은 하루 속에서 즐겁게 참여하는 모습을 보여주었습니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"아이들의 작은 표현과 반응이 참 소중하게 느껴지는 하루였습니다."
-            )
-
-        if teacher_tone == "이모티콘 활용형":
-            return (
-                f"오늘 우리 아이들은 즐겁게 하루를 보냈습니다 😊\n\n"
-                f"{clean_summary}\n\n"
-                f"가정에서도 오늘의 이야기를 함께 나누어 주세요 🌿"
-            )
-
-        if teacher_tone == "전문적 설명형":
-            return (
-                f"오늘 활동에서는 아이들의 참여 과정과 반응을 중심으로 살펴볼 수 있었습니다.\n\n"
-                f"{clean_summary}\n\n"
-                f"이러한 경험은 아이들의 탐색과 표현, 관계 경험을 넓히는 데 도움이 되었습니다."
-            )
-
-    return clean_summary
 
 AGE_NOTICE = {
-    "0세": "눈으로 보고 손으로 만지며 감각적으로 경험했어요.",
-    "1세": "관심 있는 대상을 반복해서 살펴보며 즐겁게 참여했어요.",
-    "2세": "좋아하는 놀이에 관심을 보이며 말과 행동으로 표현해 보았어요.",
-    "3세": "상상과 역할을 더해 놀이를 확장해 보았어요.",
-    "4세": "친구들과 생각을 나누며 놀이를 이어갔어요.",
-    "5세": "규칙과 협력을 바탕으로 놀이를 주도해 보았어요.",
+    "0세": "감각적으로 보고 만지고 느끼며 경험을 쌓아가고 있습니다.",
+    "1세": "관심 있는 대상을 반복해서 살펴보며 놀이에 참여하고 있습니다.",
+    "2세": "좋아하는 놀이에 관심을 보이며 말과 행동으로 표현하고 있습니다.",
+    "3세": "상상과 역할을 더해 놀이를 확장해 가고 있습니다.",
+    "4세": "친구들과 생각을 나누며 놀이를 이어가고 있습니다.",
+    "5세": "규칙과 협력을 바탕으로 놀이를 주도해 가고 있습니다.",
 }
-CURRICULUM_RECORD = FORMAL = {
+
+STANDARD_AREAS = ["기본생활", "신체운동", "의사소통", "사회관계", "예술경험", "자연탐구"]
+NURI_AREAS = ["신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"]
+
+CURRICULUM_RECORD = {
+    "기본생활": "일상 속 안정감과 기본생활 습관을 자연스럽게 경험하는 과정과 연결됩니다.",
+    "신체운동": "몸을 움직이며 감각과 신체 조절력을 기르는 경험과 연결됩니다.",
     "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됩니다.",
-    "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됩니다.",
+    "의사소통": "자신의 생각과 느낌을 말, 몸짓, 표정으로 표현하는 경험과 연결됩니다.",
     "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됩니다.",
     "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됩니다.",
     "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됩니다.",
 }
+
 CURRICULUM_RECORD_NOTE = {
+    "기본생활": "일상 속 안정감과 기본생활 습관을 경험하는 과정과 연결됨.",
+    "신체운동": "몸을 움직이며 감각과 신체 조절력을 기르는 경험과 연결됨.",
     "신체운동·건강": "신체 움직임을 조절하고 건강하게 놀이에 참여하는 경험과 연결됨.",
-    "의사소통": "자신의 생각과 느낌을 말이나 행동으로 표현하는 경험과 연결됨.",
+    "의사소통": "자신의 생각과 느낌을 말, 몸짓, 표정으로 표현하는 경험과 연결됨.",
     "사회관계": "친구와 관계를 맺고 함께 놀이를 이어가는 경험과 연결됨.",
     "예술경험": "느낌과 생각을 다양한 방식으로 표현하는 경험과 연결됨.",
     "자연탐구": "주변 세계에 호기심을 가지고 관찰하고 탐색하는 경험과 연결됨.",
 }
+
 DEVELOPMENT_RECORD_FORMAL = {
     "신체": "신체 조절력과 움직임의 자신감을 키워가는 과정이 나타납니다.",
     "언어": "새로운 어휘와 표현을 시도하며 언어적 경험을 확장합니다.",
@@ -1106,28 +1146,146 @@ DEVELOPMENT_RECORD_NOTE = {
     "사회정서": "친구와 감정을 나누고 관계 속에서 안정감을 경험함.",
     "창의성": "새로운 방법을 떠올리고 자신만의 방식으로 표현함.",
 }
+
+# 알림장 부모 전달 문구: 각 성향별 10개
 PARENT_TEMPLATES = {
-    "일반형": ["가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.", "OO의 작은 표현과 반응을 함께 응원해 주세요.", "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다."],
-    "불안형": ["OO이의 속도에 맞추어 천천히 경험하고 있으니 편안하게 지켜봐 주세요.", "처음에는 조심스러워도 조금씩 놀이에 익숙해지는 모습을 보이고 있습니다.", "아이마다 참여하는 속도가 다르니 오늘의 작은 시도도 소중하게 봐주시면 좋겠습니다."],
-    "정보형": ["이 활동은 OO이가 직접 보고 만지고 표현해 보는 경험으로 이어졌습니다.", "놀이 과정에서 탐색, 표현, 관계 경험이 자연스럽게 함께 이루어졌습니다.", "오늘 활동은 OO이가 스스로 시도하고 주변을 살펴보는 데 도움이 되었습니다."],
-    "감성형": ["작은 손짓과 표정 속에서도 OO이의 즐거움이 잘 느껴졌습니다.", "OO이의 하루 안에 반짝이는 장면이 하나 더 쌓였습니다.", "오늘의 놀이가 OO이 마음속에 따뜻한 기억으로 남기를 바랍니다."],
+    "일반형": [
+        "가정에서도 오늘 경험한 이야기를 편안하게 나누어 보시면 좋겠습니다.",
+        "OO이의 작은 표현과 반응을 함께 응원해 주세요.",
+        "오늘의 경험이 OO이에게 즐거운 기억으로 남았으면 좋겠습니다.",
+        "가정에서도 OO이가 이야기하는 놀이 장면에 귀 기울여 주세요.",
+        "오늘의 작은 시도가 다음 놀이로 이어질 수 있도록 함께 격려해 주세요.",
+        "OO이가 스스로 해보려는 모습을 따뜻하게 바라봐 주세요.",
+        "놀이 속에서 보인 관심이 가정 대화로도 이어지면 좋겠습니다.",
+        "오늘 경험한 내용을 짧게 다시 이야기해 보면 기억을 정리하는 데 도움이 됩니다.",
+        "OO이가 즐거웠던 장면을 떠올릴 수 있도록 편안히 물어봐 주세요.",
+        "가정과 원이 함께 OO이의 하루를 응원하겠습니다.",
+    ],
+    "불안형": [
+        "OO이의 속도에 맞추어 천천히 경험하고 있으니 편안하게 지켜봐 주세요.",
+        "처음에는 조심스러워도 조금씩 놀이에 익숙해지는 모습을 보이고 있습니다.",
+        "아이마다 참여하는 속도가 다르니 오늘의 작은 시도도 소중하게 봐주시면 좋겠습니다.",
+        "OO이가 안정감을 느끼며 참여할 수 있도록 원에서도 천천히 지원하고 있습니다.",
+        "아직 낯선 장면에서는 시간이 필요하지만, 관심을 보이는 순간들이 나타나고 있습니다.",
+        "작은 변화도 꾸준히 관찰하며 가정과 함께 공유하겠습니다.",
+        "OO이가 부담을 느끼지 않도록 편안한 분위기 속에서 경험을 이어가고 있습니다.",
+        "걱정되실 수 있는 부분은 원에서도 세심하게 살피고 있습니다.",
+        "오늘은 작은 참여가 있었고, 그 시도 자체를 의미 있게 보고 있습니다.",
+        "가정에서도 결과보다 시도한 마음을 먼저 격려해 주시면 좋겠습니다.",
+    ],
+    "정보형": [
+        "이 활동은 OO이가 직접 보고 만지고 표현해 보는 경험으로 이어졌습니다.",
+        "놀이 과정에서 탐색, 표현, 관계 경험이 자연스럽게 함께 이루어졌습니다.",
+        "오늘 활동은 OO이가 스스로 시도하고 주변을 살펴보는 데 도움이 되었습니다.",
+        "해당 경험은 관찰력과 표현력을 함께 확장하는 과정으로 볼 수 있습니다.",
+        "OO이는 놀이 속에서 문제를 발견하고 해결 방법을 찾아보는 경험을 했습니다.",
+        "친구와 함께하는 과정에서 의사소통과 사회적 조율 경험이 나타났습니다.",
+        "반복해서 시도하는 과정은 집중력과 자기조절력을 기르는 데 도움이 됩니다.",
+        "오늘의 장면은 놀이 중심 교육과정 안에서 의미 있는 배움으로 연결됩니다.",
+        "감각적으로 탐색하는 과정이 언어와 사고의 확장으로 이어졌습니다.",
+        "가정에서도 놀이 과정에서 사용한 말과 행동을 함께 떠올려 보시면 좋겠습니다.",
+    ],
+    "감성형": [
+        "작은 손짓과 표정 속에서도 OO이의 즐거움이 잘 느껴졌습니다.",
+        "OO이의 하루 안에 반짝이는 장면이 하나 더 쌓였습니다.",
+        "오늘의 놀이가 OO이 마음속에 따뜻한 기억으로 남기를 바랍니다.",
+        "OO이가 보여준 작은 미소가 오늘 교실을 더 환하게 만들었습니다.",
+        "천천히 다가가고 표현하는 모습에서 OO이만의 속도가 느껴졌습니다.",
+        "오늘의 작은 시도 하나가 OO이에게는 큰 용기였을 수 있습니다.",
+        "놀이 속에서 OO이의 마음이 편안하게 열리는 순간을 볼 수 있었습니다.",
+        "OO이가 경험한 즐거움이 가정에서도 따뜻한 이야기로 이어지길 바랍니다.",
+        "아이의 작은 반응을 발견하는 일이 오늘의 소중한 장면이었습니다.",
+        "OO이의 하루를 함께 응원할 수 있어 감사한 날이었습니다.",
+    ],
 }
+
+# 상황별 문구 자동 생성: 기록 유형별 10개씩
 OBSERVATION_TEMPLATES = {
-    "알림장용": ["오늘은 {keyword} 활동을 해보았습니다. OO는 {action}을 보이며 즐겁게 참여했습니다.", "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.", "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.", "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다."],
-    "관찰 기록용": ["{keyword} 활동 중 {child}는 {action}을 보임.", "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.", "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.", "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임."],
-    "서술형 일지용": ["{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었음.", "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었음.", "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였음.", "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였음."],
-    "기관 홍보용": ["오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.", "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.", "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.", "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다."],
+    "알림장용": [
+        "오늘은 {keyword} 활동을 해보았습니다. OO이는 {action}을 보이며 즐겁게 참여했습니다.",
+        "{keyword} 활동 시간에 OO이가 {action}을 보여주었습니다.",
+        "오늘 {keyword} 놀이를 하며 OO이가 스스로 관심을 보이고 참여하는 모습을 볼 수 있었습니다.",
+        "{keyword} 활동 속에서 OO이는 편안하게 놀이에 참여했습니다.",
+        "OO이는 {keyword} 놀이 중 주변을 살피며 {action}을 보였습니다.",
+        "{keyword} 활동에서 OO이는 자신의 방식으로 탐색하며 놀이를 이어갔습니다.",
+        "오늘 OO이는 {keyword} 장면에서 친구와 함께하는 즐거움을 경험했습니다.",
+        "OO이는 {keyword} 놀이를 통해 새롭게 시도해보는 모습을 보였습니다.",
+        "{keyword} 활동 중 OO이는 교사의 지원을 받아 안정적으로 참여했습니다.",
+        "오늘의 {keyword} 경험은 OO이에게 즐거운 배움의 시간이 되었습니다.",
+    ],
+    "관찰 기록용": [
+        "{keyword} 활동 중 {child}는 {action}을 보임.",
+        "{child}는 {keyword} 상황에서 교사의 지원에 반응하며 활동에 참여함.",
+        "{keyword} 놀이 과정에서 {child}는 주변 자극에 관심을 보이고 탐색을 시도함.",
+        "{child}는 {keyword} 활동 중 또래 또는 교사와의 상호작용을 보임.",
+        "{keyword} 활동에서 {child}는 놀이 자료를 살피고 반복적으로 조작함.",
+        "{child}는 {keyword} 과정에서 자신의 의도를 행동으로 표현함.",
+        "{keyword} 상황에서 {child}는 또래의 행동을 관찰하고 반응함.",
+        "{child}는 {keyword} 놀이 중 교사의 언어적 지원에 따라 참여를 이어감.",
+        "{keyword} 활동 중 {child}는 관심 있는 자료를 선택하여 탐색함.",
+        "{child}는 {keyword} 놀이에서 안정적으로 머물며 활동을 경험함.",
+    ],
+    "서술형 일지용": [
+        "{keyword} 활동을 통해 {child}가 놀이에 참여하는 모습을 관찰할 수 있었음.",
+        "오늘 {keyword} 활동에서는 {child}의 참여 과정과 반응을 중심으로 살펴볼 수 있었음.",
+        "{keyword} 놀이 과정에서 {child}는 자신의 방식으로 활동에 참여하였음.",
+        "교사는 {keyword} 활동 중 {child}의 반응을 살피며 놀이가 이어질 수 있도록 지원하였음.",
+        "{keyword} 활동은 {child}가 관심을 표현하고 놀이를 확장하는 계기가 되었음.",
+        "{child}는 {keyword} 장면에서 또래와 함께 경험을 나누는 모습을 보였음.",
+        "오늘 일과 중 {keyword} 활동을 통해 {child}의 탐색 과정이 나타났음.",
+        "교사는 {child}가 {keyword} 놀이에 안정적으로 참여할 수 있도록 환경을 조정하였음.",
+        "{keyword} 놀이에서 {child}는 반복적인 시도를 통해 활동에 몰입하였음.",
+        "{keyword} 활동은 {child}의 표현과 상호작용을 살펴볼 수 있는 장면이 되었음.",
+    ],
+    "기관 홍보용": [
+        "오늘 우리 아이들은 {keyword} 활동을 통해 즐겁게 배우는 시간을 가졌습니다.",
+        "{keyword} 활동 안에서 아이들은 직접 경험하고 느끼며 놀이를 이어갔습니다.",
+        "우리 기관은 아이들이 놀이 속에서 자연스럽게 배우고 성장할 수 있도록 다양한 경험을 마련하고 있습니다.",
+        "아이들의 작은 호기심이 {keyword} 활동 속에서 즐거운 배움으로 이어졌습니다.",
+        "{keyword} 놀이를 통해 아이들은 함께 생각하고 표현하는 시간을 가졌습니다.",
+        "오늘 교실에서는 {keyword} 활동을 중심으로 아이들의 웃음과 배움이 함께 피어났습니다.",
+        "아이들은 {keyword} 경험을 통해 스스로 탐색하고 표현하는 즐거움을 느꼈습니다.",
+        "우리 기관은 놀이 속 작은 장면도 아이들의 성장으로 읽어내고 있습니다.",
+        "{keyword} 활동은 아이들이 서로의 생각을 나누고 함께 성장하는 시간이 되었습니다.",
+        "오늘의 {keyword} 경험은 아이들의 일상 속 배움으로 차곡차곡 쌓이고 있습니다.",
+    ],
 }
 
 
 with tab2:
 
-    st.subheader("🧚‍♀️ 상황별 문구 자동 생성")
-    st.write("사진 장면을 바탕으로 놀이 의미, 발달 의미, 부모 전달 문장을 함께 생성합니다.")
+    render_menu_card(
+        "🧚‍♀️ 상황별 문구 자동 생성",
+        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 부모 전달 문장을 함께 생성합니다.",
+        ["0~2세 표준보육과정", "3~5세 누리과정", "알림장 · 관찰 기록 · 서술형 일지 · 기관 홍보용 문구" ]
+    )
 
     play_keyword = st.text_input("사진 속 놀이 키워드 입력", placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이", key="photo_play_keyword")
     age_group = st.selectbox("연령 선택", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="photo_age_group")
-    curriculum_area = st.selectbox("누리과정 영역 선택", ["- 선택 -", "신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"], key="photo_curriculum_area")
+
+    if age_group in ["0세", "1세", "2세"]:
+        curriculum_area = st.selectbox(
+            "표준보육과정 영역 선택",
+            ["- 선택 -"] + STANDARD_AREAS,
+            key="photo_standard_area"
+        )
+        st.caption("※ 0~2세는 표준보육과정 영역을 기준으로 문구를 생성합니다.")
+    elif age_group in ["3세", "4세", "5세"]:
+        curriculum_area = st.selectbox(
+            "누리과정 영역 선택",
+            ["- 선택 -"] + NURI_AREAS,
+            key="photo_nuri_area"
+        )
+        st.caption("※ 3~5세는 누리과정 영역을 기준으로 문구를 생성합니다.")
+    else:
+        curriculum_area = "- 선택 -"
+        st.selectbox(
+            "표준보육과정·누리과정 영역 선택",
+            ["연령을 먼저 선택해 주세요."],
+            key="photo_curriculum_placeholder",
+            disabled=True
+        )
+
     development_area = st.selectbox("발달영역 선택", ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"], key="photo_development_area")
     observation_type = st.selectbox("기록 유형 선택", ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"], key="photo_observation_type")
 
@@ -1135,7 +1293,28 @@ with tab2:
     if observation_type == "알림장용":
         parent_type = st.selectbox("부모 성향 선택", ["- 선택 -", "일반형", "불안형", "정보형", "감성형"], key="photo_parent_type")
 
-    child_action = st.selectbox("사진 속 아이들의 모습 선택", ["- 선택 -", "호기심을 보이며 탐색하는 모습", "친구와 함께 협력하는 모습", "자신의 생각을 표현하는 모습", "반복하며 시도하는 모습", "새로운 방법을 찾아보는 모습", "교사의 지원을 받아 안정적으로 참여하는 모습"], key="photo_child_action")
+    child_action = st.selectbox(
+        "사진 속 아이들의 모습 선택",
+        [
+            "- 선택 -",
+            "호기심을 보이며 탐색하는 모습",
+            "친구와 함께 협력하는 모습",
+            "자신의 생각을 표현하는 모습",
+            "반복하며 시도하는 모습",
+            "새로운 방법을 찾아보는 모습",
+            "교사의 지원을 받아 안정적으로 참여하는 모습",
+            "놀이 자료를 조심스럽게 살펴보는 모습",
+            "또래의 행동을 관찰하고 따라 해보는 모습",
+            "자신이 선택한 놀이에 집중하는 모습",
+            "완성한 결과물을 교사나 친구에게 보여주는 모습",
+            "규칙을 이해하고 놀이에 참여하려는 모습",
+            "감각적으로 느끼고 몸으로 표현하는 모습",
+            "상상한 내용을 역할이나 말로 나타내는 모습",
+            "어려운 부분을 다시 시도하며 조절하는 모습",
+            "친구의 제안을 듣고 함께 방향을 바꾸어 보는 모습",
+        ],
+        key="photo_child_action"
+    )
 
 
     if st.button("상황별 문구 생성", key="photo_generate_text"):
@@ -1172,6 +1351,16 @@ with tab2:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
                 st.write(f"{idx}. {final_result}")
 
+                save_phrase_log(
+                    record_type=observation_type,
+                    play_keyword=play_keyword,
+                    age_group=age_group,
+                    curriculum_area=curriculum_area,
+                    development_area=development_area,
+                    child_action=child_action,
+                    generated_text=final_result
+                )
+
 
     st.divider()
 
@@ -1199,8 +1388,11 @@ with tab2:
 # =========================
 with tab3:
 
-    st.subheader("✨ 초간편 사진 보정")
-    st.write("원본과 보정본을 비교하며 밝기, 대비, 채도, 선명도를 직접 조절할 수 있습니다.")
+    render_menu_card(
+        "✨ 초간편 사진 보정",
+        "원본과 보정본을 비교하며 밝기, 대비, 채도, 선명도를 직접 조절할 수 있습니다.",
+        ["밝기", "대비", "채도", "선명도"]
+    )
 
     uploaded_for_enhance = st.file_uploader(
         "보정할 사진을 업로드하세요",
@@ -1327,8 +1519,11 @@ with tab3:
 # =========================
 with tab4:
 
-    st.subheader("📝 알림장 요약 및 생성")
-    st.write("알림장 초안을 입력하면 핵심 내용을 요약하고, 선택한 기록 성향에 맞게 알림장 문장을 생성합니다.")
+    render_menu_card(
+        "📝 일지 요약 및 알림장 생성",
+        "일지를 입력하면 핵심 내용을 요약하고, 기록 유형과 성향에 맞는 문장을 생성합니다.",
+        ["알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"]
+    )
 
     record_type = st.selectbox(
         "기록 유형 선택",
@@ -1370,29 +1565,33 @@ with tab4:
                 max_sentences=max_summary_sentences
             )
 
+            restructured_summary = build_restructured_diary(
+                original_text=diary_text,
+                summary=summary,
+                daily_scope=daily_scope,
+                record_type=record_type
+            )
+
             generated_message = make_diary_message(
-                summary,
+                restructured_summary,
                 teacher_tone,
                 daily_scope,
                 record_type
             )
-
-            st.write("저장될 기록 유형:", record_type)
-
             save_diary_log(
                 record_type=record_type,
                 teacher_tone=teacher_tone,
                 daily_scope=daily_scope,
                 original_text=diary_text,
-                summary=summary,
+                summary=restructured_summary,
                 generated_message=generated_message
             )
 
-            st.success("알림장 요약과 생성이 완료되었습니다.")
+            st.success("일지 요약과 문구 생성이 완료되었습니다.")
 
-            st.markdown("### 요약 결과")
+            st.markdown("### 재구성된 핵심 내용")
             st.markdown(
-                f"<div class='result-card-gray'>{summary}</div>",
+                f"<div class='result-card-gray'>{restructured_summary}</div>",
                 unsafe_allow_html=True
             )
 
@@ -1414,8 +1613,11 @@ with tab4:
 # TAB 5. 교사의 온도
 # =========================
 with tab5:
-    st.subheader("🌡️ 지금 그리고 오늘, 교사의 온도")
-    st.write("하루를 마무리하며, 교사의 마음을 짧게 기록하는 감성 기록 공간입니다.")
+    render_menu_card(
+        "🌡️ 지금 그리고 오늘, 교사의 온도",
+        "하루를 마무리하며, 교사의 마음을 짧게 기록하는 감성 기록 공간입니다.",
+        ["감성 일기", "3줄 요약", "마음온도"]
+    )
 
     diary_type = st.radio("기록 양식 선택", ["🕯️ 감성 일기", "✒️ 3줄 요약 다이어리"], horizontal=True, key="temperature_diary_type")
     st.divider()
@@ -1506,7 +1708,11 @@ with tab6:
     ADMIN_ID = "admin"
     ADMIN_PW = "witti7942"
 
-    st.subheader("🔐 관리자 모드")
+    render_menu_card(
+        "🔐 관리자 모드",
+        "가입자 정보와 생성 기록을 확인하고, 통계 그래프와 CSV 다운로드를 관리합니다.",
+        ["누적 기록", "통계", "CSV"]
+    )
 
     with st.expander("관리자 메뉴 열기", expanded=False):
         st.write("가입자 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
@@ -1535,7 +1741,7 @@ with tab6:
             subscribers_df = load_table("subscribers")
             diary_df = load_table("diary_logs")
             temp_df = load_table("teacher_temperature_logs")
-            phrase_df = load_table("phrase_logs_v2")
+            phrase_df = load_table("phrase_logs")
 
             subscribers_filtered = filter_by_period(subscribers_df, dashboard_period)
             diary_filtered = filter_by_period(diary_df, dashboard_period)
@@ -1610,14 +1816,14 @@ with tab6:
             table_map = {
                 "가입자 정보": "subscribers",
                 "알림장 생성 기록": "diary_logs",
-                "상황별 문구 생성 기록": "phrase_logs_v2",
+                "상황별 문구 생성 기록": "phrase_logs",
                 "교사의 온도 기록": "teacher_temperature_logs"
             }
 
             file_map = {
                 "가입자 정보": "subscribers.csv",
                 "알림장 생성 기록": "diary_logs.csv",
-                "상황별 문구 생성 기록": "phrase_logs_v2.csv",
+                "상황별 문구 생성 기록": "phrase_logs.csv",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
 
@@ -1642,11 +1848,11 @@ with tab6:
                 "mailing_agree": "메일링 동의",
 
                 "record_type": "기록 유형",
-                "play_keyword": "놀이 키워드",
-                "age_group": "연령",
-                "curriculum_area": "누리과정 영역",
-                "development_area": "발달 영역",
-                "child_action": "아이 모습",
+                "play_keyword": "사진 속 놀이 키워드 입력",
+                "age_group": "연령 선택",
+                "curriculum_area": "누리과정 영역 선택",
+                "development_area": "발달 영역 선택",
+                "child_action": "사진 속 아이들의 모습 선택",
                 "generated_text": "생성 문구",
 
                 "teacher_tone": "교사 전달 말투",
