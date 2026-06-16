@@ -54,8 +54,41 @@ html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
 }
 
-#MainMenu, footer, header[data-testid="stHeader"] {
+#MainMenu, footer {
     visibility: hidden;
+}
+
+/* 사이드바 열기/닫기 버튼은 Streamlit header 안에 있으므로 header를 숨기면 설정창 버튼까지 사라집니다. */
+header[data-testid="stHeader"] {
+    visibility: visible !important;
+    background: rgba(250, 252, 255, 0.72) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(229, 234, 241, 0.65);
+    z-index: 999999 !important;
+}
+
+header[data-testid="stHeader"] * {
+    visibility: visible !important;
+}
+
+/* 접힌 설정창 열기 버튼이 항상 보이도록 보정 */
+div[data-testid="stSidebarCollapsedControl"],
+div[data-testid="collapsedControl"] {
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: flex !important;
+    z-index: 2147483646 !important;
+}
+
+div[data-testid="stSidebarCollapsedControl"] button,
+div[data-testid="collapsedControl"] button {
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: #FFFFFF !important;
+    color: #1D4ED8 !important;
+    border: 1px solid #D7E6F8 !important;
+    border-radius: 999px !important;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10) !important;
 }
 
 .stApp {
@@ -208,15 +241,23 @@ div[data-baseweb="select"] > div,
     min-height: 42px;
     border-radius: 12px !important;
     font-weight: 800 !important;
-    border: 1px solid #2563EB !important;
-    background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%) !important;
-    color: white !important;
-    box-shadow: 0 9px 20px rgba(37,99,235,0.16);
+    border: 1px solid #1D4ED8 !important;
+    background: linear-gradient(135deg, #1E40AF 0%, #2563EB 58%, #2F80ED 100%) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 8px 18px rgba(29, 78, 216, 0.18);
+    transition: all 0.16s ease;
 }
 
 .stButton > button:hover, .stDownloadButton > button:hover {
-    filter: brightness(0.98);
+    background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%) !important;
+    border-color: #1E40AF !important;
+    box-shadow: 0 10px 22px rgba(29, 78, 216, 0.22);
     transform: translateY(-1px);
+}
+
+.stButton > button:active, .stDownloadButton > button:active {
+    transform: translateY(0);
+    box-shadow: 0 5px 14px rgba(29, 78, 216, 0.16);
 }
 
 .menu-card {
@@ -440,7 +481,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-no-output-links-ui-clean-v1"
+APP_VERSION = "2026-06-17-button-blue-sidebar-visible-v2"
 
 
 def platform_info_text() -> str:
