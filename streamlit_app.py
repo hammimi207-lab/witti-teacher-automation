@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image, ImageEnhance
 from streamlit_javascript import st_javascript
 
@@ -325,7 +326,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-link-sidebar-v2"
+APP_VERSION = "2026-06-17-sidebar-default-collapsed-v4"
 
 
 def platform_info_text() -> str:
@@ -380,50 +381,219 @@ def render_generated_phrase(idx: int, text: str):
     )
 
 def apply_sidebar_open_hint():
-    """접힌 사이드바 열기 버튼에 브라우저 기본 툴팁을 부여합니다."""
-    st_javascript(
+    """접힌 사이드바 열기 버튼에 툴팁과 접근성 라벨을 부여합니다."""
+    components.html(
         """
-        const setSidebarTooltips = () => {
-            const doc = window.parent.document;
-            const selectors = [
-                'div[data-testid="stSidebarCollapsedControl"] button',
-                'div[data-testid="collapsedControl"] button',
-                'button[data-testid="stSidebarCollapseButton"]',
-                'button[data-testid="stBaseButton-headerNoPadding"]'
-            ];
-            selectors.forEach((selector) => {
-                doc.querySelectorAll(selector).forEach((button) => {
-                    button.setAttribute('title', '설정 창 열기');
-                    button.setAttribute('aria-label', '설정 창 열기');
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+
+            if (win.__wittiSidebarHintInstalled) {
+                return;
+            }
+            win.__wittiSidebarHintInstalled = true;
+
+            const TOOLTIP_TEXT = '설정 창 열기';
+            let tooltip = doc.getElementById('witti-sidebar-open-tooltip');
+            if (!tooltip) {
+                tooltip = doc.createElement('div');
+                tooltip.id = 'witti-sidebar-open-tooltip';
+                tooltip.textContent = TOOLTIP_TEXT;
+                tooltip.style.position = 'fixed';
+                tooltip.style.display = 'none';
+                tooltip.style.zIndex = '2147483647';
+                tooltip.style.pointerEvents = 'none';
+                tooltip.style.whiteSpace = 'nowrap';
+                tooltip.style.background = '#16324F';
+                tooltip.style.color = '#FFFFFF';
+                tooltip.style.borderRadius = '999px';
+                tooltip.style.padding = '7px 11px';
+                tooltip.style.fontSize = '13px';
+                tooltip.style.fontWeight = '700';
+                tooltip.style.boxShadow = '0 8px 22px rgba(22,50,79,0.18)';
+                doc.body.appendChild(tooltip);
+            }
+
+            function isOpenButton(button) {
+                if (!button) return false;
+                const text = [
+                    button.getAttribute('aria-label') || '',
+                    button.getAttribute('title') || '',
+                    button.innerText || '',
+                    button.textContent || ''
+                ].join(' ').toLowerCase();
+
+                const parentText = button.closest('[data-testid]')?.getAttribute('data-testid') || '';
+                return (
+                    text.includes('open sidebar') ||
+                    text.includes('설정 창 열기') ||
+                    text.includes('사이드바 열기') ||
+                    text.includes('sidebar') ||
+                    parentText.includes('CollapsedControl') ||
+                    parentText.includes('collapsedControl')
+                );
+            }
+
+            function showTooltip(button) {
+                const rect = button.getBoundingClientRect();
+                tooltip.style.left = `${rect.right + 10}px`;
+                tooltip.style.top = `${rect.top + rect.height / 2}px`;
+                tooltip.style.transform = 'translateY(-50%)';
+                tooltip.style.display = 'block';
+            }
+
+            function hideTooltip() {
+                tooltip.style.display = 'none';
+            }
+
+            function attachHint() {
+                const candidates = Array.from(doc.querySelectorAll([
+                    'div[data-testid="stSidebarCollapsedControl"] button',
+                    'div[data-testid="collapsedControl"] button',
+                    'button[aria-label*="Open sidebar"]',
+                    'button[title*="Open sidebar"]',
+                    'button[data-testid="stBaseButton-headerNoPadding"]',
+                    'button[data-testid="stSidebarCollapseButton"]'
+                ].join(',')));
+
+                candidates.forEach((button) => {
+                    if (!isOpenButton(button)) return;
+                    if (button.dataset.wittiSidebarHint === 'done') return;
+                    button.dataset.wittiSidebarHint = 'done';
+                    button.setAttribute('title', TOOLTIP_TEXT);
+                    button.setAttribute('aria-label', TOOLTIP_TEXT);
+                    button.addEventListener('mouseenter', () => showTooltip(button));
+                    button.addEventListener('mouseleave', hideTooltip);
+                    button.addEventListener('focus', () => showTooltip(button));
+                    button.addEventListener('blur', hideTooltip);
+                    button.addEventListener('click', hideTooltip);
                 });
-            });
-        };
-        setSidebarTooltips();
-        setTimeout(setSidebarTooltips, 300);
-        setTimeout(setSidebarTooltips, 1000);
-        setTimeout(setSidebarTooltips, 2000);
+            }
+
+            attachHint();
+            const observer = new MutationObserver(attachHint);
+            observer.observe(doc.body, { childList: true, subtree: true });
+            setTimeout(attachHint, 300);
+            setTimeout(attachHint, 1000);
+            setTimeout(attachHint, 2500);
+        })();
+        </script>
         """,
-        key="sidebar_open_hint_js",
+        height=0,
+        width=0,
     )
 
 
 def force_sidebar_collapsed_on_first_load():
-    """현재 브라우저 세션의 첫 로딩에서 사이드바를 닫힌 상태로 맞춥니다."""
-    if st.session_state.get("sidebar_collapsed_once"):
-        return
-    st.session_state["sidebar_collapsed_once"] = True
-    st_javascript(
+    """
+    페이지가 열릴 때 사이드바가 보이면 자동으로 접습니다.
+    Streamlit이 브라우저에 이전 사이드바 상태를 기억하는 경우가 있어,
+    initial_sidebar_state='collapsed'만으로는 부족할 때를 보완합니다.
+    """
+    components.html(
         """
-        setTimeout(() => {
-            const doc = window.parent.document;
-            const collapsedControl = doc.querySelector('div[data-testid="stSidebarCollapsedControl"], div[data-testid="collapsedControl"]');
-            const collapseButton = doc.querySelector('button[data-testid="stSidebarCollapseButton"]');
-            if (!collapsedControl && collapseButton) {
-                collapseButton.click();
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+
+            if (win.__wittiSidebarDefaultCollapsedInstalled) {
+                return;
             }
-        }, 700);
+            win.__wittiSidebarDefaultCollapsedInstalled = true;
+
+            function getSidebar() {
+                return doc.querySelector([
+                    'section[data-testid="stSidebar"]',
+                    'aside[data-testid="stSidebar"]',
+                    'div[data-testid="stSidebar"]'
+                ].join(','));
+            }
+
+            function isCollapsed() {
+                const openButton = doc.querySelector([
+                    'div[data-testid="stSidebarCollapsedControl"] button',
+                    'div[data-testid="collapsedControl"] button',
+                    'button[aria-label*="Open sidebar"]',
+                    'button[title*="Open sidebar"]'
+                ].join(','));
+                if (openButton) return true;
+
+                const sidebar = getSidebar();
+                if (!sidebar) return false;
+                const rect = sidebar.getBoundingClientRect();
+                const style = win.getComputedStyle(sidebar);
+                return rect.width < 80 || style.visibility === 'hidden' || style.display === 'none';
+            }
+
+            function findCollapseButton() {
+                const selectors = [
+                    'button[aria-label*="Close sidebar"]',
+                    'button[title*="Close sidebar"]',
+                    'button[aria-label*="Collapse"]',
+                    'button[title*="Collapse"]',
+                    'button[data-testid="stSidebarCollapseButton"]'
+                ];
+
+                for (const selector of selectors) {
+                    const button = doc.querySelector(selector);
+                    if (button) return button;
+                }
+
+                const sidebar = getSidebar();
+                if (!sidebar) return null;
+
+                const buttons = Array.from(sidebar.querySelectorAll('button'));
+                const byText = buttons.find((button) => {
+                    const text = `${button.innerText || ''} ${button.textContent || ''} ${button.getAttribute('aria-label') || ''}`;
+                    return text.includes('«') || text.includes('‹') || text.includes('<<') || text.toLowerCase().includes('close');
+                });
+                if (byText) return byText;
+
+                // 사이드바 내부 최상단 버튼은 대부분 접기 버튼입니다. 슬라이더는 button이 아니므로 안전합니다.
+                return buttons[0] || null;
+            }
+
+            let attempts = 0;
+            const maxAttempts = 80;
+
+            function collapseIfNeeded() {
+                attempts += 1;
+                if (isCollapsed()) {
+                    clearInterval(timer);
+                    return;
+                }
+
+                const button = findCollapseButton();
+                const sidebar = getSidebar();
+                const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
+
+                if (button && sidebarWidth > 120) {
+                    button.click();
+                    setTimeout(() => {
+                        if (isCollapsed()) clearInterval(timer);
+                    }, 250);
+                    return;
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(timer);
+                }
+            }
+
+            const timer = setInterval(collapseIfNeeded, 100);
+            collapseIfNeeded();
+            setTimeout(collapseIfNeeded, 300);
+            setTimeout(collapseIfNeeded, 700);
+            setTimeout(collapseIfNeeded, 1200);
+            setTimeout(collapseIfNeeded, 2500);
+            setTimeout(collapseIfNeeded, 5000);
+        })();
+        </script>
         """,
-        key="force_sidebar_collapsed_once_js",
+        height=0,
+        width=0,
     )
 
 
