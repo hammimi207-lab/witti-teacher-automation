@@ -251,41 +251,115 @@ div[data-baseweb="select"] > div,
     box-shadow: 0 0 0 3px rgba(12,192,223,0.12) !important;
 }
 
-.stButton > button, .stDownloadButton > button {
-    min-height: 42px;
+/* 버튼 디자인: 남색 계열, 흰색 고딕 볼드, 그림자 없음 */
+.stButton > button,
+.stDownloadButton > button,
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button {
+    min-height: 42px !important;
     border-radius: 12px !important;
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
     font-weight: 800 !important;
     letter-spacing: -0.2px !important;
-    border: 1px solid #12385A !important;
-    background: linear-gradient(135deg, #102A43 0%, #163E63 52%, #1F5F89 100%) !important;
+    border: 1px solid #0B2A45 !important;
+    background: linear-gradient(135deg, #0B2A45 0%, #123A5A 55%, #1B4F72 100%) !important;
     color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
     box-shadow: none !important;
     text-shadow: none !important;
     transition: background 0.16s ease, border-color 0.16s ease, filter 0.16s ease;
 }
 
-.stButton > button:hover, .stDownloadButton > button:hover {
-    background: linear-gradient(135deg, #0B2239 0%, #12385A 55%, #1A5278 100%) !important;
-    border-color: #0B2239 !important;
+/* Streamlit 버튼 안쪽의 p/span 텍스트까지 강제로 흰색 처리 */
+.stButton > button *,
+.stDownloadButton > button *,
+div[data-testid="stButton"] button *,
+div[data-testid="stDownloadButton"] button * {
     color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
+    font-weight: 800 !important;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+div[data-testid="stButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover {
+    background: linear-gradient(135deg, #081F35 0%, #102F4C 55%, #174764 100%) !important;
+    border-color: #081F35 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
     box-shadow: none !important;
     transform: none !important;
     filter: brightness(1.02);
 }
 
-.stButton > button:active, .stDownloadButton > button:active {
-    background: linear-gradient(135deg, #081B2E 0%, #0F2F4F 55%, #164765 100%) !important;
+.stButton > button:hover *,
+.stDownloadButton > button:hover *,
+div[data-testid="stButton"] button:hover *,
+div[data-testid="stDownloadButton"] button:hover * {
     color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+.stButton > button:active,
+.stDownloadButton > button:active,
+div[data-testid="stButton"] button:active,
+div[data-testid="stDownloadButton"] button:active {
+    background: linear-gradient(135deg, #06182A 0%, #0B263F 55%, #123A55 100%) !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
     box-shadow: none !important;
     transform: none !important;
 }
 
-.stButton > button:focus, .stDownloadButton > button:focus {
+.stButton > button:focus,
+.stDownloadButton > button:focus,
+div[data-testid="stButton"] button:focus,
+div[data-testid="stDownloadButton"] button:focus {
     color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
     box-shadow: none !important;
-    outline: 2px solid rgba(31, 95, 137, 0.28) !important;
+    outline: 2px solid rgba(27, 79, 114, 0.28) !important;
     outline-offset: 2px !important;
+}
+
+/* 비활성화 버튼도 글씨가 보이도록 흰색 유지 */
+.stButton > button:disabled,
+.stDownloadButton > button:disabled,
+div[data-testid="stButton"] button:disabled,
+div[data-testid="stDownloadButton"] button:disabled,
+.stButton > button[disabled],
+.stDownloadButton > button[disabled],
+div[data-testid="stButton"] button[disabled],
+div[data-testid="stDownloadButton"] button[disabled],
+.stButton > button[aria-disabled="true"],
+.stDownloadButton > button[aria-disabled="true"],
+div[data-testid="stButton"] button[aria-disabled="true"],
+div[data-testid="stDownloadButton"] button[aria-disabled="true"] {
+    background: linear-gradient(135deg, #31465B 0%, #405970 55%, #526F86 100%) !important;
+    border-color: #31465B !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    opacity: 0.72 !important;
+    box-shadow: none !important;
+}
+
+.stButton > button:disabled *,
+.stDownloadButton > button:disabled *,
+div[data-testid="stButton"] button:disabled *,
+div[data-testid="stDownloadButton"] button:disabled *,
+.stButton > button[disabled] *,
+.stDownloadButton > button[disabled] *,
+div[data-testid="stButton"] button[disabled] *,
+div[data-testid="stDownloadButton"] button[disabled] *,
+.stButton > button[aria-disabled="true"] *,
+.stDownloadButton > button[aria-disabled="true"] *,
+div[data-testid="stButton"] button[aria-disabled="true"] *,
+div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    font-weight: 800 !important;
 }
 
 .menu-card {
@@ -3669,47 +3743,9 @@ with tab6:
 
 
             st.markdown("### 📁 데이터 조회 및 다운로드")
+            st.dataframe(display_df, use_container_width=True)
 
-            # st.dataframe의 boolean 체크박스는 표시용이라 클릭/수정이 되지 않습니다.
-            # 관리자 삭제는 아래 data_editor의 "삭제 선택" 체크박스로 처리합니다.
-            table_display_df = display_df.copy()
-            if "삭제 여부" in table_display_df.columns:
-                table_display_df = table_display_df.drop(columns=["삭제 여부"])
-
-            selected_delete_ids = []
-
-            if table_display_df.empty:
-                st.caption("표시할 데이터가 없습니다.")
-            elif "번호" not in table_display_df.columns:
-                st.dataframe(table_display_df, use_container_width=True)
-            else:
-                editable_df = table_display_df.copy()
-                editable_df.insert(0, "삭제 선택", False)
-
-                disabled_columns = [col for col in editable_df.columns if col != "삭제 선택"]
-                edited_df = st.data_editor(
-                    editable_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=disabled_columns,
-                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}",
-                    column_config={
-                        "삭제 선택": st.column_config.CheckboxColumn(
-                            "삭제 선택",
-                            help="목록에서 숨김 처리할 기록을 선택하세요.",
-                            default=False,
-                        )
-                    },
-                )
-
-                selected_delete_ids = (
-                    edited_df.loc[edited_df["삭제 선택"] == True, "번호"]
-                    .dropna()
-                    .astype(int)
-                    .tolist()
-                )
-
-            csv = table_display_df.to_csv(index=False).encode("utf-8-sig")
+            csv = display_df.to_csv(index=False).encode("utf-8-sig")
 
             st.download_button(
                 label="CSV 다운로드",
@@ -3722,21 +3758,22 @@ with tab6:
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
-            st.caption("위 표의 '삭제 선택'에 체크한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다.")
+            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다.")
 
-            if table_display_df.empty:
+            delete_df = load_table(table_name)
+
+            if delete_df.empty:
                 st.caption("삭제할 기록이 없습니다.")
             else:
-                if selected_delete_ids:
-                    st.info(f"삭제 선택된 기록: {len(selected_delete_ids)}건")
-                else:
-                    st.caption("삭제할 기록을 표의 '삭제 선택'에서 체크해 주세요.")
+                delete_id = st.selectbox(
+                    "삭제할 기록 ID 선택",
+                    delete_df["id"].tolist(),
+                    key="delete_record_id_select"
+                )
 
-                delete_button_disabled = not bool(selected_delete_ids)
-                if st.button("선택한 기록 삭제", key="soft_delete_button", disabled=delete_button_disabled):
-                    for delete_id in selected_delete_ids:
-                        soft_delete_record(table_name, delete_id)
-                    st.success(f"선택한 기록 {len(selected_delete_ids)}건을 삭제 처리했습니다.")
+                if st.button("선택 기록 삭제", key="soft_delete_button"):
+                    soft_delete_record(table_name, delete_id)
+                    st.success("선택한 기록을 삭제 처리했습니다.")
                     st.rerun()
 
             st.divider()
