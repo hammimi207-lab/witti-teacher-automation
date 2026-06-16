@@ -52,6 +52,11 @@ st.markdown("""
 
 html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
+    color-scheme: light !important;
+}
+
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+    color-scheme: light !important;
 }
 
 #MainMenu, footer {
@@ -234,21 +239,96 @@ div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
     box-shadow: none !important;
 }
 
-/* 입력 요소 */
+/* 입력 요소: 모바일 다크모드/카카오 인앱 브라우저에서도 글자가 보이도록 강제 */
 .stTextInput input,
 .stTextArea textarea,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea,
 div[data-baseweb="select"] > div,
 .stMultiSelect div[data-baseweb="select"] > div {
     border-radius: 12px !important;
-    border-color: #DCE5F0 !important;
+    border: 1px solid #DCE5F0 !important;
     background-color: #FFFFFF !important;
+    color: var(--witti-navy) !important;
+    -webkit-text-fill-color: var(--witti-navy) !important;
+    caret-color: var(--witti-navy) !important;
     box-shadow: none !important;
+    outline: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    color-scheme: light !important;
+}
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder,
+[data-baseweb="input"] input::placeholder,
+[data-baseweb="textarea"] textarea::placeholder,
+input::placeholder,
+textarea::placeholder {
+    color: #98A2B3 !important;
+    -webkit-text-fill-color: #98A2B3 !important;
+    opacity: 1 !important;
 }
 
 .stTextInput input:focus,
-.stTextArea textarea:focus {
-    border-color: #0CC0DF !important;
-    box-shadow: 0 0 0 3px rgba(12,192,223,0.12) !important;
+.stTextArea textarea:focus,
+[data-baseweb="input"] input:focus,
+[data-baseweb="textarea"] textarea:focus,
+div[data-baseweb="select"]:focus-within > div {
+    border-color: #7AB8E8 !important;
+    box-shadow: 0 0 0 3px rgba(12,192,223,0.10) !important;
+    outline: none !important;
+}
+
+/* selectbox 내부 값과 기본값(- 선택 -)이 흰색으로 사라지는 문제 방지 */
+div[data-baseweb="select"] *,
+div[data-baseweb="select"] input,
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div {
+    color: var(--witti-navy) !important;
+    -webkit-text-fill-color: var(--witti-navy) !important;
+}
+
+div[data-baseweb="select"] svg {
+    color: #667085 !important;
+    fill: #667085 !important;
+    -webkit-text-fill-color: initial !important;
+}
+
+/* 모바일에서 select 옵션창이 검은색으로 뜨는 현상 완화 */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] *,
+div[data-baseweb="menu"],
+ul[data-baseweb="menu"],
+div[role="listbox"],
+div[role="listbox"] * {
+    color-scheme: light !important;
+}
+
+div[data-baseweb="popover"] > div,
+div[data-baseweb="menu"],
+ul[data-baseweb="menu"],
+div[role="listbox"] {
+    background: #FFFFFF !important;
+    color: var(--witti-navy) !important;
+    -webkit-text-fill-color: var(--witti-navy) !important;
+    border: 1px solid #DCE5F0 !important;
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14) !important;
+}
+
+li[role="option"],
+div[role="option"],
+ul[data-baseweb="menu"] li {
+    background: #FFFFFF !important;
+    color: var(--witti-navy) !important;
+    -webkit-text-fill-color: var(--witti-navy) !important;
+}
+
+li[role="option"]:hover,
+div[role="option"]:hover,
+ul[data-baseweb="menu"] li:hover {
+    background: #F1F8FF !important;
+    color: var(--witti-navy) !important;
 }
 
 /* 버튼 디자인: 남색 계열, 흰색 고딕 볼드, 그림자 없음 */
@@ -482,9 +562,49 @@ hr {
     box-shadow: 0 8px 22px rgba(22,50,79,0.18);
 }
 
+
+/* 모바일에서 Streamlit 기본 사이드바 버튼이 숨겨지는 경우를 대비한 설정 열기 버튼 */
+#witti-mobile-settings-launcher {
+    display: none;
+    position: fixed;
+    align-items: center;
+    gap: 5px;
+    z-index: 2147483647;
+    left: 12px;
+    top: 12px;
+    min-height: 34px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid #D7E6F8;
+    background: rgba(255, 255, 255, 0.96);
+    color: #123A5A;
+    -webkit-text-fill-color: #123A5A;
+    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    font-size: 13px;
+    font-weight: 900;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+    cursor: pointer;
+    user-select: none;
+}
+
 @media (max-width: 768px) {
+    #witti-mobile-settings-launcher {
+        display: inline-flex !important;
+    }
+
+    div[data-testid="stSidebarCollapsedControl"],
+    div[data-testid="collapsedControl"] {
+        visibility: visible !important;
+        opacity: 1 !important;
+        display: flex !important;
+        position: fixed !important;
+        left: 12px !important;
+        top: 12px !important;
+        z-index: 2147483646 !important;
+    }
+
     .block-container {
-        padding-top: 1.1rem;
+        padding-top: 3.35rem;
         padding-left: 1rem;
         padding-right: 1rem;
         max-width: 100%;
@@ -496,16 +616,31 @@ hr {
     }
 
     .app-hero h1 {
-        font-size: 27px !important;
+        font-size: clamp(24px, 7.2vw, 31px) !important;
+        line-height: 1.28 !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+        letter-spacing: -1.1px !important;
     }
 
-    h1 { font-size: 30px !important; line-height:1.25 !important; }
-    h2 { font-size: 23px !important; }
-    h3 { font-size: 20px !important; }
-    h4 { font-size: 18px !important; }
+    h1 {
+        font-size: clamp(25px, 7vw, 31px) !important;
+        line-height:1.28 !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+    }
+    h2 { font-size: clamp(22px, 6.2vw, 27px) !important; line-height:1.32 !important; word-break:keep-all !important; }
+    h3 { font-size: clamp(19px, 5.4vw, 23px) !important; line-height:1.34 !important; word-break:keep-all !important; }
+    h4 { font-size: 18px !important; word-break:keep-all !important; }
 
     label, p { font-size: 15px !important; line-height: 1.55 !important; }
-    textarea, input, select { font-size: 16px !important; }
+    textarea, input, select {
+        font-size: 16px !important;
+        color: var(--witti-navy) !important;
+        -webkit-text-fill-color: var(--witti-navy) !important;
+        background-color: #FFFFFF !important;
+        color-scheme: light !important;
+    }
 
     div[data-testid="stTabs"] > div[role="tablist"] {
         overflow-x: auto;
@@ -520,9 +655,32 @@ hr {
         min-width: max-content;
     }
 
+    .hero-links {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+
+    .hero-link {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        justify-content: flex-start !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+        font-size: 14px !important;
+        line-height: 1.45 !important;
+    }
+
     .menu-card { padding: 16px !important; border-radius: 18px !important; }
-    .menu-card-title { font-size: 20px !important; }
-    .menu-card-desc { font-size: 14px !important; }
+    .menu-card-title {
+        font-size: clamp(21px, 6vw, 26px) !important;
+        line-height: 1.32 !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+    }
+    .menu-card-desc { font-size: 14px !important; word-break: keep-all !important; }
 
     .letter-box,
     .result-card-blue,
@@ -583,7 +741,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-tab2-tab4-clean-defaults-0cc0df-v3"
+APP_VERSION = "2026-06-17-mobile-ui-input-sidebar-fixed"
 
 
 def platform_info_text() -> str:
@@ -741,6 +899,104 @@ def apply_sidebar_open_hint():
             setTimeout(attachHint, 700);
             setTimeout(attachHint, 1500);
             setTimeout(attachHint, 3000);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+
+
+def apply_mobile_settings_launcher():
+    """모바일에서 기본 설정 버튼이 보이지 않을 때 사용할 고정 설정 버튼을 만듭니다."""
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const BUTTON_ID = 'witti-mobile-settings-launcher';
+
+            function isVisible(el) {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = win.getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            }
+
+            function findSidebarOpenButton() {
+                const selectors = [
+                    'div[data-testid="stSidebarCollapsedControl"] button',
+                    'div[data-testid="collapsedControl"] button',
+                    'button[aria-label*="Open sidebar"]',
+                    'button[title*="Open sidebar"]',
+                    'button[aria-label*="open sidebar"]',
+                    'button[title*="open sidebar"]'
+                ];
+                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
+            }
+
+            function findSidebarCloseButton() {
+                const selectors = [
+                    'button[data-testid="stSidebarCollapseButton"]',
+                    'button[aria-label*="Close sidebar"]',
+                    'button[title*="Close sidebar"]',
+                    'button[aria-label*="Collapse sidebar"]',
+                    'button[title*="Collapse sidebar"]'
+                ];
+                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
+            }
+
+            function sidebarIsOpen() {
+                const sidebar = doc.querySelector('section[data-testid="stSidebar"], aside[data-testid="stSidebar"], div[data-testid="stSidebar"]');
+                if (!sidebar) return false;
+                const rect = sidebar.getBoundingClientRect();
+                return rect.width > 120 && rect.right > 120;
+            }
+
+            function ensureLauncher() {
+                let button = doc.getElementById(BUTTON_ID);
+                if (!button) {
+                    button = doc.createElement('button');
+                    button.id = BUTTON_ID;
+                    button.type = 'button';
+                    button.textContent = '⚙️ 설정';
+                    button.setAttribute('aria-label', '설정 창 열기');
+                    button.addEventListener('click', function () {
+                        const openButton = findSidebarOpenButton();
+                        const closeButton = findSidebarCloseButton();
+                        if (!sidebarIsOpen() && openButton) {
+                            openButton.click();
+                        } else if (sidebarIsOpen() && closeButton) {
+                            closeButton.click();
+                        } else if (openButton) {
+                            openButton.click();
+                        }
+                    });
+                    doc.body.appendChild(button);
+                }
+                return button;
+            }
+
+            function updateLauncherVisibility() {
+                const button = ensureLauncher();
+                if (win.innerWidth <= 768) {
+                    button.style.display = 'inline-flex';
+                } else {
+                    button.style.display = 'none';
+                }
+            }
+
+            updateLauncherVisibility();
+            win.addEventListener('resize', updateLauncherVisibility);
+
+            if (!win.__wittiMobileSettingsLauncherObserver) {
+                win.__wittiMobileSettingsLauncherObserver = new MutationObserver(updateLauncherVisibility);
+                win.__wittiMobileSettingsLauncherObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
+            }
+            [200, 700, 1500, 3000].forEach((delay) => setTimeout(updateLauncherVisibility, delay));
         })();
         </script>
         """,
@@ -1076,6 +1332,7 @@ with st.sidebar:
 
 force_sidebar_collapsed_on_first_load()
 apply_sidebar_open_hint()
+apply_mobile_settings_launcher()
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
 
