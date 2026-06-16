@@ -495,7 +495,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-diary-validation-button-0cc0df-v1"
+APP_VERSION = "2026-06-17-tab2-clean-defaults-0cc0df-v2"
 
 
 def platform_info_text() -> str:
@@ -2932,7 +2932,39 @@ def get_child_action_options(age: str | None) -> list[str]:
     return ["- 선택 -"]
 
 
+def reset_tab2_inputs_once():
+    """기록 요정 탭의 이전 입력값이 처음 화면에 남아 보이지 않도록 한 번만 초기화합니다.
+
+    Streamlit은 같은 key를 가진 위젯 값을 브라우저 세션에 보관할 수 있습니다.
+    그래서 코드상 기본값이 "- 선택 -"이어도 이전에 선택한 값이 다시 보일 수 있습니다.
+    이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
+    사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
+    """
+    reset_flag = "_tab2_initial_values_cleared_20260617_v2"
+    if st.session_state.get(reset_flag):
+        return
+
+    keys_to_clear = [
+        "photo_play_keyword",
+        "photo_age_group",
+        "photo_standard_area",
+        "photo_nuri_area",
+        "photo_curriculum_placeholder",
+        "photo_development_area",
+        "photo_observation_type",
+        "photo_parent_type",
+        "photo_child_action",
+    ]
+
+    for key in keys_to_clear:
+        st.session_state.pop(key, None)
+
+    st.session_state[reset_flag] = True
+
+
 with tab2:
+
+    reset_tab2_inputs_once()
 
     render_menu_card(
         "🧚‍♀️ 상황별 문구 자동 생성",
@@ -2940,13 +2972,24 @@ with tab2:
         ["0~2세 표준보육과정", "3~5세 누리과정", "알림장 · 관찰 기록 · 서술형 일지 · 기관 홍보용 문구" ]
     )
 
-    play_keyword = st.text_input("사진 속 놀이 키워드 입력", placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이", key="photo_play_keyword")
-    age_group = st.selectbox("연령 선택", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="photo_age_group")
+    play_keyword = st.text_input(
+        "사진 속 놀이 키워드 입력",
+        value="",
+        placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이",
+        key="photo_play_keyword"
+    )
+    age_group = st.selectbox(
+        "연령 선택",
+        ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
+        index=0,
+        key="photo_age_group"
+    )
 
     if age_group in ["0세", "1세", "2세"]:
         curriculum_area = st.selectbox(
             "표준보육과정 영역 선택",
             ["- 선택 -"] + STANDARD_AREAS,
+            index=0,
             key="photo_standard_area"
         )
         st.caption("※ 0~2세는 표준보육과정 영역을 기준으로 문구를 생성합니다.")
@@ -2954,6 +2997,7 @@ with tab2:
         curriculum_area = st.selectbox(
             "누리과정 영역 선택",
             ["- 선택 -"] + NURI_AREAS,
+            index=0,
             key="photo_nuri_area"
         )
         st.caption("※ 3~5세는 누리과정 영역을 기준으로 문구를 생성합니다.")
@@ -2962,20 +3006,37 @@ with tab2:
         st.selectbox(
             "표준보육과정·누리과정 영역 선택",
             ["연령을 먼저 선택해 주세요."],
+            index=0,
             key="photo_curriculum_placeholder",
             disabled=True
         )
 
-    development_area = st.selectbox("발달영역 선택", ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"], key="photo_development_area")
-    observation_type = st.selectbox("기록 유형 선택", ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"], key="photo_observation_type")
+    development_area = st.selectbox(
+        "발달영역 선택",
+        ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"],
+        index=0,
+        key="photo_development_area"
+    )
+    observation_type = st.selectbox(
+        "기록 유형 선택",
+        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        index=0,
+        key="photo_observation_type"
+    )
 
     parent_type = None
     if observation_type == "알림장용":
-        parent_type = st.selectbox("부모 성향 선택", ["- 선택 -", "일반형", "불안형", "정보형", "감성형"], key="photo_parent_type")
+        parent_type = st.selectbox(
+            "부모 성향 선택",
+            ["- 선택 -", "일반형", "불안형", "정보형", "감성형"],
+            index=0,
+            key="photo_parent_type"
+        )
 
     child_action = st.selectbox(
         "사진 속 아이들의 모습 선택",
         get_child_action_options(age_group),
+        index=0,
         key="photo_child_action"
     )
 
