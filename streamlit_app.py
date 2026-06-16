@@ -970,6 +970,11 @@ def restore_record(table_name, record_id):
     supabase.table(table_name).update({"deleted": False}).eq("id", int(record_id)).execute()
 
 
+def hard_delete_record(table_name, record_id):
+    """Supabase에서 선택한 기록을 영구 삭제합니다. 복원할 수 없습니다."""
+    supabase.table(table_name).delete().eq("id", int(record_id)).execute()
+
+
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
         st.caption("표시할 데이터가 없습니다.")
@@ -3743,9 +3748,54 @@ with tab6:
 
 
             st.markdown("### 📁 데이터 조회 및 다운로드")
-            st.dataframe(display_df, use_container_width=True)
 
-            csv = display_df.to_csv(index=False).encode("utf-8-sig")
+            # 표시용 표에서는 삭제 여부 컬럼을 제거하고, 관리자 선택 삭제용 체크박스를 별도로 제공합니다.
+            table_display_df = display_df.copy()
+            if "삭제 여부" in table_display_df.columns:
+                table_display_df = table_display_df.drop(columns=["삭제 여부"])
+
+            selected_delete_ids = []
+            current_view_ids = []
+
+            if table_display_df.empty:
+                st.caption("표시할 데이터가 없습니다.")
+            elif "번호" not in table_display_df.columns:
+                st.dataframe(table_display_df, use_container_width=True)
+            else:
+                current_view_ids = (
+                    table_display_df["번호"]
+                    .dropna()
+                    .astype(int)
+                    .tolist()
+                )
+
+                editable_df = table_display_df.copy()
+                editable_df.insert(0, "삭제 선택", False)
+
+                disabled_columns = [col for col in editable_df.columns if col != "삭제 선택"]
+                edited_df = st.data_editor(
+                    editable_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=disabled_columns,
+                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}",
+                    column_config={
+                        "삭제 선택": st.column_config.CheckboxColumn(
+                            "삭제 선택",
+                            help="목록에서 숨김 처리할 기록을 선택하세요.",
+                            default=False,
+                        )
+                    },
+                )
+
+                selected_delete_ids = (
+                    edited_df.loc[edited_df["삭제 선택"] == True, "번호"]
+                    .dropna()
+                    .astype(int)
+                    .tolist()
+                )
+
+            csv = table_display_df.to_csv(index=False).encode("utf-8-sig")
 
             st.download_button(
                 label="CSV 다운로드",
@@ -3758,43 +3808,254 @@ with tab6:
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
-            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다.")
+            st.caption("선택한 기록은 목록에서 숨김 처리됩니다. 숨김 처리된 기록은 아래에서 복원하거나 영구 삭제할 수 있습니다.")
 
-            delete_df = load_table(table_name)
-
-            if delete_df.empty:
+            if table_display_df.empty:
                 st.caption("삭제할 기록이 없습니다.")
             else:
-                delete_id = st.selectbox(
-                    "삭제할 기록 ID 선택",
-                    delete_df["id"].tolist(),
-                    key="delete_record_id_select"
-                )
+                delete_col1, delete_col2 = st.columns([1, 1])
 
-                if st.button("선택 기록 삭제", key="soft_delete_button"):
-                    soft_delete_record(table_name, delete_id)
-                    st.success("선택한 기록을 삭제 처리했습니다.")
+                with delete_col1:
+                    st.markdown("#### 선택 삭제")
+                    if selected_delete_ids:
+                        st.info(f"삭제 선택된 기록: {len(selected_delete_ids)}건")
+                    else:
+                        st.caption("위 표의 '삭제 선택'에 체크한 뒤 삭제할 수 있습니다.")
+
+                    if st.button(
+                        "선택한 기록 숨김 처리",
+                        key="soft_delete_selected_button",
+                        disabled=not bool(selected_delete_ids),
+                    ):
+                        for delete_id in selected_delete_ids:
+                            soft_delete_record(table_name, delete_id)
+                        st.success(f"선택한 기록 {len(selected_delete_ids)}건을 숨김 처리했습니다.")
+                        st.rerun()
+
+                with delete_col2:
+                    st.markdown("#### 현재 조회 결과 전체 삭제")
+                    st.caption(f"현재 선택한 데이터와 조회 단위에 보이는 {len(current_view_ids)}건을 한 번에 숨김 처리합니다.")
+                    bulk_confirm = st.checkbox(
+                        "현재 조회 결과 전체 삭제에 동의합니다.",
+                        key=f"bulk_delete_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                    )
+
+                    if st.button(
+                        f"현재 조회 결과 {len(current_view_ids)}건 숨김 처리",
+                        key=f"bulk_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        disabled=(not current_view_ids or not bulk_confirm),
+                    ):
+                        for delete_id in current_view_ids:
+                            soft_delete_record(table_name, delete_id)
+                        st.success(f"현재 조회 결과 {len(current_view_ids)}건을 숨김 처리했습니다.")
+                        st.rerun()
+
+            with st.expander("⚠️ 현재 조회 결과 영구 삭제", expanded=False):
+                st.warning("영구 삭제는 Supabase DB에서 기록을 완전히 삭제합니다. 삭제 후에는 복원할 수 없습니다.")
+                st.caption(f"대상: {admin_menu} / 조회 단위: {dashboard_period} / 현재 보이는 기록 {len(current_view_ids)}건")
+                hard_delete_text = st.text_input(
+                    "현재 조회 결과를 영구 삭제하려면 '영구삭제'를 입력하세요.",
+                    key=f"hard_delete_current_view_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                )
+                if st.button(
+                    f"현재 조회 결과 {len(current_view_ids)}건 영구 삭제",
+                    key=f"hard_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
+                    disabled=(not current_view_ids or hard_delete_text.strip() != "영구삭제"),
+                ):
+                    for delete_id in current_view_ids:
+                        hard_delete_record(table_name, delete_id)
+                    st.success(f"현재 조회 결과 {len(current_view_ids)}건을 영구 삭제했습니다.")
                     st.rerun()
 
+            with st.expander("🧹 전체 테스트 데이터 일괄 정리", expanded=False):
+                st.warning("테스트 데이터 정리 기능입니다. 숨김 처리는 복원 가능하지만, 영구 삭제는 복원할 수 없습니다.")
+
+                all_delete_targets = {
+                    "가입자 정보": "subscribers",
+                    "알림장 생성 기록": "diary_logs",
+                    "상황별 문구 생성 기록": "phrase_logs",
+                    "교사의 온도 기록": "teacher_temperature_logs",
+                }
+
+                active_delete_count = 0
+                permanent_delete_count = 0
+                active_ids_by_table = {}
+                all_ids_by_table = {}
+
+                for label, target_table in all_delete_targets.items():
+                    active_df = load_table(target_table)
+                    all_df = load_table(target_table, include_deleted=True)
+
+                    active_ids = []
+                    all_ids = []
+                    if not active_df.empty and "id" in active_df.columns:
+                        active_ids = active_df["id"].dropna().astype(int).tolist()
+                    if not all_df.empty and "id" in all_df.columns:
+                        all_ids = all_df["id"].dropna().astype(int).tolist()
+
+                    active_ids_by_table[target_table] = active_ids
+                    all_ids_by_table[target_table] = all_ids
+                    active_delete_count += len(active_ids)
+                    permanent_delete_count += len(all_ids)
+                    st.caption(f"- {label}: 현재 목록 {len(active_ids)}건 / 전체 DB {len(all_ids)}건")
+
+                soft_col, hard_col = st.columns([1, 1])
+
+                with soft_col:
+                    st.markdown("#### 전체 숨김 처리")
+                    all_delete_text = st.text_input(
+                        "전체 테스트 데이터를 숨김 처리하려면 '전체삭제'를 입력하세요.",
+                        key="all_test_data_delete_confirm_text",
+                    )
+
+                    if st.button(
+                        f"전체 테스트 데이터 {active_delete_count}건 숨김 처리",
+                        key="all_test_data_soft_delete_button",
+                        disabled=(active_delete_count == 0 or all_delete_text.strip() != "전체삭제"),
+                    ):
+                        for target_table, target_ids in active_ids_by_table.items():
+                            for delete_id in target_ids:
+                                soft_delete_record(target_table, delete_id)
+                        st.success(f"전체 테스트 데이터 {active_delete_count}건을 숨김 처리했습니다.")
+                        st.rerun()
+
+                with hard_col:
+                    st.markdown("#### 전체 영구 삭제")
+                    all_hard_delete_text = st.text_input(
+                        "DB의 전체 테스트 데이터를 영구 삭제하려면 '전체영구삭제'를 입력하세요.",
+                        key="all_test_data_hard_delete_confirm_text",
+                    )
+
+                    if st.button(
+                        f"전체 테스트 데이터 {permanent_delete_count}건 영구 삭제",
+                        key="all_test_data_hard_delete_button",
+                        disabled=(permanent_delete_count == 0 or all_hard_delete_text.strip() != "전체영구삭제"),
+                    ):
+                        for target_table, target_ids in all_ids_by_table.items():
+                            for delete_id in target_ids:
+                                hard_delete_record(target_table, delete_id)
+                        st.success(f"전체 테스트 데이터 {permanent_delete_count}건을 영구 삭제했습니다.")
+                        st.rerun()
+
             st.divider()
-            st.markdown("### ♻️ 삭제 기록 복원")
+            st.markdown("### ♻️ 삭제 기록 복원 및 영구삭제")
+            st.caption("숨김 처리된 기록을 여러 개 선택해 한 번에 복원하거나, DB에서 영구 삭제할 수 있습니다.")
 
             deleted_df = load_table(table_name, include_deleted=True)
 
             if "deleted" in deleted_df.columns:
-                deleted_df = deleted_df[deleted_df["deleted"] == 1]
+                deleted_mask = deleted_df["deleted"].astype(str).str.lower().isin(["true", "1", "yes"])
+                deleted_df = deleted_df[deleted_mask]
 
             if deleted_df.empty:
-                st.caption("복원 가능한 삭제 기록이 없습니다.")
+                st.caption("복원 또는 영구 삭제할 기록이 없습니다.")
             else:
-                restore_id = st.selectbox(
-                    "복원할 기록 ID 선택",
-                    deleted_df["id"].tolist(),
-                    key="restore_record_id_select"
-                )
+                deleted_display_df = deleted_df.rename(columns=column_rename)
 
-                if st.button("선택 기록 복원", key="restore_button"):
-                    restore_record(table_name, restore_id)
-                    st.success("기록이 복원되었습니다.")
-                    st.rerun()
+                if "조회용 날짜" in deleted_display_df.columns:
+                    deleted_display_df = deleted_display_df.drop(columns=["조회용 날짜"])
+                if "삭제 여부" in deleted_display_df.columns:
+                    deleted_display_df = deleted_display_df.drop(columns=["삭제 여부"])
 
+                selected_restore_ids = []
+                deleted_view_ids = []
+
+                if "번호" not in deleted_display_df.columns:
+                    st.dataframe(deleted_display_df, use_container_width=True)
+                else:
+                    deleted_view_ids = (
+                        deleted_display_df["번호"]
+                        .dropna()
+                        .astype(int)
+                        .tolist()
+                    )
+
+                    deleted_editable_df = deleted_display_df.copy()
+                    deleted_editable_df.insert(0, "선택", False)
+
+                    disabled_deleted_columns = [col for col in deleted_editable_df.columns if col != "선택"]
+                    edited_deleted_df = st.data_editor(
+                        deleted_editable_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        disabled=disabled_deleted_columns,
+                        key=f"restore_delete_editor_{table_name}_{dashboard_period}_{admin_menu}",
+                        column_config={
+                            "선택": st.column_config.CheckboxColumn(
+                                "선택",
+                                help="복원하거나 영구 삭제할 기록을 선택하세요.",
+                                default=False,
+                            )
+                        },
+                    )
+
+                    selected_restore_ids = (
+                        edited_deleted_df.loc[edited_deleted_df["선택"] == True, "번호"]
+                        .dropna()
+                        .astype(int)
+                        .tolist()
+                    )
+
+                restore_col, permanent_col = st.columns([1, 1])
+
+                with restore_col:
+                    st.markdown("#### 선택 기록 복원")
+                    if selected_restore_ids:
+                        st.info(f"선택된 삭제 기록: {len(selected_restore_ids)}건")
+                    else:
+                        st.caption("위 표에서 복원할 기록을 선택해 주세요.")
+
+                    if st.button(
+                        "선택한 기록 복원",
+                        key=f"restore_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        disabled=not bool(selected_restore_ids),
+                    ):
+                        for restore_id in selected_restore_ids:
+                            restore_record(table_name, restore_id)
+                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 복원했습니다.")
+                        st.rerun()
+
+                    restore_all_confirm = st.checkbox(
+                        f"{admin_menu}의 삭제 기록 전체 복원에 동의합니다.",
+                        key=f"restore_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                    )
+                    if st.button(
+                        f"삭제 기록 {len(deleted_view_ids)}건 전체 복원",
+                        key=f"restore_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        disabled=(not deleted_view_ids or not restore_all_confirm),
+                    ):
+                        for restore_id in deleted_view_ids:
+                            restore_record(table_name, restore_id)
+                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 복원했습니다.")
+                        st.rerun()
+
+                with permanent_col:
+                    st.markdown("#### 선택 기록 영구 삭제")
+                    st.warning("영구 삭제한 기록은 복원할 수 없습니다.")
+                    permanent_text = st.text_input(
+                        "선택한 삭제 기록을 영구 삭제하려면 '영구삭제'를 입력하세요.",
+                        key=f"permanent_selected_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                    )
+                    if st.button(
+                        "선택한 기록 영구 삭제",
+                        key=f"permanent_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        disabled=(not selected_restore_ids or permanent_text.strip() != "영구삭제"),
+                    ):
+                        for delete_id in selected_restore_ids:
+                            hard_delete_record(table_name, delete_id)
+                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 영구 삭제했습니다.")
+                        st.rerun()
+
+                    permanent_all_text = st.text_input(
+                        f"{admin_menu}의 삭제 기록 전체를 영구 삭제하려면 '삭제기록영구삭제'를 입력하세요.",
+                        key=f"permanent_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                    )
+                    if st.button(
+                        f"삭제 기록 {len(deleted_view_ids)}건 전체 영구 삭제",
+                        key=f"permanent_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        disabled=(not deleted_view_ids or permanent_all_text.strip() != "삭제기록영구삭제"),
+                    ):
+                        for delete_id in deleted_view_ids:
+                            hard_delete_record(table_name, delete_id)
+                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 영구 삭제했습니다.")
+                        st.rerun()
