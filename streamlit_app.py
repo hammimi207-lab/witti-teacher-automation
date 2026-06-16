@@ -277,7 +277,7 @@ def platform_info_text() -> str:
     """생성 문구 하단에 붙일 플랫폼 안내 문구입니다."""
     return (
         f"\n\n---\n"
-        f"교사의 발견 위티 사이트: {WITTI_SITE_URL}\n"
+        f"교사의 발견 사이트: {WITTI_SITE_URL}\n"
         f"플랫폼 사용 문의: {WITTI_CONTACT_EMAIL}"
     )
 
