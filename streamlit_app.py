@@ -25,7 +25,7 @@ except Exception:
 
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide")
+st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -189,6 +189,58 @@ div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
     box-shadow:0 8px 22px rgba(47,128,237,0.06);
 }
 
+
+/* 접힌 설정창 열기 버튼 툴팁 */
+div[data-testid="stSidebarCollapsedControl"],
+div[data-testid="collapsedControl"] {
+    position: fixed !important;
+    top: 0.85rem !important;
+    left: 0.75rem !important;
+    z-index: 999999 !important;
+}
+
+div[data-testid="stSidebarCollapsedControl"] button,
+div[data-testid="collapsedControl"] button {
+    position: relative !important;
+}
+
+div[data-testid="stSidebarCollapsedControl"] button:hover::after,
+div[data-testid="collapsedControl"] button:hover::after {
+    content: "설정 창 열기";
+    position: absolute;
+    left: 38px;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    background: #16324F;
+    color: #FFFFFF;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
+    pointer-events: none;
+}
+
+/* 일부 Streamlit 버전의 접힌 사이드바 버튼 대응 */
+button[data-testid="stSidebarCollapseButton"]:hover::after,
+button[data-testid="stBaseButton-headerNoPadding"]:hover::after {
+    content: "설정 창 열기";
+    position: absolute;
+    left: 38px;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    background: #16324F;
+    color: #FFFFFF;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
+    pointer-events: none;
+}
+
 @media (max-width: 768px) {
     .block-container {
         padding-top: 1.2rem;
@@ -269,20 +321,23 @@ TABLE_NAMES = {
 
 
 WITTI_SITE_URL = "https://witti.kr/"
+WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
-WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
+WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+APP_VERSION = "2026-06-17-link-sidebar-v2"
 
 
 def platform_info_text() -> str:
     """생성 문구 하단에 붙일 플랫폼 안내 문구입니다."""
     return (
         f"\n\n---\n"
-        f"교사의 발견 위티 사이트: {WITTI_SITE_URL}\n"
-        f"플랫폼 사용 문의: {WITTI_CONTACT_EMAIL}"
+        f"{WITTI_SITE_LABEL}: {WITTI_SITE_URL}\n"
+        f"{WITTI_CONTACT_LABEL}: {WITTI_CONTACT_EMAIL}"
     )
 
 def append_platform_info(text: str) -> str:
-    """생성 결과에 위티 사이트와 문의 이메일을 한 번만 덧붙입니다."""
+    """생성 결과에 교사의 발견 플랫폼과 문의 이메일을 한 번만 덧붙입니다."""
     text = (text or "").strip()
     if WITTI_SITE_URL in text and WITTI_CONTACT_EMAIL in text:
         return text
@@ -310,8 +365,8 @@ def render_platform_guide():
     st.markdown(
         f"""
         <div class="small-guide">
-        🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+        ✉️ {WITTI_CONTACT_LABEL}: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -322,6 +377,53 @@ def render_generated_phrase(idx: int, text: str):
     st.markdown(
         f"<div class='result-card-gray'><strong>{idx}.</strong><br>{text_to_html_with_links(text)}</div>",
         unsafe_allow_html=True,
+    )
+
+def apply_sidebar_open_hint():
+    """접힌 사이드바 열기 버튼에 브라우저 기본 툴팁을 부여합니다."""
+    st_javascript(
+        """
+        const setSidebarTooltips = () => {
+            const doc = window.parent.document;
+            const selectors = [
+                'div[data-testid="stSidebarCollapsedControl"] button',
+                'div[data-testid="collapsedControl"] button',
+                'button[data-testid="stSidebarCollapseButton"]',
+                'button[data-testid="stBaseButton-headerNoPadding"]'
+            ];
+            selectors.forEach((selector) => {
+                doc.querySelectorAll(selector).forEach((button) => {
+                    button.setAttribute('title', '설정 창 열기');
+                    button.setAttribute('aria-label', '설정 창 열기');
+                });
+            });
+        };
+        setSidebarTooltips();
+        setTimeout(setSidebarTooltips, 300);
+        setTimeout(setSidebarTooltips, 1000);
+        setTimeout(setSidebarTooltips, 2000);
+        """,
+        key="sidebar_open_hint_js",
+    )
+
+
+def force_sidebar_collapsed_on_first_load():
+    """현재 브라우저 세션의 첫 로딩에서 사이드바를 닫힌 상태로 맞춥니다."""
+    if st.session_state.get("sidebar_collapsed_once"):
+        return
+    st.session_state["sidebar_collapsed_once"] = True
+    st_javascript(
+        """
+        setTimeout(() => {
+            const doc = window.parent.document;
+            const collapsedControl = doc.querySelector('div[data-testid="stSidebarCollapsedControl"], div[data-testid="collapsedControl"]');
+            const collapseButton = doc.querySelector('button[data-testid="stSidebarCollapseButton"]');
+            if (!collapsedControl && collapseButton) {
+                collapseButton.click();
+            }
+        }, 700);
+        """,
+        key="force_sidebar_collapsed_once_js",
     )
 
 
@@ -489,11 +591,12 @@ def render_menu_card(title: str, description: str, chips: list[str] | None = Non
 
 st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
 st.markdown(f"""
+<!-- APP_VERSION: {APP_VERSION} -->
 <div class="small-guide">
 💡 본 플랫폼은 PC 또는 모바일에서 활용 가능합니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
 💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있습니다.<br>
-🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+✉️ {WITTI_CONTACT_LABEL}: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
 </div>
 """, unsafe_allow_html=True)
 
@@ -505,9 +608,18 @@ with st.sidebar:
     st.markdown("### 🌿 이용 안내")
     st.caption("☞ 사진 선별과 기록, 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
-    st.caption("☞ 본 플랫폼의 링크만 있으면 모바일과 PC에서 모두 활용 가능합니다.")
-    st.markdown(f"☞ [위티 사이트]({WITTI_SITE_URL})")
-    st.markdown(f"☞ [플랫폼 사용 문의](<{WITTI_CONTACT_MAILTO}>)")
+    st.markdown(
+        f"""
+        <div class="small-guide" style="margin-top:10px; padding:12px 14px;">
+        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+        ✉️ {WITTI_CONTACT_LABEL}: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+force_sidebar_collapsed_on_first_load()
+apply_sidebar_open_hint()
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
 
