@@ -3769,8 +3769,38 @@ with tab6:
                     .tolist()
                 )
 
+                delete_select_key = f"delete_select_all_{table_name}_{dashboard_period}_{admin_menu}"
+                delete_editor_version_key = f"delete_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
+
+                if delete_select_key not in st.session_state:
+                    st.session_state[delete_select_key] = False
+                if delete_editor_version_key not in st.session_state:
+                    st.session_state[delete_editor_version_key] = 0
+
+                select_col1, select_col2, select_col3 = st.columns([1, 1, 4])
+                with select_col1:
+                    if st.button(
+                        "현재 목록 전체 선택",
+                        key=f"delete_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[delete_select_key] = True
+                        st.session_state[delete_editor_version_key] += 1
+                        st.rerun()
+                with select_col2:
+                    if st.button(
+                        "전체 선택 취소",
+                        key=f"delete_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[delete_select_key] = False
+                        st.session_state[delete_editor_version_key] += 1
+                        st.rerun()
+                with select_col3:
+                    st.caption("현재 표에 보이는 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
+
                 editable_df = table_display_df.copy()
-                editable_df.insert(0, "삭제 선택", False)
+                editable_df.insert(0, "삭제 선택", bool(st.session_state[delete_select_key]))
 
                 disabled_columns = [col for col in editable_df.columns if col != "삭제 선택"]
                 edited_df = st.data_editor(
@@ -3778,7 +3808,7 @@ with tab6:
                     use_container_width=True,
                     hide_index=True,
                     disabled=disabled_columns,
-                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}",
+                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[delete_editor_version_key]}",
                     column_config={
                         "삭제 선택": st.column_config.CheckboxColumn(
                             "삭제 선택",
@@ -3970,8 +4000,38 @@ with tab6:
                         .tolist()
                     )
 
+                    restore_select_key = f"restore_select_all_{table_name}_{dashboard_period}_{admin_menu}"
+                    restore_editor_version_key = f"restore_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
+
+                    if restore_select_key not in st.session_state:
+                        st.session_state[restore_select_key] = False
+                    if restore_editor_version_key not in st.session_state:
+                        st.session_state[restore_editor_version_key] = 0
+
+                    restore_select_col1, restore_select_col2, restore_select_col3 = st.columns([1, 1, 4])
+                    with restore_select_col1:
+                        if st.button(
+                            "삭제 기록 전체 선택",
+                            key=f"restore_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
+                            use_container_width=True,
+                        ):
+                            st.session_state[restore_select_key] = True
+                            st.session_state[restore_editor_version_key] += 1
+                            st.rerun()
+                    with restore_select_col2:
+                        if st.button(
+                            "전체 선택 취소",
+                            key=f"restore_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
+                            use_container_width=True,
+                        ):
+                            st.session_state[restore_select_key] = False
+                            st.session_state[restore_editor_version_key] += 1
+                            st.rerun()
+                    with restore_select_col3:
+                        st.caption("숨김 처리된 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
+
                     deleted_editable_df = deleted_display_df.copy()
-                    deleted_editable_df.insert(0, "선택", False)
+                    deleted_editable_df.insert(0, "선택", bool(st.session_state[restore_select_key]))
 
                     disabled_deleted_columns = [col for col in deleted_editable_df.columns if col != "선택"]
                     edited_deleted_df = st.data_editor(
@@ -3979,7 +4039,7 @@ with tab6:
                         use_container_width=True,
                         hide_index=True,
                         disabled=disabled_deleted_columns,
-                        key=f"restore_delete_editor_{table_name}_{dashboard_period}_{admin_menu}",
+                        key=f"restore_delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[restore_editor_version_key]}",
                         column_config={
                             "선택": st.column_config.CheckboxColumn(
                                 "선택",
