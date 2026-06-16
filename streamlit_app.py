@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image, ImageEnhance
 from streamlit_javascript import st_javascript
 
@@ -25,190 +26,410 @@ except Exception:
 
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide")
+st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
+
 <style>
 :root {
-    --witti-sky-50:#F2F9FF;
-    --witti-sky-100:#E3F2FF;
-    --witti-sky-200:#CDEAFF;
-    --witti-sky-300:#9BD4FF;
-    --witti-blue:#2F80ED;
-    --witti-blue-deep:#1B4D89;
-    --witti-navy:#16324F;
-    --witti-yellow:#FFE88A;
-    --witti-line:#D9ECFF;
-    --witti-card:#FFFFFF;
+    --witti-bg:#F6F8FB;
+    --witti-panel:#FFFFFF;
+    --witti-panel-soft:#F8FAFC;
+    --witti-line:#E5EAF1;
+    --witti-line-blue:#D7E8FF;
+    --witti-navy:#172B4D;
+    --witti-text:#223044;
+    --witti-muted:#667085;
+    --witti-blue:#0CC0DF;
+    --witti-blue-2:#36D7EF;
+    --witti-blue-soft:#E9FBFF;
+    --witti-green-soft:#E8F8EF;
+    --witti-green:#188B55;
+    --witti-yellow-soft:#FFF6DD;
+    --witti-shadow:0 12px 32px rgba(15, 23, 42, 0.06);
+    --witti-shadow-soft:0 8px 22px rgba(15, 23, 42, 0.045);
 }
 
 html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
 }
 
+#MainMenu, footer {
+    visibility: hidden;
+}
+
+/* 사이드바 열기/닫기 버튼은 Streamlit header 안에 있으므로 header를 숨기면 설정창 버튼까지 사라집니다. */
+header[data-testid="stHeader"] {
+    visibility: visible !important;
+    background: rgba(250, 252, 255, 0.72) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(229, 234, 241, 0.65);
+    z-index: 999999 !important;
+}
+
+header[data-testid="stHeader"] * {
+    visibility: visible !important;
+}
+
+/* 접힌 설정창 열기 버튼이 항상 보이도록 보정 */
+div[data-testid="stSidebarCollapsedControl"],
+div[data-testid="collapsedControl"] {
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: flex !important;
+    z-index: 2147483646 !important;
+}
+
+div[data-testid="stSidebarCollapsedControl"] button,
+div[data-testid="collapsedControl"] button {
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: #FFFFFF !important;
+    color: #1D4ED8 !important;
+    border: 1px solid #D7E6F8 !important;
+    border-radius: 999px !important;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10) !important;
+}
+
 .stApp {
-    background: linear-gradient(180deg, #F4FAFF 0%, #FFFFFF 34%, #F8FCFF 100%);
+    background:
+        radial-gradient(circle at 12% 0%, rgba(219, 234, 254, 0.72) 0, rgba(219, 234, 254, 0) 34%),
+        linear-gradient(180deg, #FAFCFF 0%, var(--witti-bg) 44%, #FFFFFF 100%);
 }
 
 .block-container {
-    padding-top: 2rem;
-    padding-left: 3rem;
-    padding-right: 3rem;
+    padding-top: 1.45rem;
+    padding-left: 2.2rem;
+    padding-right: 2.2rem;
     max-width: 1180px;
 }
 
 h1, h2, h3, h4 {
     color: var(--witti-navy) !important;
-    letter-spacing: -0.6px !important;
+    letter-spacing: -0.7px !important;
+}
+
+h2, h3 {
+    margin-top: 1.15rem !important;
+}
+
+p, li, label, .stMarkdown {
+    color: var(--witti-text);
+}
+
+.app-hero {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--witti-line);
+    border-radius: 24px;
+    padding: 26px 30px 24px 30px;
+    margin: 4px 0 20px 0;
+    box-shadow: var(--witti-shadow);
+}
+
+.app-eyebrow {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    color: var(--witti-blue);
+    background: var(--witti-blue-soft);
+    border: 1px solid #D4E7FF;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 7px 12px;
+    margin-bottom: 12px;
+}
+
+.app-hero h1 {
+    font-size: 34px;
+    line-height: 1.24;
+    margin: 0 0 8px 0 !important;
+    color: var(--witti-navy) !important;
+}
+
+.app-hero p {
+    margin: 0;
+    color: var(--witti-muted);
+    font-size: 15px;
+    line-height: 1.7;
+}
+
+.hero-links {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top: 16px;
+}
+
+.hero-link {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    color:#1D4ED8 !important;
+    background:#F8FBFF;
+    border:1px solid #DCEBFF;
+    border-radius:999px;
+    padding:8px 12px;
+    font-size:13px;
+    font-weight:700;
+    text-decoration:none !important;
+}
+
+span.hero-link {
+    cursor: default;
+}
+
+.hero-link strong {
+    color:#0F3B8F;
+    font-weight:900;
+}
+
+.small-guide strong {
+    color:#0F3B8F;
+    font-weight:900;
 }
 
 .small-guide {
-    color:#5F7188;
+    color: var(--witti-muted);
     font-size:14px;
     line-height:1.75;
-    background: #F7FBFF;
+    background: #FFFFFF;
     border: 1px solid var(--witti-line);
-    border-radius: 16px;
+    border-radius: 18px;
     padding: 14px 18px;
     margin: 8px 0 22px 0;
+    box-shadow: var(--witti-shadow-soft);
 }
 
-/* 탭 메뉴바 */
+/* 탭 메뉴바: 캡처본처럼 정돈된 내비게이션 느낌 */
+div[data-testid="stTabs"] > div[role="tablist"] {
+    gap: 8px;
+    background: #FFFFFF;
+    border: 1px solid var(--witti-line);
+    border-radius: 18px;
+    padding: 8px;
+    box-shadow: var(--witti-shadow-soft);
+    margin-bottom: 18px;
+}
+
 div[data-testid="stTabs"] button[data-baseweb="tab"] {
-    background: #EAF6FF !important;
-    border: 1px solid #CFEAFF !important;
-    border-radius: 999px !important;
-    padding: 9px 14px !important;
-    margin-right: 6px !important;
-    color: #315A7D !important;
-    font-weight: 700 !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 12px !important;
+    padding: 10px 14px !important;
+    color: #55677E !important;
+    font-weight: 800 !important;
+    min-height: 42px !important;
+}
+
+div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
+    background: #F5F9FF !important;
+    color: var(--witti-navy) !important;
 }
 
 div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
-    background: linear-gradient(135deg, #4DA3FF 0%, #8FD3FF 100%) !important;
-    color: white !important;
-    border-color: #4DA3FF !important;
-    box-shadow: 0 6px 16px rgba(47,128,237,0.18);
+    background: #EAF3FF !important;
+    color: #1D4ED8 !important;
+    border-color: #D3E6FF !important;
+    box-shadow: none !important;
 }
 
 /* 입력 요소 */
-.stTextInput input, .stTextArea textarea, div[data-baseweb="select"] > div {
+.stTextInput input,
+.stTextArea textarea,
+div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div {
     border-radius: 12px !important;
-    border-color: #CFE6FA !important;
+    border-color: #DCE5F0 !important;
     background-color: #FFFFFF !important;
+    box-shadow: none !important;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #0CC0DF !important;
+    box-shadow: 0 0 0 3px rgba(12,192,223,0.12) !important;
 }
 
 .stButton > button, .stDownloadButton > button {
-    min-height: 44px;
+    min-height: 42px;
     border-radius: 12px !important;
-    font-weight: 700 !important;
-    border: 1px solid #9ED3FF !important;
-    background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%) !important;
-    color: white !important;
-    box-shadow: 0 6px 15px rgba(47,128,237,0.18);
+    font-weight: 800 !important;
+    border: 1px solid #0AAFCB !important;
+    background: linear-gradient(135deg, #0897B2 0%, #0CC0DF 52%, #38D9F2 100%) !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 8px 18px rgba(12, 192, 223, 0.22);
+    transition: all 0.16s ease;
 }
 
 .stButton > button:hover, .stDownloadButton > button:hover {
-    filter: brightness(0.98);
-    border-color: #56CCF2 !important;
+    background: linear-gradient(135deg, #078CA5 0%, #0CC0DF 58%, #4BE3F6 100%) !important;
+    border-color: #0897B2 !important;
+    box-shadow: 0 10px 22px rgba(12, 192, 223, 0.28);
+    transform: translateY(-1px);
+}
+
+.stButton > button:active, .stDownloadButton > button:active {
+    transform: translateY(0);
+    box-shadow: 0 5px 14px rgba(12, 192, 223, 0.20);
 }
 
 .menu-card {
-    background: rgba(255,255,255,0.88);
-    border: 1px solid #D7ECFF;
-    border-left: 7px solid #6EC6FF;
+    background: rgba(255,255,255,0.95);
+    border: 1px solid var(--witti-line);
     border-radius: 22px;
-    padding: 20px 22px;
+    padding: 22px 24px;
     margin: 10px 0 20px 0;
-    box-shadow: 0 10px 30px rgba(47, 128, 237, 0.08);
+    box-shadow: var(--witti-shadow);
 }
 
 .menu-card-title {
-    font-size: 23px;
-    font-weight: 800;
-    color: #16324F;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--witti-navy);
     margin-bottom: 8px;
 }
 
 .menu-card-desc {
     font-size: 15px;
-    line-height: 1.7;
-    color: #526A7F;
+    line-height: 1.75;
+    color: var(--witti-muted);
+    margin-bottom: 9px;
 }
 
 .info-chip {
-    display:inline-block;
-    background:#EAF6FF;
-    color:#1B4D89;
-    border:1px solid #CFEAFF;
+    display:inline-flex;
+    align-items:center;
+    background:#F4F8FF;
+    color:#245B99;
+    border:1px solid #DCEBFF;
     border-radius:999px;
     padding:6px 11px;
-    font-size:13px;
-    font-weight:700;
+    font-size:12.5px;
+    font-weight:800;
     margin: 4px 4px 4px 0;
 }
 
 .letter-box {
-    font-size: 18px;
-    line-height: 1.8;
-    color: #273849;
-    background: linear-gradient(180deg, #FFFDF8 0%, #F7FBFF 100%);
+    font-size: 17px;
+    line-height: 1.85;
+    color: var(--witti-text);
+    background: #FFFFFF;
     padding: 24px;
     border-radius: 18px;
-    border: 1px solid #D7ECFF;
+    border: 1px solid var(--witti-line);
     white-space: pre-wrap;
     margin-top: 12px;
-    box-shadow: 0 8px 22px rgba(47,128,237,0.06);
+    box-shadow: var(--witti-shadow-soft);
 }
 
 .result-card-blue {
-    color:#16324F;
-    background-color:#EEF7FF;
-    border: 1px solid #CFEAFF;
-    padding:18px;
-    border-radius:16px;
-    line-height:1.8;
+    color: var(--witti-navy);
+    background-color:#F1F8FF;
+    border: 1px solid #CFE4FF;
+    padding:20px;
+    border-radius:18px;
+    line-height:1.85;
     white-space:pre-wrap;
+    box-shadow: var(--witti-shadow-soft);
 }
 
 .result-card-gray {
-    color:#1F2933;
-    background-color:#F8FAFC;
-    border: 1px solid #E5EDF5;
-    padding:18px;
-    border-radius:16px;
-    line-height:1.8;
+    color: var(--witti-text);
+    background-color:#FFFFFF;
+    border: 1px solid var(--witti-line);
+    padding:20px;
+    border-radius:18px;
+    line-height:1.85;
     white-space:pre-wrap;
+    box-shadow: var(--witti-shadow-soft);
+    margin: 10px 0;
 }
 
 [data-testid="stMetric"] {
     background:#FFFFFF;
-    border:1px solid #D7ECFF;
+    border:1px solid var(--witti-line);
     border-radius:18px;
     padding:14px;
-    box-shadow:0 8px 22px rgba(47,128,237,0.06);
+    box-shadow:var(--witti-shadow-soft);
+}
+
+div[data-testid="stAlert"] {
+    border-radius: 16px !important;
+    border: 1px solid #DDEBE4 !important;
+}
+
+div[data-testid="stFileUploader"] section {
+    border-radius: 16px !important;
+    border: 1px dashed #BBD7F6 !important;
+    background: #FBFDFF !important;
+}
+
+div[data-testid="stExpander"] {
+    border: 1px solid var(--witti-line) !important;
+    border-radius: 18px !important;
+    background: #FFFFFF !important;
+    box-shadow: var(--witti-shadow-soft);
+}
+
+hr {
+    border-color: #E5EAF1 !important;
+}
+
+/* 접힌 설정창 열기 버튼 툴팁
+   실제 위치는 apply_sidebar_open_hint()의 JS가 화살표 버튼 좌표를 읽어 바로 옆에 표시합니다. */
+#witti-sidebar-open-tooltip {
+    position: fixed;
+    display: none;
+    z-index: 2147483647;
+    pointer-events: none;
+    white-space: nowrap;
+    background: #172B4D;
+    color: #FFFFFF;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
 }
 
 @media (max-width: 768px) {
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 1.1rem;
         padding-left: 1rem;
         padding-right: 1rem;
         max-width: 100%;
     }
 
-    h1 { font-size: 31px !important; line-height:1.25 !important; }
-    h2 { font-size: 24px !important; }
-    h3 { font-size: 21px !important; }
+    .app-hero {
+        padding: 20px 18px;
+        border-radius: 20px;
+    }
+
+    .app-hero h1 {
+        font-size: 27px !important;
+    }
+
+    h1 { font-size: 30px !important; line-height:1.25 !important; }
+    h2 { font-size: 23px !important; }
+    h3 { font-size: 20px !important; }
     h4 { font-size: 18px !important; }
 
     label, p { font-size: 15px !important; line-height: 1.55 !important; }
     textarea, input, select { font-size: 16px !important; }
 
+    div[data-testid="stTabs"] > div[role="tablist"] {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+    }
+
     div[data-testid="stTabs"] button[data-baseweb="tab"] {
         font-size: 13px !important;
         padding: 8px 10px !important;
-        margin-right: 4px !important;
+        margin-right: 0 !important;
+        min-width: max-content;
     }
 
     .menu-card { padding: 16px !important; border-radius: 18px !important; }
@@ -225,6 +446,7 @@ div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
     }
 }
 </style>
+
 """, unsafe_allow_html=True)
 
 
@@ -269,39 +491,32 @@ TABLE_NAMES = {
 
 
 WITTI_SITE_URL = "https://witti.kr/"
+WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
-WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
+WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+APP_VERSION = "2026-06-17-diary-validation-button-0cc0df-v1"
 
 
 def platform_info_text() -> str:
-    """생성 문구 하단에 붙일 플랫폼 안내 문구입니다."""
+    """상단 안내 영역에만 사용하는 플랫폼 안내 문구입니다."""
     return (
-        f"\n\n---\n"
-        f"교사의 발견 위티 사이트: {WITTI_SITE_URL}\n"
-        f"플랫폼 사용 문의: {WITTI_CONTACT_EMAIL}"
+        f"{WITTI_SITE_LABEL}: {WITTI_SITE_URL}\n"
+        f"{WITTI_CONTACT_LABEL}: {WITTI_CONTACT_EMAIL}"
     )
 
 def append_platform_info(text: str) -> str:
-    """생성 결과에 위티 사이트와 문의 이메일을 한 번만 덧붙입니다."""
-    text = (text or "").strip()
-    if WITTI_SITE_URL in text and WITTI_CONTACT_EMAIL in text:
-        return text
-    return f"{text}{platform_info_text()}"
+    """생성 문구에는 플랫폼 안내를 붙이지 않습니다. 기존 호출 호환용 안전 함수입니다."""
+    return (text or "").strip()
 
 
 def text_to_html_with_links(text: str) -> str:
-    """문장 출력 시 URL과 이메일을 클릭 가능한 링크로 변환합니다."""
+    """문장 출력 시 사이트 URL만 클릭 가능한 링크로 변환합니다. 문의 이메일은 오작동을 막기 위해 일반 텍스트로 둡니다."""
     escaped = html.escape(text or "")
     escaped_site = html.escape(WITTI_SITE_URL)
-    escaped_email = html.escape(WITTI_CONTACT_EMAIL)
-    escaped_mailto = html.escape(WITTI_CONTACT_MAILTO, quote=True)
     escaped = escaped.replace(
         escaped_site,
         f'<a href="{escaped_site}" target="_blank" rel="noopener noreferrer">{escaped_site}</a>'
-    )
-    escaped = escaped.replace(
-        escaped_email,
-        f'<a href="{escaped_mailto}">{escaped_email}</a>'
     )
     return escaped.replace("\n", "<br>")
 
@@ -310,8 +525,8 @@ def render_platform_guide():
     st.markdown(
         f"""
         <div class="small-guide">
-        🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
         </div>
         """,
         unsafe_allow_html=True,
@@ -322,6 +537,254 @@ def render_generated_phrase(idx: int, text: str):
     st.markdown(
         f"<div class='result-card-gray'><strong>{idx}.</strong><br>{text_to_html_with_links(text)}</div>",
         unsafe_allow_html=True,
+    )
+
+def apply_sidebar_open_hint():
+    """접힌 사이드바 열기 버튼 바로 옆에 '설정 창 열기' 툴팁을 표시합니다."""
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const TOOLTIP_TEXT = '설정 창 열기';
+
+            function ensureTooltip() {
+                let tooltip = doc.getElementById('witti-sidebar-open-tooltip');
+                if (!tooltip) {
+                    tooltip = doc.createElement('div');
+                    tooltip.id = 'witti-sidebar-open-tooltip';
+                    tooltip.textContent = TOOLTIP_TEXT;
+                    tooltip.style.position = 'fixed';
+                    tooltip.style.display = 'none';
+                    tooltip.style.zIndex = '2147483647';
+                    tooltip.style.pointerEvents = 'none';
+                    tooltip.style.whiteSpace = 'nowrap';
+                    tooltip.style.background = '#16324F';
+                    tooltip.style.color = '#FFFFFF';
+                    tooltip.style.borderRadius = '999px';
+                    tooltip.style.padding = '7px 11px';
+                    tooltip.style.fontSize = '13px';
+                    tooltip.style.fontWeight = '700';
+                    tooltip.style.lineHeight = '1';
+                    tooltip.style.boxShadow = '0 8px 22px rgba(22,50,79,0.18)';
+                    doc.body.appendChild(tooltip);
+                }
+                return tooltip;
+            }
+
+            const tooltip = ensureTooltip();
+
+            function isVisible(el) {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = win.getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            }
+
+            function getCollapsedOpenButtons() {
+                const selectors = [
+                    'div[data-testid="stSidebarCollapsedControl"] button',
+                    'div[data-testid="collapsedControl"] button',
+                    'button[aria-label*="Open sidebar"]',
+                    'button[title*="Open sidebar"]',
+                    'button[aria-label*="open sidebar"]',
+                    'button[title*="open sidebar"]'
+                ];
+
+                return Array.from(doc.querySelectorAll(selectors.join(',')))
+                    .filter((button) => {
+                        if (!isVisible(button)) return false;
+                        const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
+                        const parentTestId = button.closest('[data-testid]')?.getAttribute('data-testid') || '';
+                        return (
+                            parentTestId === 'stSidebarCollapsedControl' ||
+                            parentTestId === 'collapsedControl' ||
+                            label.includes('open sidebar')
+                        );
+                    });
+            }
+
+            function placeTooltipNextTo(button) {
+                const rect = button.getBoundingClientRect();
+                const gap = 8;
+                let left = rect.right + gap;
+                let top = rect.top + rect.height / 2;
+
+                tooltip.textContent = TOOLTIP_TEXT;
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${left}px`;
+                tooltip.style.top = `${top}px`;
+                tooltip.style.transform = 'translateY(-50%)';
+
+                const tooltipRect = tooltip.getBoundingClientRect();
+                if (tooltipRect.right > win.innerWidth - 8) {
+                    left = Math.max(8, rect.left - tooltipRect.width - gap);
+                    tooltip.style.left = `${left}px`;
+                }
+            }
+
+            function hideTooltip() {
+                tooltip.style.display = 'none';
+            }
+
+            function attachHint() {
+                const buttons = getCollapsedOpenButtons();
+                buttons.forEach((button) => {
+                    if (button.dataset.wittiSidebarOpenHint === 'done') return;
+                    button.dataset.wittiSidebarOpenHint = 'done';
+                    button.setAttribute('title', TOOLTIP_TEXT);
+                    button.setAttribute('aria-label', TOOLTIP_TEXT);
+                    button.addEventListener('mouseenter', () => placeTooltipNextTo(button));
+                    button.addEventListener('mousemove', () => placeTooltipNextTo(button));
+                    button.addEventListener('mouseleave', hideTooltip);
+                    button.addEventListener('focus', () => placeTooltipNextTo(button));
+                    button.addEventListener('blur', hideTooltip);
+                    button.addEventListener('click', hideTooltip);
+                });
+            }
+
+            attachHint();
+            if (!win.__wittiSidebarOpenHintObserver) {
+                win.__wittiSidebarOpenHintObserver = new MutationObserver(attachHint);
+                win.__wittiSidebarOpenHintObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
+            }
+            setTimeout(attachHint, 200);
+            setTimeout(attachHint, 700);
+            setTimeout(attachHint, 1500);
+            setTimeout(attachHint, 3000);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def force_sidebar_collapsed_on_first_load():
+    """
+    페이지가 처음 열릴 때 사이드바가 보이면 자동으로 접습니다.
+    Streamlit이 브라우저에 이전 사이드바 열림 상태를 기억할 수 있어 공식 collapsed 옵션을 보완합니다.
+    사용자가 이후 직접 다시 열었을 때는 계속 강제로 닫지 않도록 초기 몇 초 동안만 작동합니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+
+            if (win.__wittiSidebarDefaultCollapseStarted) {
+                return;
+            }
+            win.__wittiSidebarDefaultCollapseStarted = true;
+
+            function isVisible(el) {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = win.getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            }
+
+            function getSidebar() {
+                return doc.querySelector([
+                    'section[data-testid="stSidebar"]',
+                    'aside[data-testid="stSidebar"]',
+                    'div[data-testid="stSidebar"]'
+                ].join(','));
+            }
+
+            function getOpenSidebarButton() {
+                return Array.from(doc.querySelectorAll([
+                    'div[data-testid="stSidebarCollapsedControl"] button',
+                    'div[data-testid="collapsedControl"] button',
+                    'button[aria-label*="Open sidebar"]',
+                    'button[title*="Open sidebar"]'
+                ].join(','))).find(isVisible) || null;
+            }
+
+            function sidebarIsCollapsed() {
+                if (getOpenSidebarButton()) return true;
+                const sidebar = getSidebar();
+                if (!sidebar) return false;
+                const rect = sidebar.getBoundingClientRect();
+                const style = win.getComputedStyle(sidebar);
+                return rect.width < 90 || rect.right < 90 || style.display === 'none' || style.visibility === 'hidden';
+            }
+
+            function findCollapseButton() {
+                const selectors = [
+                    'button[data-testid="stSidebarCollapseButton"]',
+                    'button[aria-label*="Close sidebar"]',
+                    'button[title*="Close sidebar"]',
+                    'button[aria-label*="Collapse sidebar"]',
+                    'button[title*="Collapse sidebar"]',
+                    'button[aria-label*="close sidebar"]',
+                    'button[title*="close sidebar"]',
+                    'button[aria-label*="collapse sidebar"]',
+                    'button[title*="collapse sidebar"]'
+                ];
+
+                for (const selector of selectors) {
+                    const button = Array.from(doc.querySelectorAll(selector)).find(isVisible);
+                    if (button) return button;
+                }
+
+                const sidebar = getSidebar();
+                if (!sidebar || !isVisible(sidebar)) return null;
+                const sidebarRect = sidebar.getBoundingClientRect();
+
+                const buttons = Array.from(sidebar.querySelectorAll('button')).filter(isVisible);
+                if (!buttons.length) return null;
+
+                const textMatch = buttons.find((button) => {
+                    const text = `${button.innerText || ''} ${button.textContent || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`;
+                    return text.includes('«') || text.includes('‹') || text.includes('<<') || text.toLowerCase().includes('close') || text.toLowerCase().includes('collapse');
+                });
+                if (textMatch) return textMatch;
+
+                // 접기 버튼은 보통 사이드바 오른쪽 위에 있으므로, 그 위치에 가장 가까운 작은 버튼을 고릅니다.
+                const upperSmallButtons = buttons
+                    .map((button) => ({ button, rect: button.getBoundingClientRect() }))
+                    .filter(({ rect }) => rect.top < 120 && rect.width <= 80 && rect.height <= 80)
+                    .sort((a, b) => Math.abs(a.rect.right - sidebarRect.right) - Math.abs(b.rect.right - sidebarRect.right));
+                return upperSmallButtons[0]?.button || null;
+            }
+
+            let attempts = 0;
+            const maxAttempts = 70;
+
+            function collapseIfNeeded() {
+                attempts += 1;
+                if (sidebarIsCollapsed()) {
+                    clearInterval(timer);
+                    return;
+                }
+
+                const sidebar = getSidebar();
+                const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
+                const button = findCollapseButton();
+
+                if (button && sidebarWidth > 120) {
+                    button.click();
+                    setTimeout(() => {
+                        if (sidebarIsCollapsed()) clearInterval(timer);
+                    }, 250);
+                    return;
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(timer);
+                }
+            }
+
+            const timer = setInterval(collapseIfNeeded, 100);
+            [50, 150, 300, 600, 1000, 1800, 3000, 5000].forEach((delay) => setTimeout(collapseIfNeeded, delay));
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
     )
 
 
@@ -487,13 +950,16 @@ def render_menu_card(title: str, description: str, chips: list[str] | None = Non
     )
 
 
-st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
 st.markdown(f"""
-<div class="small-guide">
-💡 본 플랫폼은 PC 또는 모바일에서 활용 가능합니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
-💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있습니다.<br>
-🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
+<!-- APP_VERSION: {APP_VERSION} -->
+<div class="app-hero">
+    <div class="app-eyebrow">🌿 교사의 발견</div>
+    <h1>현장 업무 자동화 파일럿 서비스</h1>
+    <p>사진 선별, 문구 생성, 알림장 작성, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
+    <div class="hero-links">
+        <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
+        <span class="hero-link">✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong></span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -505,9 +971,18 @@ with st.sidebar:
     st.markdown("### 🌿 이용 안내")
     st.caption("☞ 사진 선별과 기록, 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
-    st.caption("☞ 본 플랫폼의 링크만 있으면 모바일과 PC에서 모두 활용 가능합니다.")
-    st.markdown(f"☞ [위티 사이트]({WITTI_SITE_URL})")
-    st.markdown(f"☞ [플랫폼 사용 문의](<{WITTI_CONTACT_MAILTO}>)")
+    st.markdown(
+        f"""
+        <div class="small-guide" style="margin-top:10px; padding:12px 14px;">
+        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+force_sidebar_collapsed_on_first_load()
+apply_sidebar_open_hint()
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
 
@@ -877,6 +1352,37 @@ def make_core_summary(text: str, max_sentences: int = 3) -> str:
 def remove_bullets(summary: str) -> str:
     text = summary.replace("- ", " ").replace("\n", " ")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def validate_diary_text(text: str) -> tuple[bool, str]:
+    """알림장 생성용 일지 입력이 단어/키워드가 아니라 문장인지 확인합니다."""
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    compact = re.sub(r"\s+", "", cleaned)
+    tokens = re.findall(r"[가-힣A-Za-z0-9]+", cleaned)
+
+    guide = (
+        "일지 내용은 단어가 아니라 관찰된 장면이 드러나는 문장으로 입력해 주세요. "
+        "예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다."
+    )
+
+    if not cleaned:
+        return False, "요약할 일지 내용을 먼저 입력해 주세요."
+
+    if len(compact) < 12 or len(tokens) < 3:
+        return False, guide
+
+    sentence_like_pattern = (
+        r"(다|요|음|함|됨|임|했다|하였다|했습니다|합니다|습니다|있었다|보였다|나타났다|"
+        r"참여했다|참여했습니다|놀이했다|놀이했습니다|경험했다|경험했습니다|보임|나타남|참여함|경험함)"
+        r"(?:[.!?。]|\s*$)"
+    )
+    has_sentence_ending = bool(re.search(sentence_like_pattern, cleaned))
+    has_sentence_punctuation = bool(re.search(r"[.!?。]", cleaned))
+
+    if not (has_sentence_ending or has_sentence_punctuation):
+        return False, guide
+
+    return True, ""
 
 INFANT_AGES = ["0세", "1세", "2세"]
 
@@ -2510,7 +3016,6 @@ with tab2:
                     final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
 
                 final_result = age_sanitize(final_result, age_group)
-                final_result = append_platform_info(final_result)
                 render_generated_phrase(idx, final_result)
 
                 save_phrase_log(
@@ -2714,7 +3219,7 @@ with tab4:
     diary_text = st.text_area(
         "일지 내용을 붙여넣으세요",
         height=250,
-        placeholder="예: 오늘은 아이들과 함께 봄 소풍을 다녀왔다...",
+        placeholder="단어만 입력하면 생성되지 않습니다. 예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다.",
         key="diary_input_text"
     )
 
@@ -2727,13 +3232,20 @@ with tab4:
             st.warning("기록 성향을 선택해 주세요.")
         elif daily_scope == "- 선택 -":
             st.warning("하루일과 전달 범위를 선택해 주세요.")
-        elif not diary_text.strip():
-            st.warning("요약할 일지 내용을 먼저 입력해 주세요.")
         else:
+            is_valid_diary, diary_warning = validate_diary_text(diary_text)
+            if not is_valid_diary:
+                st.warning(diary_warning)
+                st.stop()
+
             summary = make_core_summary(
                 diary_text,
                 max_sentences=max_summary_sentences
             )
+
+            if not summary.strip():
+                st.warning("일지 내용에서 요약할 수 있는 문장을 찾지 못했습니다. 관찰 장면이 드러나는 문장으로 다시 입력해 주세요.")
+                st.stop()
 
             restructured_summary = build_restructured_diary(
                 original_text=diary_text,
@@ -2750,7 +3262,6 @@ with tab4:
                 record_type,
                 age=diary_age_group
             )
-            generated_message = append_platform_info(generated_message)
             save_diary_log(
                 record_type=record_type,
                 teacher_tone=teacher_tone,
