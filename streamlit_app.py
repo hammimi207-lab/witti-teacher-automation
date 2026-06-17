@@ -691,6 +691,118 @@ hr {
         border-radius: 14px !important;
     }
 }
+
+
+/* ===== 최종 모바일 보정: 이메일 안내, 입력창 그림자, 관리자 통계 배경 ===== */
+/* 입력창/선택창의 검은색 포커스 그림자와 기본 그림자를 일괄 제거 */
+.stTextInput input,
+.stTextArea textarea,
+[data-baseweb="input"],
+[data-baseweb="textarea"],
+[data-baseweb="select"],
+[data-baseweb="select"] > div,
+.stTextInput div[data-baseweb="input"],
+.stTextArea div[data-baseweb="textarea"],
+.stMultiSelect div[data-baseweb="select"] > div {
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+    outline: none !important;
+    filter: none !important;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+[data-baseweb="input"]:focus-within,
+[data-baseweb="textarea"]:focus-within,
+[data-baseweb="select"]:focus-within,
+div[data-baseweb="select"]:focus-within > div,
+input:focus,
+textarea:focus,
+input:focus-visible,
+textarea:focus-visible {
+    border-color: #BFD0E3 !important;
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+    outline: none !important;
+    filter: none !important;
+}
+
+/* 관리자 통계 차트 영역이 모바일/다크모드에서 검게 보이지 않도록 고정 */
+div[data-testid="stVegaLiteChart"],
+div[data-testid="stVegaLiteChart"] > div,
+div[data-testid="stVegaLiteChart"] canvas,
+div[data-testid="stVegaLiteChart"] svg,
+div.vega-embed,
+div.vega-embed > div {
+    background: #FFFFFF !important;
+    color-scheme: light !important;
+}
+
+@media (max-width: 768px) {
+    /* 이메일 안내 문구가 폰 화면에서 한 글자씩 밀리거나 분리되지 않도록 축소/정렬 */
+    .hero-links {
+        gap: 8px !important;
+    }
+
+    .hero-link {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 9px 10px !important;
+        font-size: clamp(12px, 3.35vw, 13.5px) !important;
+        line-height: 1.42 !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    span.hero-link {
+        gap: 4px 6px !important;
+    }
+
+    span.hero-link strong {
+        display: inline !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        font-size: clamp(11.5px, 3.25vw, 13px) !important;
+        line-height: 1.38 !important;
+        word-break: break-all !important;
+        overflow-wrap: anywhere !important;
+        letter-spacing: -0.25px !important;
+    }
+
+    /* 모바일에서 입력 중 나타나는 두꺼운 검은 테두리/그림자 제거 */
+    .stTextInput input,
+    .stTextArea textarea,
+    [data-baseweb="input"],
+    [data-baseweb="textarea"],
+    [data-baseweb="select"],
+    [data-baseweb="select"] > div {
+        box-shadow: none !important;
+        -webkit-box-shadow: none !important;
+        outline: none !important;
+        filter: none !important;
+    }
+
+    .stTextInput input:focus,
+    .stTextArea textarea:focus,
+    [data-baseweb="input"]:focus-within,
+    [data-baseweb="textarea"]:focus-within,
+    [data-baseweb="select"]:focus-within,
+    div[data-baseweb="select"]:focus-within > div,
+    input:focus,
+    textarea:focus,
+    input:focus-visible,
+    textarea:focus-visible {
+        border-color: #BFD0E3 !important;
+        box-shadow: none !important;
+        -webkit-box-shadow: none !important;
+        outline: none !important;
+    }
+}
+
 </style>
 
 """, unsafe_allow_html=True)
@@ -1245,14 +1357,24 @@ def draw_category_chart(series: pd.Series, title: str):
             color=alt.Color(
                 field="범주",
                 type="nominal",
-                legend=alt.Legend(title=None)
+                legend=alt.Legend(title=None, labelColor="#172B4D")
             ),
             tooltip=["범주", "건수"],
         ).properties(
             height=260,
-            title=title
+            title=title,
+            background="#FFFFFF"
+        ).configure_view(
+            fill="#FFFFFF",
+            strokeWidth=0
+        ).configure_title(
+            color="#172B4D",
+            fontSize=16,
+            fontWeight=700
+        ).configure_legend(
+            labelColor="#172B4D"
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, use_container_width=True, theme=None)
     else:
         st.bar_chart(chart_df.set_index("범주"))
 
