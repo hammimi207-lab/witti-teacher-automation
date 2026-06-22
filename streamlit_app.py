@@ -15,7 +15,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from PIL import Image, ImageEnhance
 from streamlit_javascript import st_javascript
 
@@ -26,661 +25,195 @@ except Exception:
 
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="교사의 발견 ｜ 업무 자동화 시스템", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="교사의 발견", page_icon="🌿", layout="wide")
 
 st.markdown("""
-
 <style>
 :root {
-    --witti-bg:#F6F8FB;
-    --witti-panel:#FFFFFF;
-    --witti-panel-soft:#F8FAFC;
-    --witti-line:#E5EAF1;
-    --witti-line-blue:#D7E8FF;
-    --witti-navy:#172B4D;
-    --witti-text:#223044;
-    --witti-muted:#667085;
-    --witti-blue:#0CC0DF;
-    --witti-blue-2:#36D7EF;
-    --witti-blue-soft:#E9FBFF;
-    --witti-green-soft:#E8F8EF;
-    --witti-green:#188B55;
-    --witti-yellow-soft:#FFF6DD;
-    --witti-shadow:0 12px 32px rgba(15, 23, 42, 0.06);
-    --witti-shadow-soft:0 8px 22px rgba(15, 23, 42, 0.045);
+    --witti-sky-50:#F2F9FF;
+    --witti-sky-100:#E3F2FF;
+    --witti-sky-200:#CDEAFF;
+    --witti-sky-300:#9BD4FF;
+    --witti-blue:#2F80ED;
+    --witti-blue-deep:#1B4D89;
+    --witti-navy:#16324F;
+    --witti-yellow:#FFE88A;
+    --witti-line:#D9ECFF;
+    --witti-card:#FFFFFF;
 }
 
 html, body, [class*="css"] {
     font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
-    color-scheme: light !important;
-}
-
-html, body, .stApp, [data-testid="stAppViewContainer"] {
-    color-scheme: light !important;
-}
-
-#MainMenu, footer {
-    visibility: hidden;
-}
-
-/* 사이드바 열기/닫기 버튼은 Streamlit header 안에 있으므로 header를 숨기면 설정창 버튼까지 사라집니다. */
-header[data-testid="stHeader"] {
-    visibility: visible !important;
-    background: rgba(250, 252, 255, 0.72) !important;
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(229, 234, 241, 0.65);
-    z-index: 999999 !important;
-}
-
-header[data-testid="stHeader"] * {
-    visibility: visible !important;
-}
-
-/* 접힌 설정창 열기 버튼이 항상 보이도록 보정 */
-div[data-testid="stSidebarCollapsedControl"],
-div[data-testid="collapsedControl"] {
-    visibility: visible !important;
-    opacity: 1 !important;
-    display: flex !important;
-    z-index: 2147483646 !important;
-}
-
-div[data-testid="stSidebarCollapsedControl"] button,
-div[data-testid="collapsedControl"] button {
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: #FFFFFF !important;
-    color: #1D4ED8 !important;
-    border: 1px solid #D7E6F8 !important;
-    border-radius: 999px !important;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10) !important;
 }
 
 .stApp {
-    background:
-        radial-gradient(circle at 12% 0%, rgba(219, 234, 254, 0.72) 0, rgba(219, 234, 254, 0) 34%),
-        linear-gradient(180deg, #FAFCFF 0%, var(--witti-bg) 44%, #FFFFFF 100%);
+    background: linear-gradient(180deg, #F4FAFF 0%, #FFFFFF 34%, #F8FCFF 100%);
 }
 
 .block-container {
-    padding-top: 1.45rem;
-    padding-left: 2.2rem;
-    padding-right: 2.2rem;
+    padding-top: 2rem;
+    padding-left: 3rem;
+    padding-right: 3rem;
     max-width: 1180px;
 }
 
 h1, h2, h3, h4 {
     color: var(--witti-navy) !important;
-    letter-spacing: -0.7px !important;
-}
-
-h2, h3 {
-    margin-top: 1.15rem !important;
-}
-
-p, li, label, .stMarkdown {
-    color: var(--witti-text);
-}
-
-.app-hero {
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid var(--witti-line);
-    border-radius: 24px;
-    padding: 26px 30px 24px 30px;
-    margin: 4px 0 20px 0;
-    box-shadow: var(--witti-shadow);
-}
-
-.app-eyebrow {
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    color: var(--witti-blue);
-    background: var(--witti-blue-soft);
-    border: 1px solid #D4E7FF;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 800;
-    padding: 7px 12px;
-    margin-bottom: 12px;
-}
-
-.app-hero h1 {
-    font-size: 34px;
-    line-height: 1.24;
-    margin: 0 0 8px 0 !important;
-    color: var(--witti-navy) !important;
-}
-
-.app-hero p {
-    margin: 0;
-    color: var(--witti-muted);
-    font-size: 15px;
-    line-height: 1.7;
-}
-
-.hero-links {
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    margin-top: 16px;
-}
-
-.hero-link {
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    color:#1D4ED8 !important;
-    background:#F8FBFF;
-    border:1px solid #DCEBFF;
-    border-radius:999px;
-    padding:8px 12px;
-    font-size:13px;
-    font-weight:700;
-    text-decoration:none !important;
-}
-
-span.hero-link {
-    cursor: default;
-}
-
-.hero-link strong {
-    color:#0F3B8F;
-    font-weight:900;
-}
-
-.small-guide strong {
-    color:#0F3B8F;
-    font-weight:900;
+    letter-spacing: -0.6px !important;
 }
 
 .small-guide {
-    color: var(--witti-muted);
+    color:#5F7188;
     font-size:14px;
     line-height:1.75;
-    background: #FFFFFF;
+    background: #F7FBFF;
     border: 1px solid var(--witti-line);
-    border-radius: 18px;
+    border-radius: 16px;
     padding: 14px 18px;
     margin: 8px 0 22px 0;
-    box-shadow: var(--witti-shadow-soft);
 }
 
-/* 탭 메뉴바: 캡처본처럼 정돈된 내비게이션 느낌 */
-div[data-testid="stTabs"] > div[role="tablist"] {
-    gap: 8px;
-    background: #FFFFFF;
-    border: 1px solid var(--witti-line);
-    border-radius: 18px;
-    padding: 8px;
-    box-shadow: var(--witti-shadow-soft);
-    margin-bottom: 18px;
-}
-
+/* 탭 메뉴바 */
 div[data-testid="stTabs"] button[data-baseweb="tab"] {
-    background: transparent !important;
-    border: 1px solid transparent !important;
-    border-radius: 12px !important;
-    padding: 10px 14px !important;
-    color: #55677E !important;
-    font-weight: 800 !important;
-    min-height: 42px !important;
-}
-
-div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
-    background: #F5F9FF !important;
-    color: var(--witti-navy) !important;
+    background: #EAF6FF !important;
+    border: 1px solid #CFEAFF !important;
+    border-radius: 999px !important;
+    padding: 9px 14px !important;
+    margin-right: 6px !important;
+    color: #315A7D !important;
+    font-weight: 700 !important;
 }
 
 div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
-    background: #EAF3FF !important;
-    color: #1D4ED8 !important;
-    border-color: #D3E6FF !important;
-    box-shadow: none !important;
+    background: linear-gradient(135deg, #4DA3FF 0%, #8FD3FF 100%) !important;
+    color: white !important;
+    border-color: #4DA3FF !important;
+    box-shadow: 0 6px 16px rgba(47,128,237,0.18);
 }
 
-/* 입력 요소: 모바일 다크모드/카카오 인앱 브라우저에서도 글자가 보이도록 강제 */
-.stTextInput input,
-.stTextArea textarea,
-[data-baseweb="input"] input,
-[data-baseweb="textarea"] textarea,
-div[data-baseweb="select"] > div,
-.stMultiSelect div[data-baseweb="select"] > div {
+/* 입력 요소 */
+.stTextInput input, .stTextArea textarea, div[data-baseweb="select"] > div {
     border-radius: 12px !important;
-    border: 1px solid #DCE5F0 !important;
+    border-color: #CFE6FA !important;
     background-color: #FFFFFF !important;
-    color: var(--witti-navy) !important;
-    -webkit-text-fill-color: var(--witti-navy) !important;
-    caret-color: var(--witti-navy) !important;
-    box-shadow: none !important;
-    outline: none !important;
-    -webkit-appearance: none !important;
-    appearance: none !important;
-    color-scheme: light !important;
 }
 
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder,
-[data-baseweb="input"] input::placeholder,
-[data-baseweb="textarea"] textarea::placeholder,
-input::placeholder,
-textarea::placeholder {
-    color: #98A2B3 !important;
-    -webkit-text-fill-color: #98A2B3 !important;
-    opacity: 1 !important;
-}
-
-.stTextInput input:focus,
-.stTextArea textarea:focus,
-[data-baseweb="input"] input:focus,
-[data-baseweb="textarea"] textarea:focus,
-div[data-baseweb="select"]:focus-within > div {
-    border-color: #7AB8E8 !important;
-    box-shadow: 0 0 0 3px rgba(12,192,223,0.10) !important;
-    outline: none !important;
-}
-
-/* selectbox 내부 값과 기본값(- 선택 -)이 흰색으로 사라지는 문제 방지 */
-div[data-baseweb="select"] *,
-div[data-baseweb="select"] input,
-div[data-baseweb="select"] span,
-div[data-baseweb="select"] div {
-    color: var(--witti-navy) !important;
-    -webkit-text-fill-color: var(--witti-navy) !important;
-}
-
-div[data-baseweb="select"] svg {
-    color: #667085 !important;
-    fill: #667085 !important;
-    -webkit-text-fill-color: initial !important;
-}
-
-/* 모바일에서 select 옵션창이 검은색으로 뜨는 현상 완화 */
-div[data-baseweb="popover"],
-div[data-baseweb="popover"] *,
-div[data-baseweb="menu"],
-ul[data-baseweb="menu"],
-div[role="listbox"],
-div[role="listbox"] * {
-    color-scheme: light !important;
-}
-
-div[data-baseweb="popover"] > div,
-div[data-baseweb="menu"],
-ul[data-baseweb="menu"],
-div[role="listbox"] {
-    background: #FFFFFF !important;
-    color: var(--witti-navy) !important;
-    -webkit-text-fill-color: var(--witti-navy) !important;
-    border: 1px solid #DCE5F0 !important;
-    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14) !important;
-}
-
-li[role="option"],
-div[role="option"],
-ul[data-baseweb="menu"] li {
-    background: #FFFFFF !important;
-    color: var(--witti-navy) !important;
-    -webkit-text-fill-color: var(--witti-navy) !important;
-}
-
-li[role="option"]:hover,
-div[role="option"]:hover,
-ul[data-baseweb="menu"] li:hover {
-    background: #F1F8FF !important;
-    color: var(--witti-navy) !important;
-}
-
-/* 버튼 디자인: 남색 계열, 흰색 고딕 볼드, 그림자 없음 */
-.stButton > button,
-.stDownloadButton > button,
-div[data-testid="stButton"] button,
-div[data-testid="stDownloadButton"] button {
-    min-height: 42px !important;
+.stButton > button, .stDownloadButton > button {
+    min-height: 44px;
     border-radius: 12px !important;
-    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.2px !important;
-    border: 1px solid #0B2A45 !important;
-    background: linear-gradient(135deg, #0B2A45 0%, #123A5A 55%, #1B4F72 100%) !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-    transition: background 0.16s ease, border-color 0.16s ease, filter 0.16s ease;
+    font-weight: 700 !important;
+    border: 1px solid #9ED3FF !important;
+    background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%) !important;
+    color: white !important;
+    box-shadow: 0 6px 15px rgba(47,128,237,0.18);
 }
 
-/* Streamlit 버튼 안쪽의 p/span 텍스트까지 강제로 흰색 처리 */
-.stButton > button *,
-.stDownloadButton > button *,
-div[data-testid="stButton"] button *,
-div[data-testid="stDownloadButton"] button * {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
-    font-weight: 800 !important;
-}
-
-.stButton > button:hover,
-.stDownloadButton > button:hover,
-div[data-testid="stButton"] button:hover,
-div[data-testid="stDownloadButton"] button:hover {
-    background: linear-gradient(135deg, #081F35 0%, #102F4C 55%, #174764 100%) !important;
-    border-color: #081F35 !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: brightness(1.02);
-}
-
-.stButton > button:hover *,
-.stDownloadButton > button:hover *,
-div[data-testid="stButton"] button:hover *,
-div[data-testid="stDownloadButton"] button:hover * {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-}
-
-.stButton > button:active,
-.stDownloadButton > button:active,
-div[data-testid="stButton"] button:active,
-div[data-testid="stDownloadButton"] button:active {
-    background: linear-gradient(135deg, #06182A 0%, #0B263F 55%, #123A55 100%) !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: none !important;
-    transform: none !important;
-}
-
-.stButton > button:focus,
-.stDownloadButton > button:focus,
-div[data-testid="stButton"] button:focus,
-div[data-testid="stDownloadButton"] button:focus {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    box-shadow: none !important;
-    outline: 2px solid rgba(27, 79, 114, 0.28) !important;
-    outline-offset: 2px !important;
-}
-
-/* 비활성화 버튼도 글씨가 보이도록 흰색 유지 */
-.stButton > button:disabled,
-.stDownloadButton > button:disabled,
-div[data-testid="stButton"] button:disabled,
-div[data-testid="stDownloadButton"] button:disabled,
-.stButton > button[disabled],
-.stDownloadButton > button[disabled],
-div[data-testid="stButton"] button[disabled],
-div[data-testid="stDownloadButton"] button[disabled],
-.stButton > button[aria-disabled="true"],
-.stDownloadButton > button[aria-disabled="true"],
-div[data-testid="stButton"] button[aria-disabled="true"],
-div[data-testid="stDownloadButton"] button[aria-disabled="true"] {
-    background: linear-gradient(135deg, #31465B 0%, #405970 55%, #526F86 100%) !important;
-    border-color: #31465B !important;
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    opacity: 0.72 !important;
-    box-shadow: none !important;
-}
-
-.stButton > button:disabled *,
-.stDownloadButton > button:disabled *,
-div[data-testid="stButton"] button:disabled *,
-div[data-testid="stDownloadButton"] button:disabled *,
-.stButton > button[disabled] *,
-.stDownloadButton > button[disabled] *,
-div[data-testid="stButton"] button[disabled] *,
-div[data-testid="stDownloadButton"] button[disabled] *,
-.stButton > button[aria-disabled="true"] *,
-.stDownloadButton > button[aria-disabled="true"] *,
-div[data-testid="stButton"] button[aria-disabled="true"] *,
-div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    font-weight: 800 !important;
+.stButton > button:hover, .stDownloadButton > button:hover {
+    filter: brightness(0.98);
+    border-color: #56CCF2 !important;
 }
 
 .menu-card {
-    background: rgba(255,255,255,0.95);
-    border: 1px solid var(--witti-line);
+    background: rgba(255,255,255,0.88);
+    border: 1px solid #D7ECFF;
+    border-left: 7px solid #6EC6FF;
     border-radius: 22px;
-    padding: 22px 24px;
+    padding: 20px 22px;
     margin: 10px 0 20px 0;
-    box-shadow: var(--witti-shadow);
+    box-shadow: 0 10px 30px rgba(47, 128, 237, 0.08);
 }
 
 .menu-card-title {
-    font-size: 22px;
-    font-weight: 900;
-    color: var(--witti-navy);
+    font-size: 23px;
+    font-weight: 800;
+    color: #16324F;
     margin-bottom: 8px;
 }
 
 .menu-card-desc {
     font-size: 15px;
-    line-height: 1.75;
-    color: var(--witti-muted);
-    margin-bottom: 9px;
+    line-height: 1.7;
+    color: #526A7F;
 }
 
 .info-chip {
-    display:inline-flex;
-    align-items:center;
-    background:#F4F8FF;
-    color:#245B99;
-    border:1px solid #DCEBFF;
+    display:inline-block;
+    background:#EAF6FF;
+    color:#1B4D89;
+    border:1px solid #CFEAFF;
     border-radius:999px;
     padding:6px 11px;
-    font-size:12.5px;
-    font-weight:800;
+    font-size:13px;
+    font-weight:700;
     margin: 4px 4px 4px 0;
 }
 
 .letter-box {
-    font-size: 17px;
-    line-height: 1.85;
-    color: var(--witti-text);
-    background: #FFFFFF;
+    font-size: 18px;
+    line-height: 1.8;
+    color: #273849;
+    background: linear-gradient(180deg, #FFFDF8 0%, #F7FBFF 100%);
     padding: 24px;
     border-radius: 18px;
-    border: 1px solid var(--witti-line);
+    border: 1px solid #D7ECFF;
     white-space: pre-wrap;
     margin-top: 12px;
-    box-shadow: var(--witti-shadow-soft);
+    box-shadow: 0 8px 22px rgba(47,128,237,0.06);
 }
 
 .result-card-blue {
-    color: var(--witti-navy);
-    background-color:#F1F8FF;
-    border: 1px solid #CFE4FF;
-    padding:20px;
-    border-radius:18px;
-    line-height:1.85;
+    color:#16324F;
+    background-color:#EEF7FF;
+    border: 1px solid #CFEAFF;
+    padding:18px;
+    border-radius:16px;
+    line-height:1.8;
     white-space:pre-wrap;
-    box-shadow: var(--witti-shadow-soft);
 }
 
 .result-card-gray {
-    color: var(--witti-text);
-    background-color:#FFFFFF;
-    border: 1px solid var(--witti-line);
-    padding:20px;
-    border-radius:18px;
-    line-height:1.85;
+    color:#1F2933;
+    background-color:#F8FAFC;
+    border: 1px solid #E5EDF5;
+    padding:18px;
+    border-radius:16px;
+    line-height:1.8;
     white-space:pre-wrap;
-    box-shadow: var(--witti-shadow-soft);
-    margin: 10px 0;
 }
 
 [data-testid="stMetric"] {
     background:#FFFFFF;
-    border:1px solid var(--witti-line);
+    border:1px solid #D7ECFF;
     border-radius:18px;
     padding:14px;
-    box-shadow:var(--witti-shadow-soft);
-}
-
-div[data-testid="stAlert"] {
-    border-radius: 16px !important;
-    border: 1px solid #DDEBE4 !important;
-}
-
-div[data-testid="stFileUploader"] section {
-    border-radius: 16px !important;
-    border: 1px dashed #BBD7F6 !important;
-    background: #FBFDFF !important;
-}
-
-div[data-testid="stExpander"] {
-    border: 1px solid var(--witti-line) !important;
-    border-radius: 18px !important;
-    background: #FFFFFF !important;
-    box-shadow: var(--witti-shadow-soft);
-}
-
-hr {
-    border-color: #E5EAF1 !important;
-}
-
-/* 접힌 설정창 열기 버튼 툴팁
-   실제 위치는 apply_sidebar_open_hint()의 JS가 화살표 버튼 좌표를 읽어 바로 옆에 표시합니다. */
-#witti-sidebar-open-tooltip {
-    position: fixed;
-    display: none;
-    z-index: 2147483647;
-    pointer-events: none;
-    white-space: nowrap;
-    background: #172B4D;
-    color: #FFFFFF;
-    border-radius: 999px;
-    padding: 7px 11px;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1;
-    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
-}
-
-
-/* 모바일에서 Streamlit 기본 사이드바 버튼이 숨겨지는 경우를 대비한 설정 열기 버튼 */
-#witti-mobile-settings-launcher {
-    display: none;
-    position: fixed;
-    align-items: center;
-    gap: 5px;
-    z-index: 2147483647;
-    left: 12px;
-    top: 12px;
-    min-height: 34px;
-    padding: 8px 12px;
-    border-radius: 999px;
-    border: 1px solid #D7E6F8;
-    background: rgba(255, 255, 255, 0.96);
-    color: #123A5A;
-    -webkit-text-fill-color: #123A5A;
-    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-    font-size: 13px;
-    font-weight: 900;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-    cursor: pointer;
-    user-select: none;
+    box-shadow:0 8px 22px rgba(47,128,237,0.06);
 }
 
 @media (max-width: 768px) {
-    #witti-mobile-settings-launcher {
-        display: inline-flex !important;
-    }
-
-    div[data-testid="stSidebarCollapsedControl"],
-    div[data-testid="collapsedControl"] {
-        visibility: visible !important;
-        opacity: 1 !important;
-        display: flex !important;
-        position: fixed !important;
-        left: 12px !important;
-        top: 12px !important;
-        z-index: 2147483646 !important;
-    }
-
     .block-container {
-        padding-top: 3.35rem;
+        padding-top: 1.2rem;
         padding-left: 1rem;
         padding-right: 1rem;
         max-width: 100%;
     }
 
-    .app-hero {
-        padding: 20px 18px;
-        border-radius: 20px;
-    }
-
-    .app-hero h1 {
-        font-size: clamp(24px, 7.2vw, 31px) !important;
-        line-height: 1.28 !important;
-        word-break: keep-all !important;
-        overflow-wrap: normal !important;
-        letter-spacing: -1.1px !important;
-    }
-
-    h1 {
-        font-size: clamp(25px, 7vw, 31px) !important;
-        line-height:1.28 !important;
-        word-break: keep-all !important;
-        overflow-wrap: normal !important;
-    }
-    h2 { font-size: clamp(22px, 6.2vw, 27px) !important; line-height:1.32 !important; word-break:keep-all !important; }
-    h3 { font-size: clamp(19px, 5.4vw, 23px) !important; line-height:1.34 !important; word-break:keep-all !important; }
-    h4 { font-size: 18px !important; word-break:keep-all !important; }
+    h1 { font-size: 31px !important; line-height:1.25 !important; }
+    h2 { font-size: 24px !important; }
+    h3 { font-size: 21px !important; }
+    h4 { font-size: 18px !important; }
 
     label, p { font-size: 15px !important; line-height: 1.55 !important; }
-    textarea, input, select {
-        font-size: 16px !important;
-        color: var(--witti-navy) !important;
-        -webkit-text-fill-color: var(--witti-navy) !important;
-        background-color: #FFFFFF !important;
-        color-scheme: light !important;
-    }
-
-    div[data-testid="stTabs"] > div[role="tablist"] {
-        overflow-x: auto;
-        flex-wrap: nowrap;
-        justify-content: flex-start;
-    }
+    textarea, input, select { font-size: 16px !important; }
 
     div[data-testid="stTabs"] button[data-baseweb="tab"] {
         font-size: 13px !important;
         padding: 8px 10px !important;
-        margin-right: 0 !important;
-        min-width: max-content;
-    }
-
-    .hero-links {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 10px !important;
-    }
-
-    .hero-link {
-        width: 100% !important;
-        box-sizing: border-box !important;
-        justify-content: flex-start !important;
-        white-space: normal !important;
-        word-break: keep-all !important;
-        overflow-wrap: anywhere !important;
-        font-size: 14px !important;
-        line-height: 1.45 !important;
+        margin-right: 4px !important;
     }
 
     .menu-card { padding: 16px !important; border-radius: 18px !important; }
-    .menu-card-title {
-        font-size: clamp(21px, 6vw, 26px) !important;
-        line-height: 1.32 !important;
-        word-break: keep-all !important;
-        overflow-wrap: normal !important;
-    }
-    .menu-card-desc { font-size: 14px !important; word-break: keep-all !important; }
+    .menu-card-title { font-size: 20px !important; }
+    .menu-card-desc { font-size: 14px !important; }
 
     .letter-box,
     .result-card-blue,
@@ -691,145 +224,7 @@ hr {
         border-radius: 14px !important;
     }
 }
-
-
-/* ===== 최종 모바일 보정: 이메일 안내, 입력창 그림자, 관리자 통계 배경 ===== */
-/* 입력창/선택창의 검은색 포커스 그림자와 기본 그림자를 일괄 제거 */
-.stTextInput input,
-.stTextArea textarea,
-[data-baseweb="input"],
-[data-baseweb="textarea"],
-[data-baseweb="select"],
-[data-baseweb="select"] > div,
-.stTextInput div[data-baseweb="input"],
-.stTextArea div[data-baseweb="textarea"],
-.stMultiSelect div[data-baseweb="select"] > div {
-    box-shadow: none !important;
-    -webkit-box-shadow: none !important;
-    outline: none !important;
-    filter: none !important;
-}
-
-.stTextInput input:focus,
-.stTextArea textarea:focus,
-[data-baseweb="input"]:focus-within,
-[data-baseweb="textarea"]:focus-within,
-[data-baseweb="select"]:focus-within,
-div[data-baseweb="select"]:focus-within > div,
-input:focus,
-textarea:focus,
-input:focus-visible,
-textarea:focus-visible {
-    border-color: #BFD0E3 !important;
-    box-shadow: none !important;
-    -webkit-box-shadow: none !important;
-    outline: none !important;
-    filter: none !important;
-}
-
-/* 관리자 통계 차트 영역이 모바일/다크모드에서 검게 보이지 않도록 고정 */
-div[data-testid="stVegaLiteChart"],
-div[data-testid="stVegaLiteChart"] > div,
-div[data-testid="stVegaLiteChart"] canvas,
-div[data-testid="stVegaLiteChart"] svg,
-div.vega-embed,
-div.vega-embed > div {
-    background: #FFFFFF !important;
-    color-scheme: light !important;
-}
-
-@media (max-width: 768px) {
-    /* 이메일 안내 문구가 폰 화면에서 한 글자씩 밀리거나 분리되지 않도록 축소/정렬 */
-    .hero-links {
-        gap: 8px !important;
-    }
-
-    .hero-link {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: center !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        padding: 9px 10px !important;
-        font-size: clamp(12px, 3.35vw, 13.5px) !important;
-        line-height: 1.42 !important;
-        white-space: normal !important;
-        word-break: keep-all !important;
-        overflow-wrap: anywhere !important;
-    }
-
-    span.hero-link {
-        gap: 4px 6px !important;
-    }
-
-    span.hero-link strong {
-        display: inline !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        font-size: clamp(11.5px, 3.25vw, 13px) !important;
-        line-height: 1.38 !important;
-        word-break: break-all !important;
-        overflow-wrap: anywhere !important;
-        letter-spacing: -0.25px !important;
-    }
-
-    /* 모바일에서 입력 중 나타나는 두꺼운 검은 테두리/그림자 제거 */
-    .stTextInput input,
-    .stTextArea textarea,
-    [data-baseweb="input"],
-    [data-baseweb="textarea"],
-    [data-baseweb="select"],
-    [data-baseweb="select"] > div {
-        box-shadow: none !important;
-        -webkit-box-shadow: none !important;
-        outline: none !important;
-        filter: none !important;
-    }
-
-    .stTextInput input:focus,
-    .stTextArea textarea:focus,
-    [data-baseweb="input"]:focus-within,
-    [data-baseweb="textarea"]:focus-within,
-    [data-baseweb="select"]:focus-within,
-    div[data-baseweb="select"]:focus-within > div,
-    input:focus,
-    textarea:focus,
-    input:focus-visible,
-    textarea:focus-visible {
-        border-color: #BFD0E3 !important;
-        box-shadow: none !important;
-        -webkit-box-shadow: none !important;
-        outline: none !important;
-    }
-}
-
-
-/* 놀이 이야기 등 복수 선택 항목: 선택된 태그를 차분한 파란색 칩으로 표시 */
-div[data-testid="stMultiSelect"] [data-baseweb="tag"],
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-    background: #EAF4FF !important;
-    border: 1px solid #9CCBFF !important;
-    border-radius: 8px !important;
-    color: #1D4ED8 !important;
-    -webkit-text-fill-color: #1D4ED8 !important;
-    box-shadow: none !important;
-}
-
-div[data-testid="stMultiSelect"] [data-baseweb="tag"] *,
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] * {
-    color: #1D4ED8 !important;
-    -webkit-text-fill-color: #1D4ED8 !important;
-    font-weight: 700 !important;
-}
-
-div[data-testid="stMultiSelect"] [data-baseweb="tag"] svg,
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
-    fill: #1D4ED8 !important;
-    color: #1D4ED8 !important;
-}
-
 </style>
-
 """, unsafe_allow_html=True)
 
 
@@ -874,32 +269,39 @@ TABLE_NAMES = {
 
 
 WITTI_SITE_URL = "https://witti.kr/"
-WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
-WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
-WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-22-play-story-diary-hidden"
+WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
 
 
 def platform_info_text() -> str:
-    """상단 안내 영역에만 사용하는 플랫폼 안내 문구입니다."""
+    """생성 문구 하단에 붙일 플랫폼 안내 문구입니다."""
     return (
-        f"{WITTI_SITE_LABEL}: {WITTI_SITE_URL}\n"
-        f"{WITTI_CONTACT_LABEL}: {WITTI_CONTACT_EMAIL}"
+        f"\n\n---\n"
+        f"교사의 발견 위티 사이트: {WITTI_SITE_URL}\n"
+        f"플랫폼 사용 문의: {WITTI_CONTACT_EMAIL}"
     )
 
 def append_platform_info(text: str) -> str:
-    """생성 문구에는 플랫폼 안내를 붙이지 않습니다. 기존 호출 호환용 안전 함수입니다."""
-    return (text or "").strip()
+    """생성 결과에 위티 사이트와 문의 이메일을 한 번만 덧붙입니다."""
+    text = (text or "").strip()
+    if WITTI_SITE_URL in text and WITTI_CONTACT_EMAIL in text:
+        return text
+    return f"{text}{platform_info_text()}"
 
 
 def text_to_html_with_links(text: str) -> str:
-    """문장 출력 시 사이트 URL만 클릭 가능한 링크로 변환합니다. 문의 이메일은 오작동을 막기 위해 일반 텍스트로 둡니다."""
+    """문장 출력 시 URL과 이메일을 클릭 가능한 링크로 변환합니다."""
     escaped = html.escape(text or "")
     escaped_site = html.escape(WITTI_SITE_URL)
+    escaped_email = html.escape(WITTI_CONTACT_EMAIL)
+    escaped_mailto = html.escape(WITTI_CONTACT_MAILTO, quote=True)
     escaped = escaped.replace(
         escaped_site,
         f'<a href="{escaped_site}" target="_blank" rel="noopener noreferrer">{escaped_site}</a>'
+    )
+    escaped = escaped.replace(
+        escaped_email,
+        f'<a href="{escaped_mailto}">{escaped_email}</a>'
     )
     return escaped.replace("\n", "<br>")
 
@@ -908,8 +310,8 @@ def render_platform_guide():
     st.markdown(
         f"""
         <div class="small-guide">
-        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
+        🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+        ✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -920,352 +322,6 @@ def render_generated_phrase(idx: int, text: str):
     st.markdown(
         f"<div class='result-card-gray'><strong>{idx}.</strong><br>{text_to_html_with_links(text)}</div>",
         unsafe_allow_html=True,
-    )
-
-def apply_sidebar_open_hint():
-    """접힌 사이드바 열기 버튼 바로 옆에 '설정 창 열기' 툴팁을 표시합니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const TOOLTIP_TEXT = '설정 창 열기';
-
-            function ensureTooltip() {
-                let tooltip = doc.getElementById('witti-sidebar-open-tooltip');
-                if (!tooltip) {
-                    tooltip = doc.createElement('div');
-                    tooltip.id = 'witti-sidebar-open-tooltip';
-                    tooltip.textContent = TOOLTIP_TEXT;
-                    tooltip.style.position = 'fixed';
-                    tooltip.style.display = 'none';
-                    tooltip.style.zIndex = '2147483647';
-                    tooltip.style.pointerEvents = 'none';
-                    tooltip.style.whiteSpace = 'nowrap';
-                    tooltip.style.background = '#16324F';
-                    tooltip.style.color = '#FFFFFF';
-                    tooltip.style.borderRadius = '999px';
-                    tooltip.style.padding = '7px 11px';
-                    tooltip.style.fontSize = '13px';
-                    tooltip.style.fontWeight = '700';
-                    tooltip.style.lineHeight = '1';
-                    tooltip.style.boxShadow = '0 8px 22px rgba(22,50,79,0.18)';
-                    doc.body.appendChild(tooltip);
-                }
-                return tooltip;
-            }
-
-            const tooltip = ensureTooltip();
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getCollapsedOpenButtons() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-
-                return Array.from(doc.querySelectorAll(selectors.join(',')))
-                    .filter((button) => {
-                        if (!isVisible(button)) return false;
-                        const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
-                        const parentTestId = button.closest('[data-testid]')?.getAttribute('data-testid') || '';
-                        return (
-                            parentTestId === 'stSidebarCollapsedControl' ||
-                            parentTestId === 'collapsedControl' ||
-                            label.includes('open sidebar')
-                        );
-                    });
-            }
-
-            function placeTooltipNextTo(button) {
-                const rect = button.getBoundingClientRect();
-                const gap = 8;
-                let left = rect.right + gap;
-                let top = rect.top + rect.height / 2;
-
-                tooltip.textContent = TOOLTIP_TEXT;
-                tooltip.style.display = 'block';
-                tooltip.style.left = `${left}px`;
-                tooltip.style.top = `${top}px`;
-                tooltip.style.transform = 'translateY(-50%)';
-
-                const tooltipRect = tooltip.getBoundingClientRect();
-                if (tooltipRect.right > win.innerWidth - 8) {
-                    left = Math.max(8, rect.left - tooltipRect.width - gap);
-                    tooltip.style.left = `${left}px`;
-                }
-            }
-
-            function hideTooltip() {
-                tooltip.style.display = 'none';
-            }
-
-            function attachHint() {
-                const buttons = getCollapsedOpenButtons();
-                buttons.forEach((button) => {
-                    if (button.dataset.wittiSidebarOpenHint === 'done') return;
-                    button.dataset.wittiSidebarOpenHint = 'done';
-                    button.setAttribute('title', TOOLTIP_TEXT);
-                    button.setAttribute('aria-label', TOOLTIP_TEXT);
-                    button.addEventListener('mouseenter', () => placeTooltipNextTo(button));
-                    button.addEventListener('mousemove', () => placeTooltipNextTo(button));
-                    button.addEventListener('mouseleave', hideTooltip);
-                    button.addEventListener('focus', () => placeTooltipNextTo(button));
-                    button.addEventListener('blur', hideTooltip);
-                    button.addEventListener('click', hideTooltip);
-                });
-            }
-
-            attachHint();
-            if (!win.__wittiSidebarOpenHintObserver) {
-                win.__wittiSidebarOpenHintObserver = new MutationObserver(attachHint);
-                win.__wittiSidebarOpenHintObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            setTimeout(attachHint, 200);
-            setTimeout(attachHint, 700);
-            setTimeout(attachHint, 1500);
-            setTimeout(attachHint, 3000);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-
-
-def apply_mobile_settings_launcher():
-    """모바일에서 기본 설정 버튼이 보이지 않을 때 사용할 고정 설정 버튼을 만듭니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const BUTTON_ID = 'witti-mobile-settings-launcher';
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function findSidebarOpenButton() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function findSidebarCloseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsOpen() {
-                const sidebar = doc.querySelector('section[data-testid="stSidebar"], aside[data-testid="stSidebar"], div[data-testid="stSidebar"]');
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                return rect.width > 120 && rect.right > 120;
-            }
-
-            function ensureLauncher() {
-                let button = doc.getElementById(BUTTON_ID);
-                if (!button) {
-                    button = doc.createElement('button');
-                    button.id = BUTTON_ID;
-                    button.type = 'button';
-                    button.textContent = '⚙️ 설정';
-                    button.setAttribute('aria-label', '설정 창 열기');
-                    button.addEventListener('click', function () {
-                        const openButton = findSidebarOpenButton();
-                        const closeButton = findSidebarCloseButton();
-                        if (!sidebarIsOpen() && openButton) {
-                            openButton.click();
-                        } else if (sidebarIsOpen() && closeButton) {
-                            closeButton.click();
-                        } else if (openButton) {
-                            openButton.click();
-                        }
-                    });
-                    doc.body.appendChild(button);
-                }
-                return button;
-            }
-
-            function updateLauncherVisibility() {
-                const button = ensureLauncher();
-                if (win.innerWidth <= 768) {
-                    button.style.display = 'inline-flex';
-                } else {
-                    button.style.display = 'none';
-                }
-            }
-
-            updateLauncherVisibility();
-            win.addEventListener('resize', updateLauncherVisibility);
-
-            if (!win.__wittiMobileSettingsLauncherObserver) {
-                win.__wittiMobileSettingsLauncherObserver = new MutationObserver(updateLauncherVisibility);
-                win.__wittiMobileSettingsLauncherObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            [200, 700, 1500, 3000].forEach((delay) => setTimeout(updateLauncherVisibility, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-def force_sidebar_collapsed_on_first_load():
-    """
-    페이지가 처음 열릴 때 사이드바가 보이면 자동으로 접습니다.
-    Streamlit이 브라우저에 이전 사이드바 열림 상태를 기억할 수 있어 공식 collapsed 옵션을 보완합니다.
-    사용자가 이후 직접 다시 열었을 때는 계속 강제로 닫지 않도록 초기 몇 초 동안만 작동합니다.
-    """
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-
-            if (win.__wittiSidebarDefaultCollapseStarted) {
-                return;
-            }
-            win.__wittiSidebarDefaultCollapseStarted = true;
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getSidebar() {
-                return doc.querySelector([
-                    'section[data-testid="stSidebar"]',
-                    'aside[data-testid="stSidebar"]',
-                    'div[data-testid="stSidebar"]'
-                ].join(','));
-            }
-
-            function getOpenSidebarButton() {
-                return Array.from(doc.querySelectorAll([
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]'
-                ].join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsCollapsed() {
-                if (getOpenSidebarButton()) return true;
-                const sidebar = getSidebar();
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                const style = win.getComputedStyle(sidebar);
-                return rect.width < 90 || rect.right < 90 || style.display === 'none' || style.visibility === 'hidden';
-            }
-
-            function findCollapseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]',
-                    'button[aria-label*="close sidebar"]',
-                    'button[title*="close sidebar"]',
-                    'button[aria-label*="collapse sidebar"]',
-                    'button[title*="collapse sidebar"]'
-                ];
-
-                for (const selector of selectors) {
-                    const button = Array.from(doc.querySelectorAll(selector)).find(isVisible);
-                    if (button) return button;
-                }
-
-                const sidebar = getSidebar();
-                if (!sidebar || !isVisible(sidebar)) return null;
-                const sidebarRect = sidebar.getBoundingClientRect();
-
-                const buttons = Array.from(sidebar.querySelectorAll('button')).filter(isVisible);
-                if (!buttons.length) return null;
-
-                const textMatch = buttons.find((button) => {
-                    const text = `${button.innerText || ''} ${button.textContent || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`;
-                    return text.includes('«') || text.includes('‹') || text.includes('<<') || text.toLowerCase().includes('close') || text.toLowerCase().includes('collapse');
-                });
-                if (textMatch) return textMatch;
-
-                // 접기 버튼은 보통 사이드바 오른쪽 위에 있으므로, 그 위치에 가장 가까운 작은 버튼을 고릅니다.
-                const upperSmallButtons = buttons
-                    .map((button) => ({ button, rect: button.getBoundingClientRect() }))
-                    .filter(({ rect }) => rect.top < 120 && rect.width <= 80 && rect.height <= 80)
-                    .sort((a, b) => Math.abs(a.rect.right - sidebarRect.right) - Math.abs(b.rect.right - sidebarRect.right));
-                return upperSmallButtons[0]?.button || null;
-            }
-
-            let attempts = 0;
-            const maxAttempts = 70;
-
-            function collapseIfNeeded() {
-                attempts += 1;
-                if (sidebarIsCollapsed()) {
-                    clearInterval(timer);
-                    return;
-                }
-
-                const sidebar = getSidebar();
-                const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
-                const button = findCollapseButton();
-
-                if (button && sidebarWidth > 120) {
-                    button.click();
-                    setTimeout(() => {
-                        if (sidebarIsCollapsed()) clearInterval(timer);
-                    }, 250);
-                    return;
-                }
-
-                if (attempts >= maxAttempts) {
-                    clearInterval(timer);
-                }
-            }
-
-            const timer = setInterval(collapseIfNeeded, 100);
-            [50, 150, 300, 600, 1000, 1800, 3000, 5000].forEach((delay) => setTimeout(collapseIfNeeded, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
     )
 
 
@@ -1363,11 +419,6 @@ def restore_record(table_name, record_id):
     supabase.table(table_name).update({"deleted": False}).eq("id", int(record_id)).execute()
 
 
-def hard_delete_record(table_name, record_id):
-    """Supabase에서 선택한 기록을 영구 삭제합니다. 복원할 수 없습니다."""
-    supabase.table(table_name).delete().eq("id", int(record_id)).execute()
-
-
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
         st.caption("표시할 데이터가 없습니다.")
@@ -1382,24 +433,14 @@ def draw_category_chart(series: pd.Series, title: str):
             color=alt.Color(
                 field="범주",
                 type="nominal",
-                legend=alt.Legend(title=None, labelColor="#172B4D")
+                legend=alt.Legend(title=None)
             ),
             tooltip=["범주", "건수"],
         ).properties(
             height=260,
-            title=title,
-            background="#FFFFFF"
-        ).configure_view(
-            fill="#FFFFFF",
-            strokeWidth=0
-        ).configure_title(
-            color="#172B4D",
-            fontSize=16,
-            fontWeight=700
-        ).configure_legend(
-            labelColor="#172B4D"
+            title=title
         )
-        st.altair_chart(chart, use_container_width=True, theme=None)
+        st.altair_chart(chart, use_container_width=True)
     else:
         st.bar_chart(chart_df.set_index("범주"))
 
@@ -1446,69 +487,29 @@ def render_menu_card(title: str, description: str, chips: list[str] | None = Non
     )
 
 
+st.title("🌿 교사의 발견_현장 업무 자동화 파일럿 서비스")
 st.markdown(f"""
-<!-- APP_VERSION: {APP_VERSION} -->
-<div class="app-hero">
-    <div class="app-eyebrow">🌿 교사의 발견</div>
-    <h1>현장 업무 자동화 파일럿 서비스</h1>
-    <p>사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
-    <div class="hero-links">
-        <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
-        <span class="hero-link">✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong></span>
-    </div>
+<div class="small-guide">
+💡 본 플랫폼은 PC 또는 모바일에서 활용 가능합니다. 업로드한 사진과 일지 내용은 외부 서버로 전송되지 않습니다.<br>
+💡 크롬 자동 번역 사용 시 일부 문장이 자연스럽지 않게 보일 수 있습니다.<br>
+🔗 위티 사이트: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
+✉️ 플랫폼 사용 문의: <a href="{WITTI_CONTACT_MAILTO}">{WITTI_CONTACT_EMAIL}</a>
 </div>
 """, unsafe_allow_html=True)
-
-# =========================
-# 공개 기능 설정
-# - False: 알림장 기능은 코드와 기존 기록을 보존한 채 사용자 화면에서 숨깁니다.
-# - True: 기존 알림장 탭을 다시 노출합니다.
-# =========================
-SHOW_DIARY_FEATURE = False
 
 with st.sidebar:
     st.header("⚙️ 설정")
     top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
-
-    # 알림장 기능이 숨김 상태일 때는 관련 설정도 사용자 화면에 보이지 않습니다.
-    if SHOW_DIARY_FEATURE:
-        max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
-    else:
-        max_summary_sentences = 6
-
+    max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
     st.divider()
     st.markdown("### 🌿 이용 안내")
-    st.caption("☞ 사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
+    st.caption("☞ 사진 선별과 기록, 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
-    st.markdown(
-        f"""
-        <div class="small-guide" style="margin-top:10px; padding:12px 14px;">
-        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.caption("☞ 본 플랫폼의 링크만 있으면 모바일과 PC에서 모두 활용 가능합니다.")
+    st.markdown(f"☞ [위티 사이트]({WITTI_SITE_URL})")
+    st.markdown(f"☞ [플랫폼 사용 문의](<{WITTI_CONTACT_MAILTO}>)")
 
-force_sidebar_collapsed_on_first_load()
-apply_sidebar_open_hint()
-apply_mobile_settings_launcher()
-
-tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "🌿 교사의 온도", "🔐 관리자"]
-if SHOW_DIARY_FEATURE:
-    tab_labels.insert(3, "📝 알림장")
-
-tabs = st.tabs(tab_labels)
-tab1, tab2, tab3 = tabs[:3]
-
-if SHOW_DIARY_FEATURE:
-    tab4 = tabs[3]
-    tab5 = tabs[4]
-    tab6 = tabs[5]
-else:
-    tab4 = None
-    tab5 = tabs[3]
-    tab6 = tabs[4]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -1876,37 +877,6 @@ def make_core_summary(text: str, max_sentences: int = 3) -> str:
 def remove_bullets(summary: str) -> str:
     text = summary.replace("- ", " ").replace("\n", " ")
     return re.sub(r"\s+", " ", text).strip()
-
-
-def validate_diary_text(text: str) -> tuple[bool, str]:
-    """알림장 생성용 일지 입력이 단어/키워드가 아니라 문장인지 확인합니다."""
-    cleaned = re.sub(r"\s+", " ", (text or "").strip())
-    compact = re.sub(r"\s+", "", cleaned)
-    tokens = re.findall(r"[가-힣A-Za-z0-9]+", cleaned)
-
-    guide = (
-        "일지 내용은 단어가 아니라 관찰된 장면이 드러나는 문장으로 입력해 주세요. "
-        "예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다."
-    )
-
-    if not cleaned:
-        return False, "요약할 일지 내용을 먼저 입력해 주세요."
-
-    if len(compact) < 12 or len(tokens) < 3:
-        return False, guide
-
-    sentence_like_pattern = (
-        r"(다|요|음|함|됨|임|했다|하였다|했습니다|합니다|습니다|있었다|보였다|나타났다|"
-        r"참여했다|참여했습니다|놀이했다|놀이했습니다|경험했다|경험했습니다|보임|나타남|참여함|경험함)"
-        r"(?:[.!?。]|\s*$)"
-    )
-    has_sentence_ending = bool(re.search(sentence_like_pattern, cleaned))
-    has_sentence_punctuation = bool(re.search(r"[.!?。]", cleaned))
-
-    if not (has_sentence_ending or has_sentence_punctuation):
-        return False, guide
-
-    return True, ""
 
 INFANT_AGES = ["0세", "1세", "2세"]
 
@@ -3456,306 +2426,21 @@ def get_child_action_options(age: str | None) -> list[str]:
     return ["- 선택 -"]
 
 
-
-# =========================
-# 놀이 이야기 생성
-# =========================
-# 기록 요정의 '놀이 이야기'는 선택한 단계만 출력합니다.
-# 교사의 지원은 복수 선택을 허용하며, 지원을 하나라도 고르면
-# '4. 교사의 지원' 단계가 선택되지 않았더라도 결과에 자동 반영됩니다.
-PLAY_STORY_STAGE_OPTIONS = [
-    "1. 시작 (놀이 발현)",
-    "2. 과정 (놀이 전개)",
-    "3. 배움 읽기 (의미 찾기)",
-    "4. 교사의 지원",
-    "5. 변화 (확장과 심화)",
-    "6. 결과 (성찰 및 연계)",
-]
-
-TEACHER_SUPPORT_OPTIONS = [
-    "시간 지원",
-    "공간 지원",
-    "자료 지원",
-    "상호작용 지원",
-]
-
-TEACHER_SUPPORT_GUIDE = {
-    "시간 지원": "놀이의 연속성 확보 및 융통성 있는 일과 운영",
-    "공간 지원": "흥미 영역의 경계를 허문 가변적이고 유연한 물리적 공간 구성",
-    "자료 지원": "비구조화된 매체(개방적 자료) 및 일상 사물의 제공",
-    "상호작용 지원": "정서적 지지, 개방적 발문, 공동 놀이자로서의 적절한 개입",
-}
-
-PLAY_STORY_AGE_LANGUAGE = {
-    "0세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 새로운 감각 자극에 관심을 나타냈습니다.",
-        "process": "{child}는 {keyword} 자료를 바라보고, 만지고, 들으며 자신의 속도에 맞춰 감각 경험을 이어갔습니다.",
-        "change": "충분히 머무르는 경험 속에서 {child}는 익숙해진 자극을 다시 바라보거나 손으로 탐색하며 반응을 이어갔습니다.",
-        "result": "교사는 {child}의 시선, 표정, 소리, 몸짓이 놀이를 이끄는 중요한 신호임을 확인했습니다. 다음에는 같은 자료를 가까이에 두고 다시 만나며 편안한 감각 경험이 이어지도록 지원할 수 있습니다.",
-    },
-    "1세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 관심 있는 자료에 반복적으로 다가갔습니다.",
-        "process": "{child}는 {keyword} 자료를 만지고 움직이며 같은 행동을 여러 번 시도하고, 몸짓과 말소리로 반응을 나타냈습니다.",
-        "change": "충분히 반복해 볼 수 있는 흐름 속에서 {child}는 관심 있는 자료를 다시 선택하고, 익숙해진 방법으로 탐색을 조금 더 이어갔습니다.",
-        "result": "교사는 {child}가 반복 탐색과 작은 모방을 통해 놀이의 즐거움을 알아가고 있음을 확인했습니다. 다음에는 오늘 관심 보인 자료를 가까이에 두고 스스로 다시 선택해 볼 수 있도록 연결할 수 있습니다.",
-    },
-    "2세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 자신이 관심 있는 놀이에 스스로 다가갔습니다.",
-        "process": "{child}는 {keyword} 자료를 선택하고 반복해서 사용하며, 표정·몸짓·단어·짧은 말로 자신의 관심과 요구를 나타냈습니다.",
-        "change": "교사의 지원을 바탕으로 {child}는 선택한 자료를 다시 활용하고, 또래와 교사의 반응을 살피며 놀이의 흐름을 이어갔습니다.",
-        "result": "교사는 {child}의 선택과 짧은 표현이 다음 놀이를 넓혀가는 단서가 됨을 확인했습니다. 다음에는 오늘 사용한 자료를 다른 재료와 연결하여 탐색과 표현이 이어지도록 지원할 수 있습니다.",
-    },
-    "3세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 관심 있는 장면에 다가갔습니다.",
-        "process": "{child}는 {keyword} 자료를 선택해 만지고 움직이며, 짧은 말과 행동으로 자신의 생각을 나타내고 친구 곁에서 놀이에 참여했습니다.",
-        "change": "교사의 도움과 충분한 놀이 시간 속에서 {child}는 익숙한 행동을 다시 시도하고, 친구의 놀이를 살피며 참여 방식을 넓혀갔습니다.",
-        "result": "교사는 {child}가 놀이에 다가가 짧은 말과 행동으로 표현하는 과정 자체가 중요한 배움임을 확인했습니다. 다음에는 오늘의 장면을 간단한 역할이나 이야기로 다시 이어가 볼 수 있습니다.",
-    },
-    "4세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 자신이 떠올린 생각을 놀이로 시작했습니다.",
-        "process": "{child}는 {keyword} 자료의 특징을 살피고, 친구와 생각을 주고받으며 차례와 약속을 경험하면서 놀이를 확장했습니다.",
-        "change": "교사의 지원을 바탕으로 {child}는 상상한 내용을 역할과 이야기로 더해 보고, 친구의 반응을 살피며 놀이 방향을 다시 조정했습니다.",
-        "result": "교사는 {child}가 이유를 말하고 친구와 맞춰가는 과정에서 상상, 언어, 관계 경험을 함께 넓혀가고 있음을 확인했습니다. 다음에는 오늘 만든 이야기에 새로운 역할이나 재료를 더해 놀이를 이어갈 수 있습니다.",
-    },
-    "5세": {
-        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 놀이의 방향과 필요한 자료를 생각해 보기 시작했습니다.",
-        "process": "{child}는 {keyword} 자료를 활용해 친구와 역할과 규칙을 정하고, 자신의 생각을 이유와 함께 설명하며 놀이를 이어갔습니다.",
-        "change": "교사의 지원을 바탕으로 {child}는 여러 방법을 비교하고, 친구와 의견을 조율하며 더 복잡한 놀이 흐름으로 확장했습니다.",
-        "result": "교사는 {child}가 계획, 협력, 문제 해결 시도, 회상과 설명을 놀이 안에서 함께 경험하고 있음을 확인했습니다. 다음에는 오늘의 과정과 결과를 다시 이야기하며 새로운 놀이 계획으로 연결할 수 있습니다.",
-    },
-}
-
-
-def _play_story_subject(age: str) -> str:
-    return "영아" if age in ["0세", "1세", "2세"] else "유아"
-
-
-def _ordered_selections(options: list[str], selected: list[str] | None) -> list[str]:
-    selected = selected or []
-    return [option for option in options if option in selected]
-
-
-def build_teacher_support_text(
-    age: str,
-    supports: list[str],
-    play_keyword: str,
-    curriculum_area: str,
-    development_area: str,
-    child_action: str,
-) -> str:
-    """선택한 복수 지원을 연령·놀이·교육과정·발달영역에 맞춰 문장으로 만듭니다."""
-    age = normalize_age(age)
-    selected_supports = _ordered_selections(TEACHER_SUPPORT_OPTIONS, supports)
-    if not selected_supports:
-        return ""
-
-    subject = _play_story_subject(age)
-    templates = {
-        "0세": {
-            "시간 지원": "{subject}가 {keyword} 자극에 충분히 머무르고 같은 감각 경험을 반복할 수 있도록 일과의 흐름을 융통성 있게 조정했습니다.",
-            "공간 지원": "{subject}가 교사 곁에서 편안히 {keyword} 경험을 이어갈 수 있도록 안정적인 자리와 안전한 탐색 공간을 마련했습니다.",
-            "자료 지원": "{subject}가 바라보고 만지고 들을 수 있는 안전한 감각 자료와 일상 사물을 가까이에 제공했습니다.",
-            "상호작용 지원": "{subject}의 시선, 표정, 소리, 몸짓에 민감하게 반응하며 말소리와 표정으로 경험을 함께 나누었습니다.",
-        },
-        "1세": {
-            "시간 지원": "{subject}가 {keyword} 자료를 반복해서 조작하고 다시 시도할 수 있도록 놀이 시간을 충분히 보장했습니다.",
-            "공간 지원": "{subject}가 관심 있는 자료에 자유롭게 다가가고 교사 곁에서 안정감을 느낄 수 있도록 놀이 영역을 유연하게 구성했습니다.",
-            "자료 지원": "{subject}가 만지고 움직이며 탐색할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "{subject}의 몸짓과 말소리를 기다리고 짧은 말로 되돌려 주며 놀이 참여가 이어지도록 도왔습니다.",
-        },
-        "2세": {
-            "시간 지원": "{subject}가 {keyword} 놀이를 선택해 반복하고 자신의 반응을 표현할 수 있도록 충분한 놀이 시간을 확보했습니다.",
-            "공간 지원": "{subject}가 또래 곁에서 놀이를 살피고 필요한 경우 교사와 가까이 머물 수 있도록 영역의 경계를 유연하게 조정했습니다.",
-            "자료 지원": "{subject}가 선택하고 조합해 볼 수 있는 비구조화된 재료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "{subject}의 표정·몸짓·단어·짧은 말을 존중하고, 선택과 시도를 말로 반영하며 놀이를 함께 이어갔습니다.",
-        },
-        "3세": {
-            "시간 지원": "{subject}가 {keyword} 놀이에 천천히 다가가고 반복해 볼 수 있도록 놀이 흐름을 서두르지 않고 보장했습니다.",
-            "공간 지원": "{subject}가 관심 있는 자료를 선택하고 친구 곁에서 함께 놀이할 수 있도록 영역을 연결해 유연하게 구성했습니다.",
-            "자료 지원": "{subject}가 만지고 옮기고 조합하며 놀이를 확장할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "{subject}의 짧은 말과 행동을 기다리고, 선택을 말로 되짚으며 친구와 함께 놀이할 수 있도록 정서적으로 지지했습니다.",
-        },
-        "4세": {
-            "시간 지원": "{subject}가 {keyword} 놀이에서 떠올린 생각을 충분히 시도하고 친구와 차례·약속을 경험할 수 있도록 놀이 시간을 이어갔습니다.",
-            "공간 지원": "{subject}가 역할과 이야기를 확장할 수 있도록 영역의 경계를 열고 자료를 이동할 수 있는 유연한 공간을 마련했습니다.",
-            "자료 지원": "{subject}가 비교하고 조합하며 상상한 내용을 표현할 수 있도록 다양한 개방형 재료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "{subject}가 자신의 생각과 이유를 말하고 친구의 반응을 살필 수 있도록 개방적 발문과 공동 놀이자의 역할을 제공했습니다.",
-        },
-        "5세": {
-            "시간 지원": "{subject}가 {keyword} 놀이를 계획하고 역할과 규칙을 조율하며 충분히 수정·보완할 수 있도록 일과를 융통성 있게 운영했습니다.",
-            "공간 지원": "{subject}가 자료를 배치하고 역할 놀이 또는 구성 놀이를 확장할 수 있도록 영역을 가변적으로 연결했습니다.",
-            "자료 지원": "{subject}가 여러 방법을 비교하고 해결 방법을 시도할 수 있도록 개방형 재료와 일상 사물을 충분히 제공했습니다.",
-            "상호작용 지원": "{subject}가 생각을 이유와 함께 설명하고 친구와 조율할 수 있도록 개방적 발문과 적절한 공동 놀이자 지원을 제공했습니다.",
-        },
-    }
-
-    age_templates = templates.get(age, templates["2세"])
-    lines = []
-    for support in selected_supports:
-        body = age_templates[support].format(
-            subject=subject,
-            keyword=play_keyword,
-            curriculum_area=curriculum_area,
-            development_area=development_area,
-            action=child_action,
-        )
-        lines.append(f"• {support}: {body}")
-
-    lines.append(
-        f"• 지원의 초점: {curriculum_area} 영역과 {development_area} 발달이 "
-        f"‘{child_action}’ 장면 속에서 자연스럽게 이어지도록 지원했습니다."
-    )
-    return "\n".join(lines)
-
-
-def build_play_story(
-    play_keyword: str,
-    age_group: str,
-    curriculum_area: str,
-    development_area: str,
-    child_action: str,
-    selected_steps: list[str],
-    selected_supports: list[str],
-) -> str:
-    """선택한 놀이 6단계와 교사 지원을 한 편의 놀이 이야기로 구성합니다."""
-    age = normalize_age(age_group)
-    ordered_steps = _ordered_selections(PLAY_STORY_STAGE_OPTIONS, selected_steps)
-
-    # 지원을 선택했는데 4단계를 선택하지 않은 경우, 지원이 빠지지 않도록 자동 반영합니다.
-    if selected_supports and "4. 교사의 지원" not in ordered_steps:
-        ordered_steps = _ordered_selections(
-            PLAY_STORY_STAGE_OPTIONS,
-            list(ordered_steps) + ["4. 교사의 지원"],
-        )
-
-    subject = _play_story_subject(age)
-    language = PLAY_STORY_AGE_LANGUAGE.get(age, PLAY_STORY_AGE_LANGUAGE["2세"])
-
-    sections = [
-        "🎈 놀이 이야기",
-        f"놀이 주제: {play_keyword} · 연령: {age}",
-    ]
-
-    for step in ordered_steps:
-        if step == "1. 시작 (놀이 발현)":
-            body = language["start"].format(
-                child=subject,
-                keyword=play_keyword,
-                action=child_action,
-            )
-        elif step == "2. 과정 (놀이 전개)":
-            body = language["process"].format(
-                child=subject,
-                keyword=play_keyword,
-                action=child_action,
-            )
-        elif step == "3. 배움 읽기 (의미 찾기)":
-            curriculum_meaning = get_curriculum_record(curriculum_area, age)
-            development_meaning = get_development_record(development_area, age)
-            body = (
-                f"{play_keyword} 놀이의 장면은 {curriculum_area} 영역과 {development_area} 발달을 함께 읽어볼 수 있는 경험이었습니다. "
-                f"{curriculum_meaning} {development_meaning}"
-            )
-        elif step == "4. 교사의 지원":
-            body = build_teacher_support_text(
-                age=age,
-                supports=selected_supports,
-                play_keyword=play_keyword,
-                curriculum_area=curriculum_area,
-                development_area=development_area,
-                child_action=child_action,
-            )
-            if not body:
-                body = (
-                    f"교사는 {subject}의 ‘{child_action}’을 세심히 관찰하며, "
-                    f"{curriculum_area} 영역과 {development_area} 발달이 자연스럽게 이어지도록 필요한 지원을 조절했습니다."
-                )
-        elif step == "5. 변화 (확장과 심화)":
-            body = language["change"].format(
-                child=subject,
-                keyword=play_keyword,
-                action=child_action,
-            )
-        elif step == "6. 결과 (성찰 및 연계)":
-            body = language["result"].format(
-                child=subject,
-                keyword=play_keyword,
-                action=child_action,
-            )
-        else:
-            continue
-
-        sections.append(f"{step}\n{body}")
-
-    return age_sanitize("\n\n".join(sections), age)
-
-def reset_tab2_inputs_once():
-    """기록 요정 탭의 이전 입력값이 처음 화면에 남아 보이지 않도록 한 번만 초기화합니다.
-
-    Streamlit은 같은 key를 가진 위젯 값을 브라우저 세션에 보관할 수 있습니다.
-    그래서 코드상 기본값이 "- 선택 -"이어도 이전에 선택한 값이 다시 보일 수 있습니다.
-    이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
-    사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
-    """
-    reset_flag = "_tab2_initial_values_cleared_20260617_v2"
-    if st.session_state.get(reset_flag):
-        return
-
-    keys_to_clear = [
-        "photo_play_keyword",
-        "photo_age_group",
-        "photo_standard_area",
-        "photo_nuri_area",
-        "photo_curriculum_placeholder",
-        "photo_development_area",
-        "photo_observation_type",
-        "photo_parent_type",
-        "photo_play_story_steps",
-        "photo_teacher_supports",
-        "photo_child_action",
-    ]
-
-    for key in keys_to_clear:
-        st.session_state.pop(key, None)
-
-    st.session_state[reset_flag] = True
-
-
 with tab2:
-
-    reset_tab2_inputs_once()
 
     render_menu_card(
         "🧚‍♀️ 상황별 문구 자동 생성",
-        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 놀이 이야기와 기록 문장을 함께 생성합니다.",
-        ["0~2세 표준보육과정", "3~5세 누리과정", "관찰 기록 / 서술형 일지 / 놀이 이야기 / 알림장 / 기관 홍보 문구" ]
+        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 부모 전달 문장을 함께 생성합니다.",
+        ["0~2세 표준보육과정", "3~5세 누리과정", "알림장 · 관찰 기록 · 서술형 일지 · 기관 홍보용 문구" ]
     )
 
-    observation_type = st.selectbox(
-        "기록 유형 선택",
-        ["- 선택 -", "관찰 기록용", "서술형 일지용", "기관 홍보용", "놀이 이야기"],
-        index=0,
-        key="photo_observation_type"
-    )
-
-    play_keyword = st.text_input(
-        "사진 속 놀이 키워드 입력",
-        value="",
-        placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이",
-        key="photo_play_keyword"
-    )
-    age_group = st.selectbox(
-        "연령 선택",
-        ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
-        index=0,
-        key="photo_age_group"
-    )
+    play_keyword = st.text_input("사진 속 놀이 키워드 입력", placeholder="예: 바깥놀이, 블록쌓기, 물감놀이, 역할놀이", key="photo_play_keyword")
+    age_group = st.selectbox("연령 선택", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="photo_age_group")
 
     if age_group in ["0세", "1세", "2세"]:
         curriculum_area = st.selectbox(
             "표준보육과정 영역 선택",
             ["- 선택 -"] + STANDARD_AREAS,
-            index=0,
             key="photo_standard_area"
         )
         st.caption("※ 0~2세는 표준보육과정 영역을 기준으로 문구를 생성합니다.")
@@ -3763,7 +2448,6 @@ with tab2:
         curriculum_area = st.selectbox(
             "누리과정 영역 선택",
             ["- 선택 -"] + NURI_AREAS,
-            index=0,
             key="photo_nuri_area"
         )
         st.caption("※ 3~5세는 누리과정 영역을 기준으로 문구를 생성합니다.")
@@ -3772,52 +2456,20 @@ with tab2:
         st.selectbox(
             "표준보육과정·누리과정 영역 선택",
             ["연령을 먼저 선택해 주세요."],
-            index=0,
             key="photo_curriculum_placeholder",
             disabled=True
         )
 
-    development_area = st.selectbox(
-        "발달영역 선택",
-        ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"],
-        index=0,
-        key="photo_development_area"
-    )
-    # 놀이 이야기는 단계와 지원을 필요한 만큼 복수 선택하여 한 편의 구조화된 기록으로 생성합니다.
-    play_story_steps: list[str] = []
-    teacher_supports: list[str] = []
+    development_area = st.selectbox("발달영역 선택", ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"], key="photo_development_area")
+    observation_type = st.selectbox("기록 유형 선택", ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"], key="photo_observation_type")
 
-    if observation_type == "놀이 이야기":
-        st.markdown("#### 🎈 놀이 이야기 구성")
-        st.caption("놀이의 6단계와 교사의 지원은 필요한 항목을 복수 선택할 수 있습니다. 선택한 단계만 결과에 포함됩니다.")
-
-        play_story_steps = st.multiselect(
-            "놀이의 6단계 선택",
-            PLAY_STORY_STAGE_OPTIONS,
-            default=[],
-            placeholder="예: 1. 시작 (놀이 발현), 2. 과정 (놀이 전개)",
-            key="photo_play_story_steps",
-        )
-
-        st.caption("교사의 지원 유형")
-        for support, guide in TEACHER_SUPPORT_GUIDE.items():
-            st.caption(f"• {support}: {guide}")
-
-        teacher_supports = st.multiselect(
-            "교사의 지원 선택",
-            TEACHER_SUPPORT_OPTIONS,
-            default=[],
-            placeholder="예: 시간 지원, 상호작용 지원",
-            key="photo_teacher_supports",
-        )
-
-        if teacher_supports and "4. 교사의 지원" not in play_story_steps:
-            st.caption("※ 선택한 교사의 지원은 결과의 ‘4. 교사의 지원’ 단계에 자동으로 함께 반영됩니다.")
+    parent_type = None
+    if observation_type == "알림장용":
+        parent_type = st.selectbox("부모 성향 선택", ["- 선택 -", "일반형", "불안형", "정보형", "감성형"], key="photo_parent_type")
 
     child_action = st.selectbox(
         "사진 속 아이들의 모습 선택",
         get_child_action_options(age_group),
-        index=0,
         key="photo_child_action"
     )
 
@@ -3833,34 +2485,34 @@ with tab2:
             st.warning("발달영역을 선택해 주세요.")
         elif observation_type == "- 선택 -":
             st.warning("기록 유형을 선택해 주세요.")
+        elif observation_type == "알림장용" and parent_type == "- 선택 -":
+            st.warning("부모 성향을 선택해 주세요.")
         elif child_action == "- 선택 -":
             st.warning("사진 속 아이들의 모습을 선택해 주세요.")
-        elif observation_type == "놀이 이야기" and not play_story_steps:
-            st.warning("놀이 이야기로 구성할 놀이의 6단계를 한 개 이상 선택해 주세요.")
-        elif (
-            observation_type == "놀이 이야기"
-            and "4. 교사의 지원" in play_story_steps
-            and not teacher_supports
-        ):
-            st.warning("‘4. 교사의 지원’을 선택한 경우 교사의 지원 유형을 한 개 이상 선택해 주세요.")
         else:
             child_label = "영아" if age_group in ["0세", "1세", "2세"] else "유아"
+            template_bank = get_observation_template_bank(observation_type, age_group)
+            selected_sentences = random.sample(template_bank, k=min(3, len(template_bank)))
+            st.success("상황별 문구가 생성되었습니다.")
 
-            if observation_type == "놀이 이야기":
-                final_result = build_play_story(
-                    play_keyword=play_keyword,
-                    age_group=age_group,
-                    curriculum_area=curriculum_area,
-                    development_area=development_area,
-                    child_action=child_action,
-                    selected_steps=play_story_steps,
-                    selected_supports=teacher_supports,
-                )
+            for idx, sentence in enumerate(selected_sentences, start=1):
+                base_sentence = sentence.format(keyword=play_keyword, action=child_action, child=child_label)
 
-                st.success("놀이 이야기가 생성되었습니다.")
-                render_generated_phrase(1, final_result)
+                if observation_type == "알림장용":
+                    final_result = f"{base_sentence} {AGE_NOTICE[age_group]} {get_parent_template(parent_type, age_group)}"
+                elif observation_type == "관찰 기록용":
+                    final_result = f"{base_sentence} {get_development_record(development_area, age_group, note=True)}"
+                elif observation_type == "서술형 일지용":
+                    final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group, note=True)} {get_development_record(development_area, age_group, note=True)}"
+                elif observation_type == "기관 홍보용":
+                    final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group)} {get_development_record(development_area, age_group)}"
+                else:
+                    final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
 
-                # 기존 Supabase 테이블 구조를 바꾸지 않아도 선택한 단계와 지원은 생성 문구 안에 함께 저장됩니다.
+                final_result = age_sanitize(final_result, age_group)
+                final_result = append_platform_info(final_result)
+                render_generated_phrase(idx, final_result)
+
                 save_phrase_log(
                     record_type=observation_type,
                     play_keyword=play_keyword,
@@ -3868,37 +2520,9 @@ with tab2:
                     curriculum_area=curriculum_area,
                     development_area=development_area,
                     child_action=child_action,
-                    generated_text=final_result,
+                    generated_text=final_result
                 )
-            else:
-                template_bank = get_observation_template_bank(observation_type, age_group)
-                selected_sentences = random.sample(template_bank, k=min(3, len(template_bank)))
-                st.success("상황별 문구가 생성되었습니다.")
 
-                for idx, sentence in enumerate(selected_sentences, start=1):
-                    base_sentence = sentence.format(keyword=play_keyword, action=child_action, child=child_label)
-
-                    if observation_type == "관찰 기록용":
-                        final_result = f"{base_sentence} {get_development_record(development_area, age_group, note=True)}"
-                    elif observation_type == "서술형 일지용":
-                        final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group, note=True)} {get_development_record(development_area, age_group, note=True)}"
-                    elif observation_type == "기관 홍보용":
-                        final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group)} {get_development_record(development_area, age_group)}"
-                    else:
-                        final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
-
-                    final_result = age_sanitize(final_result, age_group)
-                    render_generated_phrase(idx, final_result)
-
-                    save_phrase_log(
-                        record_type=observation_type,
-                        play_keyword=play_keyword,
-                        age_group=age_group,
-                        curriculum_area=curriculum_area,
-                        development_area=development_area,
-                        child_action=child_action,
-                        generated_text=final_result,
-                    )
 
     st.divider()
 
@@ -4055,145 +2679,105 @@ with tab3:
 # =========================
 # TAB 4. 알림장
 # =========================
-def reset_tab4_inputs_once():
-    """알림장 탭의 이전 입력값이 처음 화면에 남아 보이지 않도록 한 번만 초기화합니다.
+with tab4:
 
-    Streamlit은 같은 key를 가진 위젯 값을 브라우저 세션에 보관할 수 있습니다.
-    그래서 코드상 기본값이 "- 선택 -"이어도 이전에 선택한 값이 다시 보일 수 있습니다.
-    이 함수는 앱 갱신 후 첫 렌더링에서만 기존 알림장 입력값을 지우고,
-    사용자가 이후 선택하거나 입력한 값은 정상적으로 유지되게 합니다.
-    """
-    reset_flag = "_tab4_initial_values_cleared_20260617_v3"
-    if st.session_state.get(reset_flag):
-        return
+    render_menu_card(
+        "📝 일지 요약 및 알림장 생성",
+        "일지를 입력하면 핵심 내용을 요약하고, 기록 유형과 성향에 맞는 문장을 생성합니다.",
+        ["알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"]
+    )
 
-    keys_to_clear = [
-        "record_type_select",
-        "diary_age_group",
-        "diary_teacher_tone",
-        "diary_daily_scope",
-        "diary_input_text",
-    ]
+    record_type = st.selectbox(
+        "기록 유형 선택",
+        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        key="record_type_select"
+    )
 
-    for key in keys_to_clear:
-        st.session_state.pop(key, None)
+    diary_age_group = st.selectbox(
+        "연령 선택",
+        ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
+        key="diary_age_group"
+    )
 
-    st.session_state[reset_flag] = True
+    teacher_tone = st.selectbox(
+        "기록 성향 선택",
+        ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
+        key="diary_teacher_tone"
+    )
 
+    daily_scope = st.selectbox(
+        "하루일과 전달 범위 선택",
+        ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
+        key="diary_daily_scope"
+    )
 
-if SHOW_DIARY_FEATURE:
-    with tab4:
+    diary_text = st.text_area(
+        "일지 내용을 붙여넣으세요",
+        height=250,
+        placeholder="예: 오늘은 아이들과 함께 봄 소풍을 다녀왔다...",
+        key="diary_input_text"
+    )
 
-        reset_tab4_inputs_once()
+    if st.button("알림장 요약 및 생성하기", key="diary_generate_button"):
+        if record_type == "- 선택 -":
+            st.warning("기록 유형을 선택해 주세요.")
+        elif diary_age_group == "- 선택 -":
+            st.warning("연령을 선택해 주세요.")
+        elif teacher_tone == "- 선택 -":
+            st.warning("기록 성향을 선택해 주세요.")
+        elif daily_scope == "- 선택 -":
+            st.warning("하루일과 전달 범위를 선택해 주세요.")
+        elif not diary_text.strip():
+            st.warning("요약할 일지 내용을 먼저 입력해 주세요.")
+        else:
+            summary = make_core_summary(
+                diary_text,
+                max_sentences=max_summary_sentences
+            )
 
-        render_menu_card(
-            "📝 일지 요약 및 알림장 생성",
-            "일지를 입력하면 핵심 내용을 요약하고, 기록 유형과 성향에 맞는 문장을 생성합니다.",
-            ["알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"]
-        )
+            restructured_summary = build_restructured_diary(
+                original_text=diary_text,
+                summary=summary,
+                daily_scope=daily_scope,
+                record_type=record_type,
+                age=diary_age_group
+            )
 
-        record_type = st.selectbox(
-            "기록 유형 선택",
-            ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
-            index=0,
-            key="record_type_select"
-        )
+            generated_message = make_diary_message(
+                restructured_summary,
+                teacher_tone,
+                daily_scope,
+                record_type,
+                age=diary_age_group
+            )
+            generated_message = append_platform_info(generated_message)
+            save_diary_log(
+                record_type=record_type,
+                teacher_tone=teacher_tone,
+                daily_scope=daily_scope,
+                original_text=diary_text,
+                summary=restructured_summary,
+                generated_message=generated_message
+            )
 
-        diary_age_group = st.selectbox(
-            "연령 선택",
-            ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
-            index=0,
-            key="diary_age_group"
-        )
+            st.success("일지 요약과 문구 생성이 완료되었습니다.")
 
-        teacher_tone = st.selectbox(
-            "기록 성향 선택",
-            ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
-            index=0,
-            key="diary_teacher_tone"
-        )
+            st.markdown("### 재구성된 핵심 내용")
+            st.markdown(
+                f"<div class='result-card-gray'>{restructured_summary}</div>",
+                unsafe_allow_html=True
+            )
 
-        daily_scope = st.selectbox(
-            "하루일과 전달 범위 선택",
-            ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
-            index=0,
-            key="diary_daily_scope"
-        )
+            st.markdown("### 생성된 알림장 문장")
+            render_result_card(generated_message, "result-card-blue")
 
-        diary_text = st.text_area(
-            "일지 내용을 붙여넣으세요",
-            value="",
-            height=250,
-            placeholder="단어만 입력하면 생성되지 않습니다. 예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다.",
-            key="diary_input_text"
-        )
-
-        if st.button("알림장 요약 및 생성하기", key="diary_generate_button"):
-            if record_type == "- 선택 -":
-                st.warning("기록 유형을 선택해 주세요.")
-            elif diary_age_group == "- 선택 -":
-                st.warning("연령을 선택해 주세요.")
-            elif teacher_tone == "- 선택 -":
-                st.warning("기록 성향을 선택해 주세요.")
-            elif daily_scope == "- 선택 -":
-                st.warning("하루일과 전달 범위를 선택해 주세요.")
-            else:
-                is_valid_diary, diary_warning = validate_diary_text(diary_text)
-                if not is_valid_diary:
-                    st.warning(diary_warning)
-                    st.stop()
-
-                summary = make_core_summary(
-                    diary_text,
-                    max_sentences=max_summary_sentences
-                )
-
-                if not summary.strip():
-                    st.warning("일지 내용에서 요약할 수 있는 문장을 찾지 못했습니다. 관찰 장면이 드러나는 문장으로 다시 입력해 주세요.")
-                    st.stop()
-
-                restructured_summary = build_restructured_diary(
-                    original_text=diary_text,
-                    summary=summary,
-                    daily_scope=daily_scope,
-                    record_type=record_type,
-                    age=diary_age_group
-                )
-
-                generated_message = make_diary_message(
-                    restructured_summary,
-                    teacher_tone,
-                    daily_scope,
-                    record_type,
-                    age=diary_age_group
-                )
-                save_diary_log(
-                    record_type=record_type,
-                    teacher_tone=teacher_tone,
-                    daily_scope=daily_scope,
-                    original_text=diary_text,
-                    summary=restructured_summary,
-                    generated_message=generated_message
-                )
-
-                st.success("일지 요약과 문구 생성이 완료되었습니다.")
-
-                st.markdown("### 재구성된 핵심 내용")
-                st.markdown(
-                    f"<div class='result-card-gray'>{restructured_summary}</div>",
-                    unsafe_allow_html=True
-                )
-
-                st.markdown("### 생성된 알림장 문장")
-                render_result_card(generated_message, "result-card-blue")
-
-                st.download_button(
-                    "생성된 알림장 다운로드",
-                    data=generated_message.encode("utf-8"),
-                    file_name="generated_diary_message.txt",
-                    mime="text/plain",
-                    key="diary_download"
-                )
+            st.download_button(
+                "생성된 알림장 다운로드",
+                data=generated_message.encode("utf-8"),
+                file_name="generated_diary_message.txt",
+                mime="text/plain",
+                key="diary_download"
+            )
 
 # =========================
 # TAB 5. 교사의 온도
@@ -4436,7 +3020,7 @@ with tab6:
                 "record_type": "기록 유형",
                 "play_keyword": "사진 속 놀이 키워드 입력",
                 "age_group": "연령 선택",
-                "curriculum_area": "표준보육과정·누리과정 영역 선택",
+                "curriculum_area": "누리과정 영역 선택",
                 "development_area": "발달 영역 선택",
                 "child_action": "사진 속 아이들의 모습 선택",
                 "generated_text": "생성 문구",
@@ -4466,84 +3050,9 @@ with tab6:
 
 
             st.markdown("### 📁 데이터 조회 및 다운로드")
+            st.dataframe(display_df, use_container_width=True)
 
-            # 표시용 표에서는 삭제 여부 컬럼을 제거하고, 관리자 선택 삭제용 체크박스를 별도로 제공합니다.
-            table_display_df = display_df.copy()
-            if "삭제 여부" in table_display_df.columns:
-                table_display_df = table_display_df.drop(columns=["삭제 여부"])
-
-            selected_delete_ids = []
-            current_view_ids = []
-
-            if table_display_df.empty:
-                st.caption("표시할 데이터가 없습니다.")
-            elif "번호" not in table_display_df.columns:
-                st.dataframe(table_display_df, use_container_width=True)
-            else:
-                current_view_ids = (
-                    table_display_df["번호"]
-                    .dropna()
-                    .astype(int)
-                    .tolist()
-                )
-
-                delete_select_key = f"delete_select_all_{table_name}_{dashboard_period}_{admin_menu}"
-                delete_editor_version_key = f"delete_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
-
-                if delete_select_key not in st.session_state:
-                    st.session_state[delete_select_key] = False
-                if delete_editor_version_key not in st.session_state:
-                    st.session_state[delete_editor_version_key] = 0
-
-                select_col1, select_col2, select_col3 = st.columns([1, 1, 4])
-                with select_col1:
-                    if st.button(
-                        "현재 목록 전체 선택",
-                        key=f"delete_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        use_container_width=True,
-                    ):
-                        st.session_state[delete_select_key] = True
-                        st.session_state[delete_editor_version_key] += 1
-                        st.rerun()
-                with select_col2:
-                    if st.button(
-                        "전체 선택 취소",
-                        key=f"delete_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        use_container_width=True,
-                    ):
-                        st.session_state[delete_select_key] = False
-                        st.session_state[delete_editor_version_key] += 1
-                        st.rerun()
-                with select_col3:
-                    st.caption("현재 표에 보이는 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
-
-                editable_df = table_display_df.copy()
-                editable_df.insert(0, "삭제 선택", bool(st.session_state[delete_select_key]))
-
-                disabled_columns = [col for col in editable_df.columns if col != "삭제 선택"]
-                edited_df = st.data_editor(
-                    editable_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=disabled_columns,
-                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[delete_editor_version_key]}",
-                    column_config={
-                        "삭제 선택": st.column_config.CheckboxColumn(
-                            "삭제 선택",
-                            help="목록에서 숨김 처리할 기록을 선택하세요.",
-                            default=False,
-                        )
-                    },
-                )
-
-                selected_delete_ids = (
-                    edited_df.loc[edited_df["삭제 선택"] == True, "번호"]
-                    .dropna()
-                    .astype(int)
-                    .tolist()
-                )
-
-            csv = table_display_df.to_csv(index=False).encode("utf-8-sig")
+            csv = display_df.to_csv(index=False).encode("utf-8-sig")
 
             st.download_button(
                 label="CSV 다운로드",
@@ -4556,284 +3065,43 @@ with tab6:
 
             st.divider()
             st.markdown("### 🛠️ 기록 삭제")
-            st.caption("선택한 기록은 목록에서 숨김 처리됩니다. 숨김 처리된 기록은 아래에서 복원하거나 영구 삭제할 수 있습니다.")
+            st.caption("선택한 기록은 완전히 삭제되지 않고 목록에서 숨김 처리됩니다.")
 
-            if table_display_df.empty:
+            delete_df = load_table(table_name)
+
+            if delete_df.empty:
                 st.caption("삭제할 기록이 없습니다.")
             else:
-                delete_col1, delete_col2 = st.columns([1, 1])
-
-                with delete_col1:
-                    st.markdown("#### 선택 삭제")
-                    if selected_delete_ids:
-                        st.info(f"삭제 선택된 기록: {len(selected_delete_ids)}건")
-                    else:
-                        st.caption("위 표의 '삭제 선택'에 체크한 뒤 삭제할 수 있습니다.")
-
-                    if st.button(
-                        "선택한 기록 숨김 처리",
-                        key="soft_delete_selected_button",
-                        disabled=not bool(selected_delete_ids),
-                    ):
-                        for delete_id in selected_delete_ids:
-                            soft_delete_record(table_name, delete_id)
-                        st.success(f"선택한 기록 {len(selected_delete_ids)}건을 숨김 처리했습니다.")
-                        st.rerun()
-
-                with delete_col2:
-                    st.markdown("#### 현재 조회 결과 전체 삭제")
-                    st.caption(f"현재 선택한 데이터와 조회 단위에 보이는 {len(current_view_ids)}건을 한 번에 숨김 처리합니다.")
-                    bulk_confirm = st.checkbox(
-                        "현재 조회 결과 전체 삭제에 동의합니다.",
-                        key=f"bulk_delete_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-
-                    if st.button(
-                        f"현재 조회 결과 {len(current_view_ids)}건 숨김 처리",
-                        key=f"bulk_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not current_view_ids or not bulk_confirm),
-                    ):
-                        for delete_id in current_view_ids:
-                            soft_delete_record(table_name, delete_id)
-                        st.success(f"현재 조회 결과 {len(current_view_ids)}건을 숨김 처리했습니다.")
-                        st.rerun()
-
-            with st.expander("⚠️ 현재 조회 결과 영구 삭제", expanded=False):
-                st.warning("영구 삭제는 Supabase DB에서 기록을 완전히 삭제합니다. 삭제 후에는 복원할 수 없습니다.")
-                st.caption(f"대상: {admin_menu} / 조회 단위: {dashboard_period} / 현재 보이는 기록 {len(current_view_ids)}건")
-                hard_delete_text = st.text_input(
-                    "현재 조회 결과를 영구 삭제하려면 '영구삭제'를 입력하세요.",
-                    key=f"hard_delete_current_view_confirm_{table_name}_{dashboard_period}_{admin_menu}",
+                delete_id = st.selectbox(
+                    "삭제할 기록 ID 선택",
+                    delete_df["id"].tolist(),
+                    key="delete_record_id_select"
                 )
-                if st.button(
-                    f"현재 조회 결과 {len(current_view_ids)}건 영구 삭제",
-                    key=f"hard_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
-                    disabled=(not current_view_ids or hard_delete_text.strip() != "영구삭제"),
-                ):
-                    for delete_id in current_view_ids:
-                        hard_delete_record(table_name, delete_id)
-                    st.success(f"현재 조회 결과 {len(current_view_ids)}건을 영구 삭제했습니다.")
+
+                if st.button("선택 기록 삭제", key="soft_delete_button"):
+                    soft_delete_record(table_name, delete_id)
+                    st.success("선택한 기록을 삭제 처리했습니다.")
                     st.rerun()
 
-            with st.expander("🧹 전체 테스트 데이터 일괄 정리", expanded=False):
-                st.warning("테스트 데이터 정리 기능입니다. 숨김 처리는 복원 가능하지만, 영구 삭제는 복원할 수 없습니다.")
-
-                all_delete_targets = {
-                    "가입자 정보": "subscribers",
-                    "알림장 생성 기록": "diary_logs",
-                    "상황별 문구 생성 기록": "phrase_logs",
-                    "교사의 온도 기록": "teacher_temperature_logs",
-                }
-
-                active_delete_count = 0
-                permanent_delete_count = 0
-                active_ids_by_table = {}
-                all_ids_by_table = {}
-
-                for label, target_table in all_delete_targets.items():
-                    active_df = load_table(target_table)
-                    all_df = load_table(target_table, include_deleted=True)
-
-                    active_ids = []
-                    all_ids = []
-                    if not active_df.empty and "id" in active_df.columns:
-                        active_ids = active_df["id"].dropna().astype(int).tolist()
-                    if not all_df.empty and "id" in all_df.columns:
-                        all_ids = all_df["id"].dropna().astype(int).tolist()
-
-                    active_ids_by_table[target_table] = active_ids
-                    all_ids_by_table[target_table] = all_ids
-                    active_delete_count += len(active_ids)
-                    permanent_delete_count += len(all_ids)
-                    st.caption(f"- {label}: 현재 목록 {len(active_ids)}건 / 전체 DB {len(all_ids)}건")
-
-                soft_col, hard_col = st.columns([1, 1])
-
-                with soft_col:
-                    st.markdown("#### 전체 숨김 처리")
-                    all_delete_text = st.text_input(
-                        "전체 테스트 데이터를 숨김 처리하려면 '전체삭제'를 입력하세요.",
-                        key="all_test_data_delete_confirm_text",
-                    )
-
-                    if st.button(
-                        f"전체 테스트 데이터 {active_delete_count}건 숨김 처리",
-                        key="all_test_data_soft_delete_button",
-                        disabled=(active_delete_count == 0 or all_delete_text.strip() != "전체삭제"),
-                    ):
-                        for target_table, target_ids in active_ids_by_table.items():
-                            for delete_id in target_ids:
-                                soft_delete_record(target_table, delete_id)
-                        st.success(f"전체 테스트 데이터 {active_delete_count}건을 숨김 처리했습니다.")
-                        st.rerun()
-
-                with hard_col:
-                    st.markdown("#### 전체 영구 삭제")
-                    all_hard_delete_text = st.text_input(
-                        "DB의 전체 테스트 데이터를 영구 삭제하려면 '전체영구삭제'를 입력하세요.",
-                        key="all_test_data_hard_delete_confirm_text",
-                    )
-
-                    if st.button(
-                        f"전체 테스트 데이터 {permanent_delete_count}건 영구 삭제",
-                        key="all_test_data_hard_delete_button",
-                        disabled=(permanent_delete_count == 0 or all_hard_delete_text.strip() != "전체영구삭제"),
-                    ):
-                        for target_table, target_ids in all_ids_by_table.items():
-                            for delete_id in target_ids:
-                                hard_delete_record(target_table, delete_id)
-                        st.success(f"전체 테스트 데이터 {permanent_delete_count}건을 영구 삭제했습니다.")
-                        st.rerun()
-
             st.divider()
-            st.markdown("### ♻️ 삭제 기록 복원 및 영구삭제")
-            st.caption("숨김 처리된 기록을 여러 개 선택해 한 번에 복원하거나, DB에서 영구 삭제할 수 있습니다.")
+            st.markdown("### ♻️ 삭제 기록 복원")
 
             deleted_df = load_table(table_name, include_deleted=True)
 
             if "deleted" in deleted_df.columns:
-                deleted_mask = deleted_df["deleted"].astype(str).str.lower().isin(["true", "1", "yes"])
-                deleted_df = deleted_df[deleted_mask]
+                deleted_df = deleted_df[deleted_df["deleted"] == 1]
 
             if deleted_df.empty:
-                st.caption("복원 또는 영구 삭제할 기록이 없습니다.")
+                st.caption("복원 가능한 삭제 기록이 없습니다.")
             else:
-                deleted_display_df = deleted_df.rename(columns=column_rename)
+                restore_id = st.selectbox(
+                    "복원할 기록 ID 선택",
+                    deleted_df["id"].tolist(),
+                    key="restore_record_id_select"
+                )
 
-                if "조회용 날짜" in deleted_display_df.columns:
-                    deleted_display_df = deleted_display_df.drop(columns=["조회용 날짜"])
-                if "삭제 여부" in deleted_display_df.columns:
-                    deleted_display_df = deleted_display_df.drop(columns=["삭제 여부"])
+                if st.button("선택 기록 복원", key="restore_button"):
+                    restore_record(table_name, restore_id)
+                    st.success("기록이 복원되었습니다.")
+                    st.rerun()
 
-                selected_restore_ids = []
-                deleted_view_ids = []
-
-                if "번호" not in deleted_display_df.columns:
-                    st.dataframe(deleted_display_df, use_container_width=True)
-                else:
-                    deleted_view_ids = (
-                        deleted_display_df["번호"]
-                        .dropna()
-                        .astype(int)
-                        .tolist()
-                    )
-
-                    restore_select_key = f"restore_select_all_{table_name}_{dashboard_period}_{admin_menu}"
-                    restore_editor_version_key = f"restore_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
-
-                    if restore_select_key not in st.session_state:
-                        st.session_state[restore_select_key] = False
-                    if restore_editor_version_key not in st.session_state:
-                        st.session_state[restore_editor_version_key] = 0
-
-                    restore_select_col1, restore_select_col2, restore_select_col3 = st.columns([1, 1, 4])
-                    with restore_select_col1:
-                        if st.button(
-                            "삭제 기록 전체 선택",
-                            key=f"restore_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                            use_container_width=True,
-                        ):
-                            st.session_state[restore_select_key] = True
-                            st.session_state[restore_editor_version_key] += 1
-                            st.rerun()
-                    with restore_select_col2:
-                        if st.button(
-                            "전체 선택 취소",
-                            key=f"restore_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                            use_container_width=True,
-                        ):
-                            st.session_state[restore_select_key] = False
-                            st.session_state[restore_editor_version_key] += 1
-                            st.rerun()
-                    with restore_select_col3:
-                        st.caption("숨김 처리된 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
-
-                    deleted_editable_df = deleted_display_df.copy()
-                    deleted_editable_df.insert(0, "선택", bool(st.session_state[restore_select_key]))
-
-                    disabled_deleted_columns = [col for col in deleted_editable_df.columns if col != "선택"]
-                    edited_deleted_df = st.data_editor(
-                        deleted_editable_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        disabled=disabled_deleted_columns,
-                        key=f"restore_delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[restore_editor_version_key]}",
-                        column_config={
-                            "선택": st.column_config.CheckboxColumn(
-                                "선택",
-                                help="복원하거나 영구 삭제할 기록을 선택하세요.",
-                                default=False,
-                            )
-                        },
-                    )
-
-                    selected_restore_ids = (
-                        edited_deleted_df.loc[edited_deleted_df["선택"] == True, "번호"]
-                        .dropna()
-                        .astype(int)
-                        .tolist()
-                    )
-
-                restore_col, permanent_col = st.columns([1, 1])
-
-                with restore_col:
-                    st.markdown("#### 선택 기록 복원")
-                    if selected_restore_ids:
-                        st.info(f"선택된 삭제 기록: {len(selected_restore_ids)}건")
-                    else:
-                        st.caption("위 표에서 복원할 기록을 선택해 주세요.")
-
-                    if st.button(
-                        "선택한 기록 복원",
-                        key=f"restore_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=not bool(selected_restore_ids),
-                    ):
-                        for restore_id in selected_restore_ids:
-                            restore_record(table_name, restore_id)
-                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 복원했습니다.")
-                        st.rerun()
-
-                    restore_all_confirm = st.checkbox(
-                        f"{admin_menu}의 삭제 기록 전체 복원에 동의합니다.",
-                        key=f"restore_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        f"삭제 기록 {len(deleted_view_ids)}건 전체 복원",
-                        key=f"restore_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not deleted_view_ids or not restore_all_confirm),
-                    ):
-                        for restore_id in deleted_view_ids:
-                            restore_record(table_name, restore_id)
-                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 복원했습니다.")
-                        st.rerun()
-
-                with permanent_col:
-                    st.markdown("#### 선택 기록 영구 삭제")
-                    st.warning("영구 삭제한 기록은 복원할 수 없습니다.")
-                    permanent_text = st.text_input(
-                        "선택한 삭제 기록을 영구 삭제하려면 '영구삭제'를 입력하세요.",
-                        key=f"permanent_selected_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        "선택한 기록 영구 삭제",
-                        key=f"permanent_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not selected_restore_ids or permanent_text.strip() != "영구삭제"),
-                    ):
-                        for delete_id in selected_restore_ids:
-                            hard_delete_record(table_name, delete_id)
-                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 영구 삭제했습니다.")
-                        st.rerun()
-
-                    permanent_all_text = st.text_input(
-                        f"{admin_menu}의 삭제 기록 전체를 영구 삭제하려면 '삭제기록영구삭제'를 입력하세요.",
-                        key=f"permanent_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        f"삭제 기록 {len(deleted_view_ids)}건 전체 영구 삭제",
-                        key=f"permanent_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not deleted_view_ids or permanent_all_text.strip() != "삭제기록영구삭제"),
-                    ):
-                        for delete_id in deleted_view_ids:
-                            hard_delete_record(table_name, delete_id)
-                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 영구 삭제했습니다.")
-                        st.rerun()
