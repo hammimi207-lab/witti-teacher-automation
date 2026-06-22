@@ -563,7 +563,9 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
 .play-story-section-body {
     color: var(--witti-text);
     font-size: 15px;
-    line-height: 1.86;
+    font-weight: 500;
+    line-height: 1.9;
+    white-space: normal;
     word-break: keep-all;
     overflow-wrap: break-word;
 }
@@ -956,7 +958,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-22-play-story-refined-photo-workflow"
+APP_VERSION = "2026-06-23-play-story-title-natural-text"
 
 
 def platform_info_text() -> str:
@@ -995,8 +997,9 @@ def render_platform_guide():
 
 
 def render_generated_phrase(idx: int, text: str):
+    """기록 요정 결과는 번호 없이 문장 자체가 읽히도록 표시합니다."""
     st.markdown(
-        f"<div class='result-card-gray'><strong>{idx}.</strong><br>{text_to_html_with_links(text)}</div>",
+        f"<div class='result-card-gray'>{text_to_html_with_links(text)}</div>",
         unsafe_allow_html=True,
     )
 
@@ -3656,8 +3659,48 @@ def _observation_sentence_for_story(subject: str, child_action: str) -> str:
     return f"사진 속 {subject}가 {action}을 보였습니다."
 
 
+PLAY_STORY_DISPLAY_TITLES = {
+    "1. 시작 (놀이 발현)": "🌱 놀이의 시작",
+    "2. 과정 (놀이 전개)": "🧩 놀이의 흐름",
+    "3. 배움 읽기 (의미 찾기)": "💡 놀이에서 읽은 배움",
+    "4. 교사의 지원": "🪴 교사의 지원",
+    "5. 변화 (확장과 심화)": "🌿 더 깊어진 놀이",
+    "6. 결과 (성찰 및 연계)": "🔗 다음 놀이로 이어가기",
+}
+
+
 def _support_context(selected_supports: list[str]) -> str:
     return "교사의 지원과 충분한 놀이 시간 속에서" if selected_supports else "반복해서 탐색하는 과정에서"
+
+
+def _clean_play_title(play_title: str, play_keyword: str) -> str:
+    """사용자가 쓴 놀이명을 우선 사용하고, 비어 있으면 키워드로 자연스럽게 대체합니다."""
+    title = re.sub(r"\s+", " ", (play_title or "").strip())
+    if title:
+        return title
+    _, _, keyword_title = _split_play_keyword(play_keyword)
+    return keyword_title or "오늘의 놀이"
+
+
+def _build_play_learning_text(
+    age: str,
+    curriculum_area: str,
+    development_area: str,
+) -> str:
+    """교육과정·발달영역을 한 문단 안에서 자연스럽게 읽어 줍니다."""
+    subject = _play_story_subject(age)
+    age_meaning = {
+        "0세": "감각 자극에 반응하고 친숙한 사람과의 안정감 안에서 주변을 알아가는 경험이 쌓였습니다.",
+        "1세": "관심 있는 대상을 반복해 탐색하고, 몸짓과 말소리로 반응을 나타내는 경험이 이어졌습니다.",
+        "2세": "스스로 선택한 놀이를 반복하며 표정·몸짓·단어·짧은 말로 관심과 요구를 표현해 보는 경험이 이어졌습니다.",
+        "3세": "관심 있는 놀이에 다가가 짧은 말과 행동으로 생각을 나타내고, 친구 곁에서 함께하는 경험을 넓혔습니다.",
+        "4세": "상상한 내용을 놀이로 확장하고, 친구와 생각을 주고받으며 차례와 약속을 경험했습니다.",
+        "5세": "놀이를 계획하고 역할과 규칙을 조율하며, 자신의 생각을 이유와 함께 설명하고 협력하는 경험을 넓혔습니다.",
+    }
+    return (
+        f"이 장면은 {curriculum_area} 영역의 경험과 {development_area} 발달을 함께 읽어볼 수 있는 시간이었습니다. "
+        f"{age_meaning.get(age, age_meaning['2세'])}"
+    )
 
 
 def build_teacher_support_text(
@@ -3668,64 +3711,67 @@ def build_teacher_support_text(
     development_area: str,
     child_action: str,
 ) -> str:
-    """복수 선택한 교사 지원을 한 단계 안에서 자연스럽게 연결합니다."""
+    """선택한 지원을 번호 없이 하나의 자연스러운 지원 문단으로 구성합니다."""
     age = normalize_age(age)
     selected_supports = _ordered_selections(TEACHER_SUPPORT_OPTIONS, supports)
     if not selected_supports:
         return ""
 
     subject = _play_story_subject(age)
-    templates = {
+    clauses_by_age = {
         "0세": {
-            "시간 지원": "시간 지원으로, {subject}가 관심 보인 감각 자극에 충분히 머물고 같은 경험을 반복할 수 있도록 일과의 흐름을 융통성 있게 조정했습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 교사 곁에서 편안히 탐색을 이어갈 수 있도록 안정적인 자리와 안전한 탐색 공간을 마련했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 바라보고 만지고 들을 수 있는 안전한 감각 자료와 일상 사물을 가까이에 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}의 시선·표정·소리·몸짓에 민감하게 반응하며 말소리와 표정으로 경험을 함께 나누었습니다.",
+            "시간 지원": "관심을 보인 감각 경험에 충분히 머물 수 있도록 일과의 속도를 조절했습니다.",
+            "공간 지원": "교사 곁에서 편안히 탐색할 수 있도록 안전하고 안정적인 자리를 마련했습니다.",
+            "자료 지원": "바라보고 만지고 들을 수 있는 안전한 감각 자료와 일상 사물을 가까이에 두었습니다.",
+            "상호작용 지원": "시선·표정·소리·몸짓을 세심히 읽고, 말소리와 표정으로 반응을 되돌려 주었습니다.",
         },
         "1세": {
-            "시간 지원": "시간 지원으로, {subject}가 자료를 반복해서 조작하고 다시 시도할 수 있도록 놀이 시간을 충분히 보장했습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 관심 있는 자료에 자유롭게 다가가고 교사 곁에서 안정감을 느낄 수 있도록 놀이 영역을 유연하게 구성했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 만지고 움직이며 탐색할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}의 몸짓과 말소리를 기다리고 짧은 말로 되돌려 주며 놀이 참여가 이어지도록 도왔습니다.",
+            "시간 지원": "자료를 반복해서 조작하고 다시 시도할 수 있도록 놀이 시간을 충분히 보장했습니다.",
+            "공간 지원": "관심 있는 자료에 자유롭게 다가가고 교사 곁에서 안정감을 느낄 수 있도록 놀이 영역을 유연하게 구성했습니다.",
+            "자료 지원": "만지고 움직이며 탐색할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "몸짓과 말소리를 기다리고 짧은 말로 되돌려 주며 놀이 참여가 이어지도록 도왔습니다.",
         },
         "2세": {
-            "시간 지원": "시간 지원으로, {subject}가 선택한 놀이를 반복하고 자신의 반응을 충분히 표현할 수 있도록 놀이 시간을 확보했습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 또래 곁에서 놀이를 살피고 필요한 경우 교사와 가까이 머물 수 있도록 영역의 경계를 유연하게 조정했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 선택하고 조합해 볼 수 있는 비구조화된 재료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}의 표정·몸짓·단어·짧은 말을 존중하고, 선택과 시도를 말로 반영하며 놀이를 함께 이어갔습니다.",
+            "시간 지원": "선택한 놀이를 반복하고 자신의 반응을 충분히 표현할 수 있도록 놀이 시간을 확보했습니다.",
+            "공간 지원": "또래 곁에서 놀이를 살피고 필요할 때 교사와 가까이 머물 수 있도록 영역의 경계를 유연하게 조정했습니다.",
+            "자료 지원": "스스로 선택하고 조합해 볼 수 있는 비구조화된 재료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "표정·몸짓·단어·짧은 말을 존중하고, 선택과 시도를 말로 반영하며 놀이를 함께 이어갔습니다.",
         },
         "3세": {
-            "시간 지원": "시간 지원으로, {subject}가 놀이에 천천히 다가가고 반복해 볼 수 있도록 흐름을 서두르지 않고 보장했습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 관심 있는 자료를 선택하고 친구 곁에서 함께 놀이할 수 있도록 영역을 연결해 유연하게 구성했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 만지고 옮기고 조합하며 놀이를 확장할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}의 짧은 말과 행동을 기다리고 선택을 말로 되짚으며 친구와 함께 놀이할 수 있도록 정서적으로 지지했습니다.",
+            "시간 지원": "놀이에 천천히 다가가고 반복해 볼 수 있도록 흐름을 서두르지 않고 보장했습니다.",
+            "공간 지원": "관심 있는 자료를 선택하고 친구 곁에서 함께 놀이할 수 있도록 영역을 연결해 유연하게 구성했습니다.",
+            "자료 지원": "만지고 옮기고 조합하며 놀이를 확장할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "짧은 말과 행동을 기다리고 선택을 말로 되짚으며, 친구와 함께 놀이할 수 있도록 정서적으로 지지했습니다.",
         },
         "4세": {
-            "시간 지원": "시간 지원으로, {subject}가 떠올린 생각을 충분히 시도하고 친구와 차례와 약속을 경험할 수 있도록 놀이 시간을 이어갔습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 역할과 이야기를 확장할 수 있도록 영역의 경계를 열고 자료를 이동할 수 있는 유연한 공간을 마련했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 비교하고 조합하며 상상한 내용을 표현할 수 있도록 다양한 개방형 재료와 일상 사물을 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}가 자신의 생각과 이유를 말하고 친구의 반응을 살필 수 있도록 개방적 발문과 공동 놀이자 역할을 제공했습니다.",
+            "시간 지원": "떠올린 생각을 충분히 시도하고 친구와 차례와 약속을 경험할 수 있도록 놀이 시간을 이어갔습니다.",
+            "공간 지원": "역할과 이야기를 확장할 수 있도록 영역의 경계를 열고 자료를 이동할 수 있는 유연한 공간을 마련했습니다.",
+            "자료 지원": "비교하고 조합하며 상상한 내용을 표현할 수 있도록 다양한 개방형 재료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "자신의 생각과 이유를 말하고 친구의 반응을 살필 수 있도록 개방적 발문과 공동 놀이자 역할로 함께했습니다.",
         },
         "5세": {
-            "시간 지원": "시간 지원으로, {subject}가 놀이를 계획하고 역할과 규칙을 조율하며 충분히 수정·보완할 수 있도록 일과를 융통성 있게 운영했습니다.",
-            "공간 지원": "공간 지원으로, {subject}가 자료를 배치하고 역할 놀이 또는 구성 놀이를 확장할 수 있도록 영역을 가변적으로 연결했습니다.",
-            "자료 지원": "자료 지원으로, {subject}가 여러 방법을 비교하고 해결 방법을 시도할 수 있도록 개방형 재료와 일상 사물을 충분히 제공했습니다.",
-            "상호작용 지원": "상호작용 지원으로, {subject}가 생각을 이유와 함께 설명하고 친구와 조율할 수 있도록 개방적 발문과 적절한 공동 놀이자 지원을 제공했습니다.",
+            "시간 지원": "놀이를 계획하고 역할과 규칙을 조율하며 충분히 수정·보완할 수 있도록 일과를 융통성 있게 운영했습니다.",
+            "공간 지원": "자료를 배치하고 역할 놀이 또는 구성 놀이를 확장할 수 있도록 영역을 가변적으로 연결했습니다.",
+            "자료 지원": "여러 방법을 비교하고 해결 방법을 시도할 수 있도록 개방형 재료와 일상 사물을 충분히 제공했습니다.",
+            "상호작용 지원": "생각을 이유와 함께 설명하고 친구와 조율할 수 있도록 개방적 발문과 적절한 공동 놀이자 지원을 제공했습니다.",
         },
     }
 
-    age_templates = templates.get(age, templates["2세"])
-    sentences = [
-        age_templates[support].format(subject=subject)
-        for support in selected_supports
-    ]
+    clauses = [clauses_by_age.get(age, clauses_by_age["2세"])[support] for support in selected_supports]
+    sentences = []
+    for index, clause in enumerate(clauses):
+        prefix = "교사는 " if index == 0 else "또한 "
+        sentences.append(f"{prefix}{clause}")
+
     sentences.append(
-        f"이 지원은 {curriculum_area} 영역의 경험과 {development_area} 발달이 놀이 속에서 자연스럽게 이어지도록 돕기 위한 것이었습니다."
+        f"이러한 지원은 {subject}가 {play_keyword} 놀이 안에서 {curriculum_area} 영역의 경험과 "
+        f"{development_area} 발달을 자연스럽게 이어가도록 돕기 위한 것이었습니다."
     )
     return "\n".join(sentences)
 
 
 def build_play_story(
+    play_title: str,
     play_keyword: str,
     age_group: str,
     curriculum_area: str,
@@ -3734,7 +3780,7 @@ def build_play_story(
     selected_steps: list[str],
     selected_supports: list[str],
 ) -> str:
-    """선택한 단계만 사용해 읽기 자연스러운 놀이 이야기를 구성합니다."""
+    """선택한 단계만 사용하여 번호 없이 자연스럽게 읽히는 놀이 이야기를 구성합니다."""
     age = normalize_age(age_group)
     ordered_steps = _ordered_selections(PLAY_STORY_STAGE_OPTIONS, selected_steps)
 
@@ -3745,29 +3791,34 @@ def build_play_story(
         )
 
     subject = _play_story_subject(age)
-    _, _, story_title = _split_play_keyword(play_keyword)
+    _, _, keyword_title = _split_play_keyword(play_keyword)
+    story_title = _clean_play_title(play_title, play_keyword)
     language = PLAY_STORY_AGE_LANGUAGE.get(age, PLAY_STORY_AGE_LANGUAGE["2세"])
     observation_sentence = _observation_sentence_for_story(subject, child_action)
 
     sections = [
-        "🎈 놀이 이야기\n"
-        f"놀이 주제: {story_title} · 연령: {age} · {curriculum_area} · {development_area}"
+        f"🎈 {story_title}\n"
+        f"놀이 주제: {keyword_title} · 연령: {age} · {curriculum_area} · {development_area}"
     ]
 
     for step in ordered_steps:
+        display_title = PLAY_STORY_DISPLAY_TITLES.get(step, step)
+
         if step == "1. 시작 (놀이 발현)":
             body = (
                 f"{observation_sentence} "
-                f"이 장면을 계기로 ‘{story_title}’ 활동이 자연스럽게 시작되었습니다."
+                f"이 장면은 ‘{story_title}’라는 놀이가 자연스럽게 시작되는 계기가 되었습니다."
             )
         elif step == "2. 과정 (놀이 전개)":
-            body = language["process"].format(subject=subject)
-        elif step == "3. 배움 읽기 (의미 찾기)":
-            curriculum_meaning = get_curriculum_record(curriculum_area, age)
-            development_meaning = get_development_record(development_area, age)
             body = (
-                f"이 장면은 {curriculum_area} 영역과 {development_area} 발달을 함께 읽어볼 수 있는 경험이었습니다. "
-                f"{curriculum_meaning} {development_meaning}"
+                f"‘{story_title}’ 놀이가 이어지는 동안 "
+                f"{language['process'].format(subject=subject)}"
+            )
+        elif step == "3. 배움 읽기 (의미 찾기)":
+            body = _build_play_learning_text(
+                age=age,
+                curriculum_area=curriculum_area,
+                development_area=development_area,
             )
         elif step == "4. 교사의 지원":
             body = build_teacher_support_text(
@@ -3780,8 +3831,8 @@ def build_play_story(
             )
             if not body:
                 body = (
-                    f"교사는 {subject}의 반응을 세심히 관찰하며, {curriculum_area} 영역과 "
-                    f"{development_area} 발달이 자연스럽게 이어지도록 필요한 지원을 조절했습니다."
+                    f"교사는 {subject}의 반응을 세심히 관찰하며, {curriculum_area} 영역의 경험과 "
+                    f"{development_area} 발달이 놀이 속에서 자연스럽게 이어지도록 필요한 지원을 조절했습니다."
                 )
         elif step == "5. 변화 (확장과 심화)":
             body = language["change"].format(
@@ -3793,7 +3844,7 @@ def build_play_story(
         else:
             continue
 
-        sections.append(f"{step}\n{body}")
+        sections.append(f"{display_title}\n{body}")
 
     return age_sanitize("\n\n".join(sections), age)
 
@@ -3812,6 +3863,7 @@ def render_play_story(text: str):
     for block in blocks[1:]:
         lines = block.splitlines()
         section_title = lines[0].strip() if lines else ""
+        section_title = re.sub(r"^\d+\.\s*", "", section_title)
         section_body = "<br>".join(
             html.escape(line.strip()) for line in lines[1:] if line.strip()
         )
@@ -3848,11 +3900,12 @@ def reset_tab2_inputs_once():
     이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
     사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
     """
-    reset_flag = "_tab2_initial_values_cleared_20260622_v3"
+    reset_flag = "_tab2_initial_values_cleared_20260623_v4"
     if st.session_state.get(reset_flag):
         return
 
     keys_to_clear = [
+        "photo_play_story_name",
         "photo_play_keyword",
         "photo_age_group",
         "photo_standard_area",
@@ -3921,6 +3974,14 @@ with tab2:
 
         if teacher_supports and "4. 교사의 지원" not in play_story_steps:
             st.caption("※ 선택한 교사의 지원은 결과의 ‘4. 교사의 지원’ 단계에 자동으로 함께 반영됩니다.")
+
+    play_story_name = st.text_input(
+        "놀이명",
+        value="",
+        placeholder="예: 친구와 함께 만든 블록 마을",
+        key="photo_play_story_name"
+    )
+    st.caption("※ ‘놀이 이야기’ 선택 시 입력한 놀이명이 결과 제목으로 사용됩니다.")
 
     play_keyword = st.text_input(
         "사진 속 놀이 키워드 입력",
@@ -3997,6 +4058,8 @@ with tab2:
     if st.button("상황별 문구 생성", key="photo_generate_text"):
         if observation_type == "- 선택 -":
             st.warning("기록 유형을 선택해 주세요.")
+        elif observation_type == "놀이 이야기" and not play_story_name.strip():
+            st.warning("놀이 이야기의 제목이 될 놀이명을 입력해 주세요.")
         elif not play_keyword.strip():
             st.warning("사진 속 놀이 키워드를 입력해 주세요.")
         elif age_group == "- 선택 -":
@@ -4022,6 +4085,7 @@ with tab2:
 
             if observation_type == "놀이 이야기":
                 final_result = build_play_story(
+                    play_title=play_story_name,
                     play_keyword=play_keyword,
                     age_group=age_group,
                     curriculum_area=curriculum_area,
@@ -4036,7 +4100,7 @@ with tab2:
 
                 save_phrase_log(
                     record_type=observation_type,
-                    play_keyword=play_keyword,
+                    play_keyword=f"{play_story_name.strip()} | {play_keyword.strip()}",
                     age_group=age_group,
                     curriculum_area=curriculum_area,
                     development_area=development_area,
