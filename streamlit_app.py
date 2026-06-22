@@ -853,7 +853,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-17-mobile-ui-input-sidebar-fixed"
+APP_VERSION = "2026-06-22-play-story-diary-hidden"
 
 
 def platform_info_text() -> str:
@@ -1426,7 +1426,7 @@ st.markdown(f"""
 <div class="app-hero">
     <div class="app-eyebrow">🌿 교사의 발견</div>
     <h1>현장 업무 자동화 파일럿 서비스</h1>
-    <p>사진 선별, 문구 생성, 알림장 작성, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
+    <p>사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
     <div class="hero-links">
         <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
         <span class="hero-link">✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong></span>
@@ -1434,13 +1434,26 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# =========================
+# 공개 기능 설정
+# - False: 알림장 기능은 코드와 기존 기록을 보존한 채 사용자 화면에서 숨깁니다.
+# - True: 기존 알림장 탭을 다시 노출합니다.
+# =========================
+SHOW_DIARY_FEATURE = False
+
 with st.sidebar:
     st.header("⚙️ 설정")
     top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
-    max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
+
+    # 알림장 기능이 숨김 상태일 때는 관련 설정도 사용자 화면에 보이지 않습니다.
+    if SHOW_DIARY_FEATURE:
+        max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
+    else:
+        max_summary_sentences = 6
+
     st.divider()
     st.markdown("### 🌿 이용 안내")
-    st.caption("☞ 사진 선별과 기록, 사진 보정, 알림장 작성, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
+    st.caption("☞ 사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
     st.markdown(
         f"""
@@ -1456,7 +1469,21 @@ force_sidebar_collapsed_on_first_load()
 apply_sidebar_open_hint()
 apply_mobile_settings_launcher()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📝 알림장", "🌿 교사의 온도", "🔐 관리자"])
+tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "🌿 교사의 온도", "🔐 관리자"]
+if SHOW_DIARY_FEATURE:
+    tab_labels.insert(3, "📝 알림장")
+
+tabs = st.tabs(tab_labels)
+tab1, tab2, tab3 = tabs[:3]
+
+if SHOW_DIARY_FEATURE:
+    tab4 = tabs[3]
+    tab5 = tabs[4]
+    tab6 = tabs[5]
+else:
+    tab4 = None
+    tab5 = tabs[3]
+    tab6 = tabs[4]
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -3404,6 +3431,239 @@ def get_child_action_options(age: str | None) -> list[str]:
     return ["- 선택 -"]
 
 
+
+# =========================
+# 놀이 이야기 생성
+# =========================
+# 기록 요정의 '놀이 이야기'는 선택한 단계만 출력합니다.
+# 교사의 지원은 복수 선택을 허용하며, 지원을 하나라도 고르면
+# '4. 교사의 지원' 단계가 선택되지 않았더라도 결과에 자동 반영됩니다.
+PLAY_STORY_STAGE_OPTIONS = [
+    "1. 시작 (놀이 발현)",
+    "2. 과정 (놀이 전개)",
+    "3. 배움 읽기 (의미 찾기)",
+    "4. 교사의 지원",
+    "5. 변화 (확장과 심화)",
+    "6. 결과 (성찰 및 연계)",
+]
+
+TEACHER_SUPPORT_OPTIONS = [
+    "시간 지원",
+    "공간 지원",
+    "자료 지원",
+    "상호작용 지원",
+]
+
+TEACHER_SUPPORT_GUIDE = {
+    "시간 지원": "놀이의 연속성 확보 및 융통성 있는 일과 운영",
+    "공간 지원": "흥미 영역의 경계를 허문 가변적이고 유연한 물리적 공간 구성",
+    "자료 지원": "비구조화된 매체(개방적 자료) 및 일상 사물의 제공",
+    "상호작용 지원": "정서적 지지, 개방적 발문, 공동 놀이자로서의 적절한 개입",
+}
+
+PLAY_STORY_AGE_LANGUAGE = {
+    "0세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 새로운 감각 자극에 관심을 나타냈습니다.",
+        "process": "{child}는 {keyword} 자료를 바라보고, 만지고, 들으며 자신의 속도에 맞춰 감각 경험을 이어갔습니다.",
+        "change": "충분히 머무르는 경험 속에서 {child}는 익숙해진 자극을 다시 바라보거나 손으로 탐색하며 반응을 이어갔습니다.",
+        "result": "교사는 {child}의 시선, 표정, 소리, 몸짓이 놀이를 이끄는 중요한 신호임을 확인했습니다. 다음에는 같은 자료를 가까이에 두고 다시 만나며 편안한 감각 경험이 이어지도록 지원할 수 있습니다.",
+    },
+    "1세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 관심 있는 자료에 반복적으로 다가갔습니다.",
+        "process": "{child}는 {keyword} 자료를 만지고 움직이며 같은 행동을 여러 번 시도하고, 몸짓과 말소리로 반응을 나타냈습니다.",
+        "change": "충분히 반복해 볼 수 있는 흐름 속에서 {child}는 관심 있는 자료를 다시 선택하고, 익숙해진 방법으로 탐색을 조금 더 이어갔습니다.",
+        "result": "교사는 {child}가 반복 탐색과 작은 모방을 통해 놀이의 즐거움을 알아가고 있음을 확인했습니다. 다음에는 오늘 관심 보인 자료를 가까이에 두고 스스로 다시 선택해 볼 수 있도록 연결할 수 있습니다.",
+    },
+    "2세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 자신이 관심 있는 놀이에 스스로 다가갔습니다.",
+        "process": "{child}는 {keyword} 자료를 선택하고 반복해서 사용하며, 표정·몸짓·단어·짧은 말로 자신의 관심과 요구를 나타냈습니다.",
+        "change": "교사의 지원을 바탕으로 {child}는 선택한 자료를 다시 활용하고, 또래와 교사의 반응을 살피며 놀이의 흐름을 이어갔습니다.",
+        "result": "교사는 {child}의 선택과 짧은 표현이 다음 놀이를 넓혀가는 단서가 됨을 확인했습니다. 다음에는 오늘 사용한 자료를 다른 재료와 연결하여 탐색과 표현이 이어지도록 지원할 수 있습니다.",
+    },
+    "3세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 관심 있는 장면에 다가갔습니다.",
+        "process": "{child}는 {keyword} 자료를 선택해 만지고 움직이며, 짧은 말과 행동으로 자신의 생각을 나타내고 친구 곁에서 놀이에 참여했습니다.",
+        "change": "교사의 도움과 충분한 놀이 시간 속에서 {child}는 익숙한 행동을 다시 시도하고, 친구의 놀이를 살피며 참여 방식을 넓혀갔습니다.",
+        "result": "교사는 {child}가 놀이에 다가가 짧은 말과 행동으로 표현하는 과정 자체가 중요한 배움임을 확인했습니다. 다음에는 오늘의 장면을 간단한 역할이나 이야기로 다시 이어가 볼 수 있습니다.",
+    },
+    "4세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 자신이 떠올린 생각을 놀이로 시작했습니다.",
+        "process": "{child}는 {keyword} 자료의 특징을 살피고, 친구와 생각을 주고받으며 차례와 약속을 경험하면서 놀이를 확장했습니다.",
+        "change": "교사의 지원을 바탕으로 {child}는 상상한 내용을 역할과 이야기로 더해 보고, 친구의 반응을 살피며 놀이 방향을 다시 조정했습니다.",
+        "result": "교사는 {child}가 이유를 말하고 친구와 맞춰가는 과정에서 상상, 언어, 관계 경험을 함께 넓혀가고 있음을 확인했습니다. 다음에는 오늘 만든 이야기에 새로운 역할이나 재료를 더해 놀이를 이어갈 수 있습니다.",
+    },
+    "5세": {
+        "start": "{child}는 {keyword} 놀이에서 {action}을 보이며 놀이의 방향과 필요한 자료를 생각해 보기 시작했습니다.",
+        "process": "{child}는 {keyword} 자료를 활용해 친구와 역할과 규칙을 정하고, 자신의 생각을 이유와 함께 설명하며 놀이를 이어갔습니다.",
+        "change": "교사의 지원을 바탕으로 {child}는 여러 방법을 비교하고, 친구와 의견을 조율하며 더 복잡한 놀이 흐름으로 확장했습니다.",
+        "result": "교사는 {child}가 계획, 협력, 문제 해결 시도, 회상과 설명을 놀이 안에서 함께 경험하고 있음을 확인했습니다. 다음에는 오늘의 과정과 결과를 다시 이야기하며 새로운 놀이 계획으로 연결할 수 있습니다.",
+    },
+}
+
+
+def _play_story_subject(age: str) -> str:
+    return "영아" if age in ["0세", "1세", "2세"] else "유아"
+
+
+def _ordered_selections(options: list[str], selected: list[str] | None) -> list[str]:
+    selected = selected or []
+    return [option for option in options if option in selected]
+
+
+def build_teacher_support_text(
+    age: str,
+    supports: list[str],
+    play_keyword: str,
+    curriculum_area: str,
+    development_area: str,
+    child_action: str,
+) -> str:
+    """선택한 복수 지원을 연령·놀이·교육과정·발달영역에 맞춰 문장으로 만듭니다."""
+    age = normalize_age(age)
+    selected_supports = _ordered_selections(TEACHER_SUPPORT_OPTIONS, supports)
+    if not selected_supports:
+        return ""
+
+    subject = _play_story_subject(age)
+    templates = {
+        "0세": {
+            "시간 지원": "{subject}가 {keyword} 자극에 충분히 머무르고 같은 감각 경험을 반복할 수 있도록 일과의 흐름을 융통성 있게 조정했습니다.",
+            "공간 지원": "{subject}가 교사 곁에서 편안히 {keyword} 경험을 이어갈 수 있도록 안정적인 자리와 안전한 탐색 공간을 마련했습니다.",
+            "자료 지원": "{subject}가 바라보고 만지고 들을 수 있는 안전한 감각 자료와 일상 사물을 가까이에 제공했습니다.",
+            "상호작용 지원": "{subject}의 시선, 표정, 소리, 몸짓에 민감하게 반응하며 말소리와 표정으로 경험을 함께 나누었습니다.",
+        },
+        "1세": {
+            "시간 지원": "{subject}가 {keyword} 자료를 반복해서 조작하고 다시 시도할 수 있도록 놀이 시간을 충분히 보장했습니다.",
+            "공간 지원": "{subject}가 관심 있는 자료에 자유롭게 다가가고 교사 곁에서 안정감을 느낄 수 있도록 놀이 영역을 유연하게 구성했습니다.",
+            "자료 지원": "{subject}가 만지고 움직이며 탐색할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "{subject}의 몸짓과 말소리를 기다리고 짧은 말로 되돌려 주며 놀이 참여가 이어지도록 도왔습니다.",
+        },
+        "2세": {
+            "시간 지원": "{subject}가 {keyword} 놀이를 선택해 반복하고 자신의 반응을 표현할 수 있도록 충분한 놀이 시간을 확보했습니다.",
+            "공간 지원": "{subject}가 또래 곁에서 놀이를 살피고 필요한 경우 교사와 가까이 머물 수 있도록 영역의 경계를 유연하게 조정했습니다.",
+            "자료 지원": "{subject}가 선택하고 조합해 볼 수 있는 비구조화된 재료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "{subject}의 표정·몸짓·단어·짧은 말을 존중하고, 선택과 시도를 말로 반영하며 놀이를 함께 이어갔습니다.",
+        },
+        "3세": {
+            "시간 지원": "{subject}가 {keyword} 놀이에 천천히 다가가고 반복해 볼 수 있도록 놀이 흐름을 서두르지 않고 보장했습니다.",
+            "공간 지원": "{subject}가 관심 있는 자료를 선택하고 친구 곁에서 함께 놀이할 수 있도록 영역을 연결해 유연하게 구성했습니다.",
+            "자료 지원": "{subject}가 만지고 옮기고 조합하며 놀이를 확장할 수 있는 개방적인 자료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "{subject}의 짧은 말과 행동을 기다리고, 선택을 말로 되짚으며 친구와 함께 놀이할 수 있도록 정서적으로 지지했습니다.",
+        },
+        "4세": {
+            "시간 지원": "{subject}가 {keyword} 놀이에서 떠올린 생각을 충분히 시도하고 친구와 차례·약속을 경험할 수 있도록 놀이 시간을 이어갔습니다.",
+            "공간 지원": "{subject}가 역할과 이야기를 확장할 수 있도록 영역의 경계를 열고 자료를 이동할 수 있는 유연한 공간을 마련했습니다.",
+            "자료 지원": "{subject}가 비교하고 조합하며 상상한 내용을 표현할 수 있도록 다양한 개방형 재료와 일상 사물을 제공했습니다.",
+            "상호작용 지원": "{subject}가 자신의 생각과 이유를 말하고 친구의 반응을 살필 수 있도록 개방적 발문과 공동 놀이자의 역할을 제공했습니다.",
+        },
+        "5세": {
+            "시간 지원": "{subject}가 {keyword} 놀이를 계획하고 역할과 규칙을 조율하며 충분히 수정·보완할 수 있도록 일과를 융통성 있게 운영했습니다.",
+            "공간 지원": "{subject}가 자료를 배치하고 역할 놀이 또는 구성 놀이를 확장할 수 있도록 영역을 가변적으로 연결했습니다.",
+            "자료 지원": "{subject}가 여러 방법을 비교하고 해결 방법을 시도할 수 있도록 개방형 재료와 일상 사물을 충분히 제공했습니다.",
+            "상호작용 지원": "{subject}가 생각을 이유와 함께 설명하고 친구와 조율할 수 있도록 개방적 발문과 적절한 공동 놀이자 지원을 제공했습니다.",
+        },
+    }
+
+    age_templates = templates.get(age, templates["2세"])
+    lines = []
+    for support in selected_supports:
+        body = age_templates[support].format(
+            subject=subject,
+            keyword=play_keyword,
+            curriculum_area=curriculum_area,
+            development_area=development_area,
+            action=child_action,
+        )
+        lines.append(f"• {support}: {body}")
+
+    lines.append(
+        f"• 지원의 초점: {curriculum_area} 영역과 {development_area} 발달이 "
+        f"‘{child_action}’ 장면 속에서 자연스럽게 이어지도록 지원했습니다."
+    )
+    return "\n".join(lines)
+
+
+def build_play_story(
+    play_keyword: str,
+    age_group: str,
+    curriculum_area: str,
+    development_area: str,
+    child_action: str,
+    selected_steps: list[str],
+    selected_supports: list[str],
+) -> str:
+    """선택한 놀이 6단계와 교사 지원을 한 편의 놀이 이야기로 구성합니다."""
+    age = normalize_age(age_group)
+    ordered_steps = _ordered_selections(PLAY_STORY_STAGE_OPTIONS, selected_steps)
+
+    # 지원을 선택했는데 4단계를 선택하지 않은 경우, 지원이 빠지지 않도록 자동 반영합니다.
+    if selected_supports and "4. 교사의 지원" not in ordered_steps:
+        ordered_steps = _ordered_selections(
+            PLAY_STORY_STAGE_OPTIONS,
+            list(ordered_steps) + ["4. 교사의 지원"],
+        )
+
+    subject = _play_story_subject(age)
+    language = PLAY_STORY_AGE_LANGUAGE.get(age, PLAY_STORY_AGE_LANGUAGE["2세"])
+
+    sections = [
+        "🎈 놀이 이야기",
+        f"놀이 주제: {play_keyword} · 연령: {age}",
+    ]
+
+    for step in ordered_steps:
+        if step == "1. 시작 (놀이 발현)":
+            body = language["start"].format(
+                child=subject,
+                keyword=play_keyword,
+                action=child_action,
+            )
+        elif step == "2. 과정 (놀이 전개)":
+            body = language["process"].format(
+                child=subject,
+                keyword=play_keyword,
+                action=child_action,
+            )
+        elif step == "3. 배움 읽기 (의미 찾기)":
+            curriculum_meaning = get_curriculum_record(curriculum_area, age)
+            development_meaning = get_development_record(development_area, age)
+            body = (
+                f"{play_keyword} 놀이의 장면은 {curriculum_area} 영역과 {development_area} 발달을 함께 읽어볼 수 있는 경험이었습니다. "
+                f"{curriculum_meaning} {development_meaning}"
+            )
+        elif step == "4. 교사의 지원":
+            body = build_teacher_support_text(
+                age=age,
+                supports=selected_supports,
+                play_keyword=play_keyword,
+                curriculum_area=curriculum_area,
+                development_area=development_area,
+                child_action=child_action,
+            )
+            if not body:
+                body = (
+                    f"교사는 {subject}의 ‘{child_action}’을 세심히 관찰하며, "
+                    f"{curriculum_area} 영역과 {development_area} 발달이 자연스럽게 이어지도록 필요한 지원을 조절했습니다."
+                )
+        elif step == "5. 변화 (확장과 심화)":
+            body = language["change"].format(
+                child=subject,
+                keyword=play_keyword,
+                action=child_action,
+            )
+        elif step == "6. 결과 (성찰 및 연계)":
+            body = language["result"].format(
+                child=subject,
+                keyword=play_keyword,
+                action=child_action,
+            )
+        else:
+            continue
+
+        sections.append(f"{step}\n{body}")
+
+    return age_sanitize("\n\n".join(sections), age)
+
 def reset_tab2_inputs_once():
     """기록 요정 탭의 이전 입력값이 처음 화면에 남아 보이지 않도록 한 번만 초기화합니다.
 
@@ -3425,6 +3685,8 @@ def reset_tab2_inputs_once():
         "photo_development_area",
         "photo_observation_type",
         "photo_parent_type",
+        "photo_play_story_steps",
+        "photo_teacher_supports",
         "photo_child_action",
     ]
 
@@ -3440,8 +3702,8 @@ with tab2:
 
     render_menu_card(
         "🧚‍♀️ 상황별 문구 자동 생성",
-        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 부모 전달 문장을 함께 생성합니다.",
-        ["0~2세 표준보육과정", "3~5세 누리과정", "알림장 · 관찰 기록 · 서술형 일지 · 기관 홍보용 문구" ]
+        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 놀이 이야기와 기록 문장을 함께 생성합니다.",
+        ["0~2세 표준보육과정", "3~5세 누리과정", "관찰 기록 · 서술형 일지 · 기관 홍보용 · 놀이 이야기" ]
     )
 
     play_keyword = st.text_input(
@@ -3491,19 +3753,41 @@ with tab2:
     )
     observation_type = st.selectbox(
         "기록 유형 선택",
-        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+        ["- 선택 -", "관찰 기록용", "서술형 일지용", "기관 홍보용", "놀이 이야기"],
         index=0,
         key="photo_observation_type"
     )
 
-    parent_type = None
-    if observation_type == "알림장용":
-        parent_type = st.selectbox(
-            "부모 성향 선택",
-            ["- 선택 -", "일반형", "불안형", "정보형", "감성형"],
-            index=0,
-            key="photo_parent_type"
+    # 놀이 이야기는 단계와 지원을 필요한 만큼 복수 선택하여 한 편의 구조화된 기록으로 생성합니다.
+    play_story_steps: list[str] = []
+    teacher_supports: list[str] = []
+
+    if observation_type == "놀이 이야기":
+        st.markdown("#### 🎈 놀이 이야기 구성")
+        st.caption("놀이의 6단계와 교사의 지원은 필요한 항목을 복수 선택할 수 있습니다. 선택한 단계만 결과에 포함됩니다.")
+
+        play_story_steps = st.multiselect(
+            "놀이의 6단계 선택",
+            PLAY_STORY_STAGE_OPTIONS,
+            default=[],
+            placeholder="예: 1. 시작 (놀이 발현), 2. 과정 (놀이 전개)",
+            key="photo_play_story_steps",
         )
+
+        st.caption("교사의 지원 유형")
+        for support, guide in TEACHER_SUPPORT_GUIDE.items():
+            st.caption(f"• {support}: {guide}")
+
+        teacher_supports = st.multiselect(
+            "교사의 지원 선택",
+            TEACHER_SUPPORT_OPTIONS,
+            default=[],
+            placeholder="예: 시간 지원, 상호작용 지원",
+            key="photo_teacher_supports",
+        )
+
+        if teacher_supports and "4. 교사의 지원" not in play_story_steps:
+            st.caption("※ 선택한 교사의 지원은 결과의 ‘4. 교사의 지원’ 단계에 자동으로 함께 반영됩니다.")
 
     child_action = st.selectbox(
         "사진 속 아이들의 모습 선택",
@@ -3524,33 +3808,34 @@ with tab2:
             st.warning("발달영역을 선택해 주세요.")
         elif observation_type == "- 선택 -":
             st.warning("기록 유형을 선택해 주세요.")
-        elif observation_type == "알림장용" and parent_type == "- 선택 -":
-            st.warning("부모 성향을 선택해 주세요.")
         elif child_action == "- 선택 -":
             st.warning("사진 속 아이들의 모습을 선택해 주세요.")
+        elif observation_type == "놀이 이야기" and not play_story_steps:
+            st.warning("놀이 이야기로 구성할 놀이의 6단계를 한 개 이상 선택해 주세요.")
+        elif (
+            observation_type == "놀이 이야기"
+            and "4. 교사의 지원" in play_story_steps
+            and not teacher_supports
+        ):
+            st.warning("‘4. 교사의 지원’을 선택한 경우 교사의 지원 유형을 한 개 이상 선택해 주세요.")
         else:
             child_label = "영아" if age_group in ["0세", "1세", "2세"] else "유아"
-            template_bank = get_observation_template_bank(observation_type, age_group)
-            selected_sentences = random.sample(template_bank, k=min(3, len(template_bank)))
-            st.success("상황별 문구가 생성되었습니다.")
 
-            for idx, sentence in enumerate(selected_sentences, start=1):
-                base_sentence = sentence.format(keyword=play_keyword, action=child_action, child=child_label)
+            if observation_type == "놀이 이야기":
+                final_result = build_play_story(
+                    play_keyword=play_keyword,
+                    age_group=age_group,
+                    curriculum_area=curriculum_area,
+                    development_area=development_area,
+                    child_action=child_action,
+                    selected_steps=play_story_steps,
+                    selected_supports=teacher_supports,
+                )
 
-                if observation_type == "알림장용":
-                    final_result = f"{base_sentence} {AGE_NOTICE[age_group]} {get_parent_template(parent_type, age_group)}"
-                elif observation_type == "관찰 기록용":
-                    final_result = f"{base_sentence} {get_development_record(development_area, age_group, note=True)}"
-                elif observation_type == "서술형 일지용":
-                    final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group, note=True)} {get_development_record(development_area, age_group, note=True)}"
-                elif observation_type == "기관 홍보용":
-                    final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group)} {get_development_record(development_area, age_group)}"
-                else:
-                    final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
+                st.success("놀이 이야기가 생성되었습니다.")
+                render_generated_phrase(1, final_result)
 
-                final_result = age_sanitize(final_result, age_group)
-                render_generated_phrase(idx, final_result)
-
+                # 기존 Supabase 테이블 구조를 바꾸지 않아도 선택한 단계와 지원은 생성 문구 안에 함께 저장됩니다.
                 save_phrase_log(
                     record_type=observation_type,
                     play_keyword=play_keyword,
@@ -3558,9 +3843,37 @@ with tab2:
                     curriculum_area=curriculum_area,
                     development_area=development_area,
                     child_action=child_action,
-                    generated_text=final_result
+                    generated_text=final_result,
                 )
+            else:
+                template_bank = get_observation_template_bank(observation_type, age_group)
+                selected_sentences = random.sample(template_bank, k=min(3, len(template_bank)))
+                st.success("상황별 문구가 생성되었습니다.")
 
+                for idx, sentence in enumerate(selected_sentences, start=1):
+                    base_sentence = sentence.format(keyword=play_keyword, action=child_action, child=child_label)
+
+                    if observation_type == "관찰 기록용":
+                        final_result = f"{base_sentence} {get_development_record(development_area, age_group, note=True)}"
+                    elif observation_type == "서술형 일지용":
+                        final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group, note=True)} {get_development_record(development_area, age_group, note=True)}"
+                    elif observation_type == "기관 홍보용":
+                        final_result = f"{base_sentence} {get_curriculum_record(curriculum_area, age_group)} {get_development_record(development_area, age_group)}"
+                    else:
+                        final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
+
+                    final_result = age_sanitize(final_result, age_group)
+                    render_generated_phrase(idx, final_result)
+
+                    save_phrase_log(
+                        record_type=observation_type,
+                        play_keyword=play_keyword,
+                        age_group=age_group,
+                        curriculum_area=curriculum_area,
+                        development_area=development_area,
+                        child_action=child_action,
+                        generated_text=final_result,
+                    )
 
     st.divider()
 
@@ -3743,118 +4056,119 @@ def reset_tab4_inputs_once():
     st.session_state[reset_flag] = True
 
 
-with tab4:
+if SHOW_DIARY_FEATURE:
+    with tab4:
 
-    reset_tab4_inputs_once()
+        reset_tab4_inputs_once()
 
-    render_menu_card(
-        "📝 일지 요약 및 알림장 생성",
-        "일지를 입력하면 핵심 내용을 요약하고, 기록 유형과 성향에 맞는 문장을 생성합니다.",
-        ["알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"]
-    )
+        render_menu_card(
+            "📝 일지 요약 및 알림장 생성",
+            "일지를 입력하면 핵심 내용을 요약하고, 기록 유형과 성향에 맞는 문장을 생성합니다.",
+            ["알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"]
+        )
 
-    record_type = st.selectbox(
-        "기록 유형 선택",
-        ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
-        index=0,
-        key="record_type_select"
-    )
+        record_type = st.selectbox(
+            "기록 유형 선택",
+            ["- 선택 -", "알림장용", "관찰 기록용", "서술형 일지용", "기관 홍보용"],
+            index=0,
+            key="record_type_select"
+        )
 
-    diary_age_group = st.selectbox(
-        "연령 선택",
-        ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
-        index=0,
-        key="diary_age_group"
-    )
+        diary_age_group = st.selectbox(
+            "연령 선택",
+            ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
+            index=0,
+            key="diary_age_group"
+        )
 
-    teacher_tone = st.selectbox(
-        "기록 성향 선택",
-        ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
-        index=0,
-        key="diary_teacher_tone"
-    )
+        teacher_tone = st.selectbox(
+            "기록 성향 선택",
+            ["- 선택 -", "팩트 중심형", "따뜻한 감성형", "이모티콘 활용형", "전문적 설명형"],
+            index=0,
+            key="diary_teacher_tone"
+        )
 
-    daily_scope = st.selectbox(
-        "하루일과 전달 범위 선택",
-        ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
-        index=0,
-        key="diary_daily_scope"
-    )
+        daily_scope = st.selectbox(
+            "하루일과 전달 범위 선택",
+            ["- 선택 -", "놀이 장면 중심", "일상생활 중심", "하루 전체 흐름", "특별활동 중심"],
+            index=0,
+            key="diary_daily_scope"
+        )
 
-    diary_text = st.text_area(
-        "일지 내용을 붙여넣으세요",
-        value="",
-        height=250,
-        placeholder="단어만 입력하면 생성되지 않습니다. 예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다.",
-        key="diary_input_text"
-    )
+        diary_text = st.text_area(
+            "일지 내용을 붙여넣으세요",
+            value="",
+            height=250,
+            placeholder="단어만 입력하면 생성되지 않습니다. 예: 오늘 OO이는 블록을 쌓으며 친구와 놀이에 참여했습니다.",
+            key="diary_input_text"
+        )
 
-    if st.button("알림장 요약 및 생성하기", key="diary_generate_button"):
-        if record_type == "- 선택 -":
-            st.warning("기록 유형을 선택해 주세요.")
-        elif diary_age_group == "- 선택 -":
-            st.warning("연령을 선택해 주세요.")
-        elif teacher_tone == "- 선택 -":
-            st.warning("기록 성향을 선택해 주세요.")
-        elif daily_scope == "- 선택 -":
-            st.warning("하루일과 전달 범위를 선택해 주세요.")
-        else:
-            is_valid_diary, diary_warning = validate_diary_text(diary_text)
-            if not is_valid_diary:
-                st.warning(diary_warning)
-                st.stop()
+        if st.button("알림장 요약 및 생성하기", key="diary_generate_button"):
+            if record_type == "- 선택 -":
+                st.warning("기록 유형을 선택해 주세요.")
+            elif diary_age_group == "- 선택 -":
+                st.warning("연령을 선택해 주세요.")
+            elif teacher_tone == "- 선택 -":
+                st.warning("기록 성향을 선택해 주세요.")
+            elif daily_scope == "- 선택 -":
+                st.warning("하루일과 전달 범위를 선택해 주세요.")
+            else:
+                is_valid_diary, diary_warning = validate_diary_text(diary_text)
+                if not is_valid_diary:
+                    st.warning(diary_warning)
+                    st.stop()
 
-            summary = make_core_summary(
-                diary_text,
-                max_sentences=max_summary_sentences
-            )
+                summary = make_core_summary(
+                    diary_text,
+                    max_sentences=max_summary_sentences
+                )
 
-            if not summary.strip():
-                st.warning("일지 내용에서 요약할 수 있는 문장을 찾지 못했습니다. 관찰 장면이 드러나는 문장으로 다시 입력해 주세요.")
-                st.stop()
+                if not summary.strip():
+                    st.warning("일지 내용에서 요약할 수 있는 문장을 찾지 못했습니다. 관찰 장면이 드러나는 문장으로 다시 입력해 주세요.")
+                    st.stop()
 
-            restructured_summary = build_restructured_diary(
-                original_text=diary_text,
-                summary=summary,
-                daily_scope=daily_scope,
-                record_type=record_type,
-                age=diary_age_group
-            )
+                restructured_summary = build_restructured_diary(
+                    original_text=diary_text,
+                    summary=summary,
+                    daily_scope=daily_scope,
+                    record_type=record_type,
+                    age=diary_age_group
+                )
 
-            generated_message = make_diary_message(
-                restructured_summary,
-                teacher_tone,
-                daily_scope,
-                record_type,
-                age=diary_age_group
-            )
-            save_diary_log(
-                record_type=record_type,
-                teacher_tone=teacher_tone,
-                daily_scope=daily_scope,
-                original_text=diary_text,
-                summary=restructured_summary,
-                generated_message=generated_message
-            )
+                generated_message = make_diary_message(
+                    restructured_summary,
+                    teacher_tone,
+                    daily_scope,
+                    record_type,
+                    age=diary_age_group
+                )
+                save_diary_log(
+                    record_type=record_type,
+                    teacher_tone=teacher_tone,
+                    daily_scope=daily_scope,
+                    original_text=diary_text,
+                    summary=restructured_summary,
+                    generated_message=generated_message
+                )
 
-            st.success("일지 요약과 문구 생성이 완료되었습니다.")
+                st.success("일지 요약과 문구 생성이 완료되었습니다.")
 
-            st.markdown("### 재구성된 핵심 내용")
-            st.markdown(
-                f"<div class='result-card-gray'>{restructured_summary}</div>",
-                unsafe_allow_html=True
-            )
+                st.markdown("### 재구성된 핵심 내용")
+                st.markdown(
+                    f"<div class='result-card-gray'>{restructured_summary}</div>",
+                    unsafe_allow_html=True
+                )
 
-            st.markdown("### 생성된 알림장 문장")
-            render_result_card(generated_message, "result-card-blue")
+                st.markdown("### 생성된 알림장 문장")
+                render_result_card(generated_message, "result-card-blue")
 
-            st.download_button(
-                "생성된 알림장 다운로드",
-                data=generated_message.encode("utf-8"),
-                file_name="generated_diary_message.txt",
-                mime="text/plain",
-                key="diary_download"
-            )
+                st.download_button(
+                    "생성된 알림장 다운로드",
+                    data=generated_message.encode("utf-8"),
+                    file_name="generated_diary_message.txt",
+                    mime="text/plain",
+                    key="diary_download"
+                )
 
 # =========================
 # TAB 5. 교사의 온도
@@ -3957,7 +4271,7 @@ with tab6:
 
     render_menu_card(
         "🔐 관리자 모드",
-        "통계 그래프와 CSV 다운로드를 관리합니다.",
+        "가입자 정보와 생성 기록을 확인하고, 통계 그래프와 CSV 다운로드를 관리합니다.",
         ["누적 기록", "통계", "CSV"]
     )
 
@@ -4097,7 +4411,7 @@ with tab6:
                 "record_type": "기록 유형",
                 "play_keyword": "사진 속 놀이 키워드 입력",
                 "age_group": "연령 선택",
-                "curriculum_area": "누리과정 영역 선택",
+                "curriculum_area": "표준보육과정·누리과정 영역 선택",
                 "development_area": "발달 영역 선택",
                 "child_action": "사진 속 아이들의 모습 선택",
                 "generated_text": "생성 문구",
