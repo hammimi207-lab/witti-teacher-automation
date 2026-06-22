@@ -492,12 +492,14 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
 }
 
 .result-card-blue {
-    color: var(--witti-navy);
+    color: var(--witti-text);
     background-color:#F1F8FF;
     border: 1px solid #CFE4FF;
-    padding:20px;
+    padding:18px 20px;
     border-radius:18px;
-    line-height:1.85;
+    font-size:15px;
+    font-weight:400;
+    line-height:1.82;
     white-space:pre-wrap;
     box-shadow: var(--witti-shadow-soft);
 }
@@ -506,45 +508,50 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
     color: var(--witti-text);
     background-color:#FFFFFF;
     border: 1px solid var(--witti-line);
-    padding:20px;
+    padding:18px 20px;
     border-radius:18px;
-    line-height:1.85;
+    font-size:15px;
+    font-weight:400;
+    line-height:1.82;
     white-space:pre-wrap;
     box-shadow: var(--witti-shadow-soft);
     margin: 10px 0;
 }
 
 
-/* 놀이 이야기 결과: 단계와 지원이 한눈에 읽히도록 구조화 */
+/* 놀이 이야기 결과: 제목은 구분용으로만, 본문은 읽기 편한 크기로 표시 */
 .play-story-card {
     color: var(--witti-text);
     background: #FFFFFF;
     border: 1px solid #DCE8F5;
     border-radius: 18px;
-    padding: 22px;
+    padding: 20px;
     margin: 12px 0;
     box-shadow: var(--witti-shadow-soft);
 }
 
 .play-story-title {
     color: var(--witti-navy);
-    font-size: 22px;
-    font-weight: 900;
-    letter-spacing: -0.5px;
-    margin: 0 0 6px 0;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.35px;
+    line-height: 1.45;
+    margin: 0 0 5px 0;
+    word-break: keep-all;
 }
 
 .play-story-meta {
     color: var(--witti-muted);
-    font-size: 14px;
-    line-height: 1.6;
-    padding-bottom: 16px;
-    margin-bottom: 6px;
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 1.62;
+    padding-bottom: 13px;
+    margin-bottom: 2px;
     border-bottom: 1px solid #E7EEF6;
 }
 
 .play-story-section {
-    padding: 16px 0;
+    padding: 14px 0;
     border-bottom: 1px solid #EEF3F8;
 }
 
@@ -555,16 +562,17 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
 
 .play-story-section-title {
     color: #174F80;
-    font-weight: 900;
-    font-size: 16px;
-    margin-bottom: 8px;
+    font-weight: 800;
+    font-size: 14.5px;
+    line-height: 1.45;
+    margin-bottom: 7px;
 }
 
 .play-story-section-body {
-    color: var(--witti-text);
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 1.9;
+    color: #344054;
+    font-size: 14.5px;
+    font-weight: 400;
+    line-height: 1.86;
     white-space: normal;
     word-break: keep-all;
     overflow-wrap: break-word;
@@ -572,24 +580,25 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
 
 @media (max-width: 768px) {
     .play-story-card {
-        padding: 17px;
+        padding: 16px;
         border-radius: 15px;
     }
 
     .play-story-title {
-        font-size: 20px;
+        font-size: 17px;
+        line-height: 1.42;
     }
 
     .play-story-meta {
-        font-size: 13px;
+        font-size: 12px;
     }
 
     .play-story-section-title {
-        font-size: 15px;
+        font-size: 14px;
     }
 
     .play-story-section-body {
-        font-size: 15px;
+        font-size: 14px;
         line-height: 1.78;
     }
 }
@@ -958,7 +967,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-23-play-story-title-natural-text"
+APP_VERSION = "2026-06-23-play-story-body-polish-v2"
 
 
 def platform_info_text() -> str:
@@ -2084,13 +2093,23 @@ AGE_SENSITIVE_REPLACEMENTS = {
 
 
 def age_sanitize(text: str, age: str | None) -> str:
-    """연령에 비해 과성숙한 표현을 부드럽게 치환합니다."""
+    """연령에 비해 과성숙한 표현을 부드럽게 치환합니다.
+
+    놀이 이야기는 문단과 단계별 줄바꿈이 의미를 가지므로, 공백만 정리하고
+    줄바꿈(특히 문단 사이의 빈 줄)은 보존합니다.
+    """
     age = normalize_age(age)
+    text = text or ""
     replacements = AGE_SENSITIVE_REPLACEMENTS.get(age, {})
     for old, new in replacements.items():
         text = text.replace(old, new)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+
+    # 문단 구조는 유지하고, 각 줄 안의 연속 공백만 정리합니다.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 ACTIVITY_KEYWORDS_BY_AGE = {
@@ -3687,8 +3706,7 @@ def _build_play_learning_text(
     curriculum_area: str,
     development_area: str,
 ) -> str:
-    """교육과정·발달영역을 한 문단 안에서 자연스럽게 읽어 줍니다."""
-    subject = _play_story_subject(age)
+    """선택한 교육과정·발달영역을 문장 안에 자연스럽게 연결합니다."""
     age_meaning = {
         "0세": "감각 자극에 반응하고 친숙한 사람과의 안정감 안에서 주변을 알아가는 경험이 쌓였습니다.",
         "1세": "관심 있는 대상을 반복해 탐색하고, 몸짓과 말소리로 반응을 나타내는 경험이 이어졌습니다.",
@@ -3698,8 +3716,8 @@ def _build_play_learning_text(
         "5세": "놀이를 계획하고 역할과 규칙을 조율하며, 자신의 생각을 이유와 함께 설명하고 협력하는 경험을 넓혔습니다.",
     }
     return (
-        f"이 장면은 {curriculum_area} 영역의 경험과 {development_area} 발달을 함께 읽어볼 수 있는 시간이었습니다. "
-        f"{age_meaning.get(age, age_meaning['2세'])}"
+        f"이 과정에서 {age_meaning.get(age, age_meaning['2세'])} "
+        f"특히 {curriculum_area} 영역의 경험과 {development_area} 발달이 놀이 안에서 함께 드러났습니다."
     )
 
 
@@ -3711,7 +3729,7 @@ def build_teacher_support_text(
     development_area: str,
     child_action: str,
 ) -> str:
-    """선택한 지원을 번호 없이 하나의 자연스러운 지원 문단으로 구성합니다."""
+    """선택한 교사 지원을 결과 본문에 자연스럽게 반영합니다."""
     age = normalize_age(age)
     selected_supports = _ordered_selections(TEACHER_SUPPORT_OPTIONS, supports)
     if not selected_supports:
@@ -3757,18 +3775,18 @@ def build_teacher_support_text(
         },
     }
 
-    clauses = [clauses_by_age.get(age, clauses_by_age["2세"])[support] for support in selected_supports]
-    sentences = []
-    for index, clause in enumerate(clauses):
-        prefix = "교사는 " if index == 0 else "또한 "
-        sentences.append(f"{prefix}{clause}")
+    selected_sentences = [
+        clauses_by_age.get(age, clauses_by_age["2세"])[support]
+        for support in selected_supports
+    ]
 
-    sentences.append(
-        f"이러한 지원은 {subject}가 {play_keyword} 놀이 안에서 {curriculum_area} 영역의 경험과 "
-        f"{development_area} 발달을 자연스럽게 이어가도록 돕기 위한 것이었습니다."
+    # 한 지원은 한 문장으로, 여러 지원은 문단 안에서 끊어 읽기 좋게 이어 줍니다.
+    support_body = " ".join(selected_sentences)
+    purpose = (
+        f"이러한 지원은 {subject}가 ‘{play_keyword}’ 놀이를 충분히 이어가며 "
+        f"{curriculum_area} 영역의 경험과 {development_area} 발달을 자연스럽게 넓혀가도록 돕기 위한 것이었습니다."
     )
-    return "\n".join(sentences)
-
+    return f"교사는 {support_body}\n{purpose}"
 
 def build_play_story(
     play_title: str,
@@ -3780,10 +3798,11 @@ def build_play_story(
     selected_steps: list[str],
     selected_supports: list[str],
 ) -> str:
-    """선택한 단계만 사용하여 번호 없이 자연스럽게 읽히는 놀이 이야기를 구성합니다."""
+    """선택한 단계와 교사 지원을 번호 없이, 문단 구조로 읽히는 놀이 이야기로 구성합니다."""
     age = normalize_age(age_group)
     ordered_steps = _ordered_selections(PLAY_STORY_STAGE_OPTIONS, selected_steps)
 
+    # 지원 유형을 하나라도 선택했다면 4단계를 자동 포함합니다.
     if selected_supports and "4. 교사의 지원" not in ordered_steps:
         ordered_steps = _ordered_selections(
             PLAY_STORY_STAGE_OPTIONS,
@@ -3806,14 +3825,10 @@ def build_play_story(
 
         if step == "1. 시작 (놀이 발현)":
             body = (
-                f"{observation_sentence} "
-                f"이 장면은 ‘{story_title}’라는 놀이가 자연스럽게 시작되는 계기가 되었습니다."
+                f"{observation_sentence} 이 장면에서 {subject}의 흥미가 ‘{story_title}’ 놀이로 이어지기 시작했습니다."
             )
         elif step == "2. 과정 (놀이 전개)":
-            body = (
-                f"‘{story_title}’ 놀이가 이어지는 동안 "
-                f"{language['process'].format(subject=subject)}"
-            )
+            body = language["process"].format(subject=subject)
         elif step == "3. 배움 읽기 (의미 찾기)":
             body = _build_play_learning_text(
                 age=age,
@@ -3831,13 +3846,17 @@ def build_play_story(
             )
             if not body:
                 body = (
-                    f"교사는 {subject}의 반응을 세심히 관찰하며, {curriculum_area} 영역의 경험과 "
-                    f"{development_area} 발달이 놀이 속에서 자연스럽게 이어지도록 필요한 지원을 조절했습니다."
+                    f"교사는 {subject}의 반응을 세심히 관찰하며, 놀이가 자연스럽게 이어질 수 있도록 "
+                    f"시간과 공간, 자료와 상호작용을 조절했습니다."
                 )
         elif step == "5. 변화 (확장과 심화)":
+            if selected_supports:
+                support_context = "교사의 지원이 이어진 뒤"
+            else:
+                support_context = "반복해서 탐색하는 과정에서"
             body = language["change"].format(
                 subject=subject,
-                support_context=_support_context(selected_supports),
+                support_context=support_context,
             )
         elif step == "6. 결과 (성찰 및 연계)":
             body = language["result"].format(subject=subject)
@@ -3846,28 +3865,29 @@ def build_play_story(
 
         sections.append(f"{display_title}\n{body}")
 
+    # 단계 사이의 빈 줄은 render_play_story가 문단을 분리하는 기준이므로 반드시 보존합니다.
     return age_sanitize("\n\n".join(sections), age)
 
-
 def render_play_story(text: str):
-    """놀이 이야기 단계가 한눈에 읽히도록 전용 카드로 표시합니다."""
-    blocks = [block.strip() for block in (text or "").split("\n\n") if block.strip()]
+    """놀이 이야기를 제목·메타·단계별 본문으로 안전하게 분리해 표시합니다."""
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    blocks = [block.strip() for block in re.split(r"\n{2,}", normalized) if block.strip()]
     if not blocks:
         return
 
-    header_lines = blocks[0].splitlines()
+    header_lines = [line.strip() for line in blocks[0].split("\n") if line.strip()]
     title = header_lines[0] if header_lines else "🎈 놀이 이야기"
     meta = " ".join(header_lines[1:]).strip()
 
     section_html = []
     for block in blocks[1:]:
-        lines = block.splitlines()
-        section_title = lines[0].strip() if lines else ""
-        section_title = re.sub(r"^\d+\.\s*", "", section_title)
-        section_body = "<br>".join(
-            html.escape(line.strip()) for line in lines[1:] if line.strip()
-        )
-        if section_title:
+        lines = [line.strip() for line in block.split("\n") if line.strip()]
+        if not lines:
+            continue
+        section_title = re.sub(r"^\d+\.\s*", "", lines[0])
+        # 단계 본문 안의 줄바꿈은 문장 구분으로 활용합니다.
+        section_body = "<br>".join(html.escape(line) for line in lines[1:])
+        if section_title and section_body:
             section_html.append(
                 f"<section class='play-story-section'>"
                 f"<div class='play-story-section-title'>{html.escape(section_title)}</div>"
@@ -3884,7 +3904,6 @@ def render_play_story(text: str):
         unsafe_allow_html=True,
     )
 
-
 def get_child_action_options_with_custom(age: str | None) -> list[str]:
     """기존 연령별 선택지에 직접 입력을 안전하게 추가합니다."""
     options = list(get_child_action_options(age))
@@ -3900,7 +3919,7 @@ def reset_tab2_inputs_once():
     이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
     사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
     """
-    reset_flag = "_tab2_initial_values_cleared_20260623_v4"
+    reset_flag = "_tab2_initial_values_cleared_20260623_v5"
     if st.session_state.get(reset_flag):
         return
 
@@ -3933,7 +3952,7 @@ with tab2:
     render_menu_card(
         "🧚‍♀️ 상황별 문구 자동 생성",
         "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 놀이 이야기와 기록 문장을 함께 생성합니다.",
-        ["관찰 기록 / 서술형 일지 / 놀이 이야기 / 알림장 / 기관 홍보 문구"]
+        ["관찰 기록", "서술형 일지", "놀이 이야기", "알림장", "기관 홍보 문구"]
     )
 
     # 1) 기록 유형을 가장 먼저 선택합니다.
@@ -3953,19 +3972,19 @@ with tab2:
         st.caption("놀이의 6단계와 교사의 지원은 필요한 항목을 복수 선택할 수 있습니다. 선택한 단계만 결과에 포함됩니다.")
 
         play_story_steps = st.multiselect(
-            "놀이의 6단계 선택",
+            "놀이의 6단계",
             PLAY_STORY_STAGE_OPTIONS,
             default=[],
             placeholder="예: 1. 시작 (놀이 발현), 2. 과정 (놀이 전개)",
             key="photo_play_story_steps",
         )
 
-        st.caption("교사의 지원 유형")
+        st.caption("교사의 지원 안내")
         for support, guide in TEACHER_SUPPORT_GUIDE.items():
             st.caption(f"• {support}: {guide}")
 
         teacher_supports = st.multiselect(
-            "교사의 지원 선택",
+            "교사의 지원",
             TEACHER_SUPPORT_OPTIONS,
             default=[],
             placeholder="예: 시간 지원, 상호작용 지원",
