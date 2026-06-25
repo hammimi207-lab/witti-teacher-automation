@@ -936,11 +936,6 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 # 주의: SQLite(witti_data.db)는 배포 환경에서 PC/세션마다 기록이 달라질 수 있어 사용하지 않습니다.
 # 모든 누적 기록은 Supabase 테이블에 저장하고, 관리자 페이지도 Supabase에서 다시 불러옵니다.
 
-@st.cache_resource
-
-# =========================
-# Supabase 연결 설정
-# =========================
 create_client = None
 Client = None
 supabase_import_error = None
@@ -951,58 +946,50 @@ except Exception as exc:
     supabase_import_error = exc
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_supabase_service_client():
+    """서버 전용 Supabase service-role 클라이언트입니다.
+
+    회원 프로필 관리, 관리자 기능, Private Storage 처리처럼 서버에서만 실행되는
+    작업에 사용합니다. service_role_key는 절대로 브라우저나 GitHub에 노출하지 않습니다.
+    """
     if create_client is None:
-        st.error("Supabase 라이브러리를 불러오지 못했습니다.")
-
+        st.error("Supabase 라이브러리를 불러오지 못했습니다. requirements.txt의 'supabase' 항목을 확인해 주세요.")
         if supabase_import_error is not None:
-            st.code(
-                f"Supabase import 오류: {repr(supabase_import_error)}",
-                language="text"
-            )
-
+            st.code(f"Supabase import 오류: {repr(supabase_import_error)}", language="text")
         st.stop()
 
     try:
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["service_role_key"]
+        config = st.secrets["supabase"]
+        url = str(config["url"])
+        service_role_key = str(config["service_role_key"])
     except Exception:
-        st.error(
-            "Supabase Secrets 설정을 확인해 주세요. "
-            "[supabase] 아래에 url과 service_role_key가 필요합니다."
-        )
+        st.error("Supabase Secrets 설정을 확인해 주세요. [supabase] 아래에 url과 service_role_key가 필요합니다.")
         st.stop()
 
-    return create_client(url, key)
+    return create_client(url, service_role_key)
 
 
-supabase = get_supabase_service_client()
-```
+def get_supabase_auth_client():
+    """이메일·비밀번호 로그인용 anon/publishable-key 클라이언트를 새로 만듭니다.
 
-
-    캐시하지 않습니다. 사용자별 로그인 세션이 서버의 다른 사용자와 섞이지 않도록 매 실행마다 새 클라이언트를 만듭니다.
+    로그인 세션이 다른 교사의 브라우저 세션과 섞이지 않도록 캐시하지 않습니다.
     """
     if create_client is None:
         return None
 
     try:
         config = st.secrets["supabase"]
-        url = config["url"]
-        publishable_key = ""
-        if "anon_key" in config:
-            publishable_key = config["anon_key"]
-        elif "publishable_key" in config:
-            publishable_key = config["publishable_key"]
-        if not publishable_key:
+        url = str(config["url"])
+        auth_key = str(config.get("anon_key") or config.get("publishable_key") or "")
+        if not auth_key:
             return None
-        return create_client(url, publishable_key)
+        return create_client(url, auth_key)
     except Exception:
         return None
 
 
 supabase = get_supabase_service_client()
-auth_supabase = get_supabase_auth_client()
 
 
 TABLE_NAMES = {
@@ -1010,6 +997,7 @@ TABLE_NAMES = {
     "diary_logs": "diary_logs",
     "phrase_logs": "phrase_logs",
     "teacher_temperature_logs": "teacher_temperature_logs",
+    "photo_records": "photo_records",
 }
 
 
@@ -1018,16 +1006,18 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-25-member-photo-draft-private-records-v1"
+APP_VERSION = "2026-06-25-member-photo-storage-one-year-v2"
 
 
 # =========================
 # 회원·개인기록·OpenAI 사진 분석 공통 기능
 # =========================
 PRIVATE_RECORD_TABLES = ("phrase_logs", "teacher_temperature_logs", "diary_logs")
-PRIVATE_RECORD_RETENTION_DAYS = 30
+PRIVATE_RECORD_RETENTION_DAYS = 365
 MAX_PLAY_PHOTO_COUNT = 5
 MAX_PLAY_PHOTO_BYTES = 10 * 1024 * 1024  # 사진 1장당 10MB
+PLAY_PHOTO_BUCKET = "play-photos"
+PLAY_PHOTO_SIGNED_URL_TTL_SECONDS = 300  # 본인 화면 표시용 5분 URL
 
 
 def _utc_now_iso() -> str:
@@ -1109,11 +1099,12 @@ def update_member_last_login(user_id: str):
 
 def authenticate_member(email: str, password: str) -> tuple[bool, str]:
     """Supabase Auth로 로그인하고, 공개 프로필의 활성 상태를 한 번 더 확인합니다."""
-    if auth_supabase is None:
+    auth_client = get_supabase_auth_client()
+    if auth_client is None:
         return False, "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다."
 
     try:
-        auth_response = auth_supabase.auth.sign_in_with_password(
+        auth_response = auth_client.auth.sign_in_with_password(
             {"email": email.strip().lower(), "password": password}
         )
         auth_user = getattr(auth_response, "user", None)
@@ -1176,7 +1167,7 @@ def delete_auth_member(user_id: str):
 
 
 def private_log_metadata() -> dict | None:
-    """로그인한 회원의 기록에만 30일 보관 정보를 붙입니다."""
+    """로그인한 회원의 기록에만 1년 보관 정보를 붙입니다."""
     user_id = current_member_user_id()
     if not user_id:
         return None
@@ -1262,24 +1253,34 @@ def get_openai_vision_model() -> str:
         return "gpt-5.4-mini"
 
 
-def _image_data_url(uploaded_file) -> str:
+def _uploaded_file_bytes_and_mime(uploaded_file) -> tuple[bytes, str]:
+    """업로드 사진의 용량·형식을 확인하고 파일 바이트와 MIME 타입을 반환합니다."""
     image_bytes = uploaded_file.getvalue()
     if len(image_bytes) > MAX_PLAY_PHOTO_BYTES:
         raise ValueError(f"'{uploaded_file.name}' 파일이 10MB를 초과합니다.")
 
     mime_type = str(getattr(uploaded_file, "type", "") or "").lower()
-    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if mime_type not in allowed_types:
         suffix = Path(str(getattr(uploaded_file, "name", ""))).suffix.lower()
         mime_type = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
             ".png": "image/png",
             ".webp": "image/webp",
-        }.get(suffix, "image/jpeg")
+        }.get(suffix, "")
 
+    if mime_type not in allowed_types:
+        raise ValueError(f"'{uploaded_file.name}' 파일은 JPG, PNG, WEBP 형식만 업로드할 수 있습니다.")
+
+    return image_bytes, mime_type
+
+
+def _image_data_url(uploaded_file) -> str:
+    """OpenAI 이미지 입력용 Base64 data URL을 만듭니다."""
+    image_bytes, mime_type = _uploaded_file_bytes_and_mime(uploaded_file)
     encoded = base64.b64encode(image_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
-
 
 def _parse_photo_draft_json(raw_text: str) -> dict:
     cleaned = (raw_text or "").strip()
@@ -1312,7 +1313,7 @@ def _parse_photo_draft_json(raw_text: str) -> dict:
 
 
 def analyze_play_photos(uploaded_files) -> dict:
-    """사진을 DB·스토리지에 저장하지 않고 OpenAI Responses API로 바로 전달해 초안을 반환합니다."""
+    """사진 원본은 Private Storage에 보관하고, OpenAI에는 Base64 이미지 데이터로 전달해 초안을 반환합니다."""
     if not uploaded_files:
         raise ValueError("분석할 사진을 한 장 이상 업로드해 주세요.")
 
@@ -1367,19 +1368,210 @@ def analyze_play_photos(uploaded_files) -> dict:
     return _parse_photo_draft_json(raw_text)
 
 
+def _safe_storage_filename(file_name: str) -> str:
+    """Storage 경로에 안전하게 쓸 수 있는 파일명으로 정리합니다."""
+    raw_name = Path(str(file_name or "photo")).name
+    stem = Path(raw_name).stem
+    suffix = Path(raw_name).suffix.lower()
+    clean_stem = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", stem).strip("._") or "photo"
+    clean_stem = clean_stem[:80]
+    return f"{clean_stem}{suffix}"
+
+
+def store_play_photos(uploaded_files, user_id: str) -> list[dict]:
+    """사진 원본을 Private Supabase Storage에 저장하고 photo_records 메타데이터를 생성합니다."""
+    if not user_id:
+        raise PermissionError("사진을 저장하려면 먼저 로그인해 주세요.")
+    if not uploaded_files:
+        raise ValueError("저장할 사진을 한 장 이상 업로드해 주세요.")
+    if len(uploaded_files) > MAX_PLAY_PHOTO_COUNT:
+        raise ValueError(f"사진은 한 번에 최대 {MAX_PLAY_PHOTO_COUNT}장까지 업로드할 수 있습니다.")
+
+    created_records: list[dict] = []
+    uploaded_paths: list[str] = []
+
+    try:
+        for uploaded_file in uploaded_files:
+            file_bytes, mime_type = _uploaded_file_bytes_and_mime(uploaded_file)
+            now_utc = datetime.now(timezone.utc)
+            safe_name = _safe_storage_filename(getattr(uploaded_file, "name", "photo"))
+            file_path = (
+                f"{user_id}/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/"
+                f"{uuid.uuid4().hex}_{safe_name}"
+            )
+
+            supabase.storage.from_(PLAY_PHOTO_BUCKET).upload(
+                file_path,
+                file_bytes,
+                file_options={"content-type": mime_type, "upsert": "false"},
+            )
+            uploaded_paths.append(file_path)
+
+            payload = {
+                "user_id": user_id,
+                "storage_bucket": PLAY_PHOTO_BUCKET,
+                "file_path": file_path,
+                "original_file_name": str(getattr(uploaded_file, "name", "") or safe_name),
+                "mime_type": mime_type,
+                "size_bytes": len(file_bytes),
+            }
+            response = supabase.table("photo_records").insert(payload).execute()
+            response_rows = _response_data(response)
+            created_records.append(response_rows[0] if response_rows else payload)
+
+        return created_records
+
+    except Exception:
+        # 일부 파일만 올라간 경우에도 남지 않도록 보상 삭제합니다.
+        if uploaded_paths:
+            try:
+                supabase.storage.from_(PLAY_PHOTO_BUCKET).remove(uploaded_paths)
+            except Exception:
+                pass
+        try:
+            for record in created_records:
+                record_id = record.get("id")
+                if record_id:
+                    supabase.table("photo_records").delete().eq("id", int(record_id)).execute()
+        except Exception:
+            pass
+        raise
+
+
+def attach_photo_analysis_to_records(photo_records: list[dict], analysis_result: dict):
+    """사진 메타데이터에 공통 AI 분석 결과를 연결합니다."""
+    if not photo_records:
+        return
+
+    analysis_payload = {
+        "play_title": str(analysis_result.get("play_title") or ""),
+        "play_keyword": str(analysis_result.get("play_keyword") or ""),
+        "observed_action": str(analysis_result.get("observed_action") or ""),
+        "draft_text": str(analysis_result.get("draft") or ""),
+        "analyzed_at": _utc_now_iso(),
+    }
+
+    for record in photo_records:
+        record_id = record.get("id")
+        file_path = record.get("file_path")
+        try:
+            if record_id:
+                supabase.table("photo_records").update(analysis_payload).eq("id", int(record_id)).execute()
+            elif file_path:
+                supabase.table("photo_records").update(analysis_payload).eq("file_path", str(file_path)).execute()
+        except Exception:
+            # 사진은 이미 저장되어 있으므로 분석 텍스트 연결 실패가 원본 보관을 막지 않게 합니다.
+            pass
+
+
+def load_member_photo_records(user_id: str) -> pd.DataFrame:
+    """로그인한 회원의 사진 메타데이터만 불러옵니다."""
+    if not user_id:
+        return pd.DataFrame()
+
+    try:
+        response = (
+            supabase.table("photo_records")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return pd.DataFrame(_response_data(response))
+    except Exception:
+        return pd.DataFrame()
+
+
+def create_member_photo_signed_url(file_path: str, bucket_name: str = PLAY_PHOTO_BUCKET) -> str:
+    """Private Storage 사진을 본인 화면에서 짧은 시간만 볼 수 있는 signed URL로 변환합니다."""
+    if not file_path:
+        return ""
+
+    try:
+        response = (
+            supabase.storage.from_(str(bucket_name or PLAY_PHOTO_BUCKET))
+            .create_signed_url(str(file_path), PLAY_PHOTO_SIGNED_URL_TTL_SECONDS)
+        )
+        if isinstance(response, dict):
+            return str(response.get("signedURL") or response.get("signedUrl") or response.get("signed_url") or "")
+        return str(
+            getattr(response, "signedURL", "")
+            or getattr(response, "signed_url", "")
+            or getattr(response, "signedUrl", "")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def delete_member_photo(photo_id: int, user_id: str) -> bool:
+    """회원 본인이 선택한 사진을 Storage와 photo_records에서 함께 영구 삭제합니다."""
+    if not user_id:
+        raise PermissionError("사진을 삭제하려면 로그인해 주세요.")
+
+    response = (
+        supabase.table("photo_records")
+        .select("id, user_id, storage_bucket, file_path")
+        .eq("id", int(photo_id))
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = _response_data(response)
+    if not rows:
+        raise PermissionError("삭제할 사진을 찾지 못했거나 삭제 권한이 없습니다.")
+
+    record = rows[0]
+    bucket_name = str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET)
+    file_path = str(record.get("file_path") or "")
+    if file_path:
+        supabase.storage.from_(bucket_name).remove([file_path])
+
+    supabase.table("photo_records").delete().eq("id", int(photo_id)).eq("user_id", user_id).execute()
+    return True
+
+
+def delete_all_member_photos(user_id: str):
+    """회원 계정 영구 삭제 전에 해당 회원의 사진 원본과 메타데이터를 모두 정리합니다."""
+    if not user_id:
+        return
+
+    photo_df = load_member_photo_records(user_id)
+    if photo_df.empty:
+        return
+
+    if "storage_bucket" in photo_df.columns:
+        bucket_series = photo_df["storage_bucket"].fillna(PLAY_PHOTO_BUCKET)
+    else:
+        bucket_series = pd.Series([PLAY_PHOTO_BUCKET] * len(photo_df), index=photo_df.index)
+
+    for bucket_name, group in photo_df.groupby(bucket_series):
+        paths = [str(path) for path in group.get("file_path", pd.Series(dtype=str)).dropna().tolist() if str(path)]
+        if paths:
+            try:
+                supabase.storage.from_(str(bucket_name)).remove(paths)
+            except Exception:
+                pass
+
+    try:
+        supabase.table("photo_records").delete().eq("user_id", user_id).execute()
+    except Exception:
+        pass
+
+
 def render_member_information_page():
-    """회원 본인만 자신의 가입 정보와 30일간 기록을 확인하는 화면입니다."""
+    """회원 본인만 자신의 가입 정보, 1년 기록, 보관 사진을 확인하는 화면입니다."""
     render_menu_card(
         "👤 내 정보 보기",
-        "회원 정보와 최근 30일간의 기록 요정·교사의 온도 기록을 개인 화면에서 확인합니다.",
-        ["가입 정보", "최근 30일 기록", "월별 마음온도"]
+        "회원 정보와 최근 1년간의 기록 요정·교사의 온도 기록, 비공개로 보관된 놀이 사진을 개인 화면에서 확인합니다.",
+        ["가입 정보", "1년 기록", "월별 마음온도", "내 놀이 사진"]
     )
 
     purge_expired_private_records_once_per_session()
 
     user_id = current_member_user_id()
     if not user_id:
-        st.info("소통 탭에서 이메일과 비밀번호로 로그인하면 개인 기록을 확인할 수 있습니다.")
+        st.info("소통 탭에서 이메일과 비밀번호로 로그인하면 개인 기록과 보관 사진을 확인할 수 있습니다.")
         return
 
     profile = get_member_profile(user_id)
@@ -1405,7 +1597,7 @@ def render_member_information_page():
         st.write(f"**기관 특성**  {profile.get('institution_feature') or '-'}")
         st.write(f"**최근 로그인**  {profile.get('last_login_at') or '-'}")
 
-    st.caption("기록 요정과 교사의 온도에 저장된 개인 기록은 작성일로부터 30일 후 자동으로 영구 삭제됩니다. 업로드한 사진 원본은 저장하지 않습니다.")
+    st.caption("기록 요정과 교사의 온도에 저장된 개인 기록은 작성일로부터 1년 후 자동으로 영구 삭제됩니다. 놀이 사진 원본은 비공개 Storage에 보관되며, 자동 삭제되지 않고 회원 본인이 직접 삭제할 수 있습니다.")
 
     if st.button("로그아웃", key="my_page_logout"):
         clear_member_session()
@@ -1414,13 +1606,16 @@ def render_member_information_page():
 
     phrase_df = load_member_records("phrase_logs", user_id)
     temp_df = load_member_records("teacher_temperature_logs", user_id)
+    photo_df = load_member_photo_records(user_id)
 
-    record_tab1, record_tab2, record_tab3 = st.tabs(["🧚‍♀️ 기록 요정", "🌿 교사의 온도", "📈 월별 마음온도"])
+    record_tab1, record_tab2, record_tab3, record_tab4 = st.tabs(
+        ["🧚‍♀️ 기록 요정", "🌿 교사의 온도", "📈 월별 마음온도", "📷 내 놀이 사진"]
+    )
 
     with record_tab1:
-        st.markdown("#### 최근 30일 기록 요정 기록")
+        st.markdown("#### 최근 1년 기록 요정 기록")
         if phrase_df.empty:
-            st.caption("최근 30일간 저장된 기록 요정 내용이 없습니다.")
+            st.caption("최근 1년간 저장된 기록 요정 내용이 없습니다.")
         else:
             display = _format_kst_datetime_column(phrase_df)
             columns = [column for column in ["작성일시", "record_type", "play_keyword", "generated_text", "expires_at"] if column in display.columns]
@@ -1435,9 +1630,9 @@ def render_member_information_page():
             st.dataframe(display, use_container_width=True, hide_index=True, height=360)
 
     with record_tab2:
-        st.markdown("#### 최근 30일 교사의 온도 기록")
+        st.markdown("#### 최근 1년 교사의 온도 기록")
         if temp_df.empty:
-            st.caption("최근 30일간 저장된 교사의 온도 기록이 없습니다.")
+            st.caption("최근 1년간 저장된 교사의 온도 기록이 없습니다.")
         else:
             display = _format_kst_datetime_column(temp_df)
             columns = [column for column in ["작성일시", "diary_type", "memory", "emotion", "temperature", "average_temp", "result_text", "expires_at"] if column in display.columns]
@@ -1497,6 +1692,63 @@ def render_member_information_page():
                     st.line_chart(daily.set_index("날짜")["평균 마음온도"])
 
                 st.caption("이 그래프는 본인 계정의 3줄 요약 다이어리 평균 마음온도만 표시하며, 다른 회원이나 관리자가 아닌 본인 화면에서 확인합니다.")
+
+    with record_tab4:
+        st.markdown("#### 내 놀이 사진")
+        st.caption("사진 원본은 비공개 Supabase Storage에 보관됩니다. 사진은 자동으로 삭제되지 않으며, 아래에서 본인이 직접 영구 삭제할 수 있습니다.")
+
+        if photo_df.empty:
+            st.caption("보관된 놀이 사진이 없습니다. 기록 요정에서 사진 분석을 실행하면 이곳에 저장됩니다.")
+        else:
+            photo_display = _format_kst_datetime_column(photo_df)
+            photo_records = photo_display.to_dict("records")
+
+            for row_index in range(0, len(photo_records), 2):
+                photo_columns = st.columns(2)
+                for column, record in zip(photo_columns, photo_records[row_index:row_index + 2]):
+                    photo_id = record.get("id")
+                    with column:
+                        signed_url = create_member_photo_signed_url(
+                            str(record.get("file_path") or ""),
+                            str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
+                        )
+                        if signed_url:
+                            st.image(signed_url, use_container_width=True)
+                        else:
+                            st.warning("사진을 불러오지 못했습니다. Storage 설정 또는 파일 상태를 확인해 주세요.")
+
+                        st.caption(
+                            f"{record.get('작성일시') or record.get('created_at') or '-'} · "
+                            f"{record.get('original_file_name') or '놀이 사진'}"
+                        )
+                        if record.get("play_title"):
+                            st.write(f"**연결된 놀이명**  {record.get('play_title')}")
+                        if record.get("draft_text"):
+                            with st.expander("연결된 놀이 기록 초안", expanded=False):
+                                st.write(record.get("draft_text"))
+
+                        delete_request_key = f"member_photo_delete_request_{photo_id}"
+                        if st.button("이 사진 삭제", key=f"member_photo_delete_button_{photo_id}"):
+                            st.session_state[delete_request_key] = True
+
+                        if st.session_state.get(delete_request_key):
+                            confirmed = st.checkbox(
+                                "사진 원본과 연결 정보가 영구 삭제되는 것을 확인했습니다.",
+                                key=f"member_photo_delete_confirm_{photo_id}",
+                            )
+                            if st.button(
+                                "사진 영구 삭제",
+                                key=f"member_photo_delete_confirm_button_{photo_id}",
+                                disabled=not confirmed,
+                            ):
+                                try:
+                                    delete_member_photo(int(photo_id), user_id)
+                                    st.session_state.pop(delete_request_key, None)
+                                    st.success("사진을 영구 삭제했습니다.")
+                                    st.rerun()
+                                except Exception as exc:
+                                    st.error("사진을 삭제하지 못했습니다.")
+                                    st.caption(str(exc))
 
 
 def platform_info_text() -> str:
@@ -1923,7 +2175,7 @@ def save_subscriber(data):
 
 
 def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summary, generated_message):
-    """알림장 기록은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    """알림장 기록은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
     private_meta = private_log_metadata()
     if not private_meta:
         return False
@@ -1943,7 +2195,7 @@ def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summar
 
 
 def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
-    """기록 요정의 문구·사진 분석 초안은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    """기록 요정의 문구·사진 분석 초안은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
     private_meta = private_log_metadata()
     if not private_meta:
         return False
@@ -1964,7 +2216,7 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
 
 
 def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
-    """교사의 온도 기록은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    """교사의 온도 기록은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
     private_meta = private_log_metadata()
     if not private_meta:
         return False
@@ -2012,8 +2264,13 @@ def restore_record(table_name, record_id):
 
 
 def hard_delete_record(table_name, record_id):
-    """Supabase에서 선택한 기록을 영구 삭제합니다. 회원은 Auth 계정과 연결된 개인 기록도 함께 삭제합니다."""
+    """Supabase에서 선택한 기록을 영구 삭제합니다.
+
+    회원을 영구 삭제할 때는 Auth 계정, 개인 기록 메타데이터와 함께 Private Storage의
+    사진 원본도 먼저 정리합니다.
+    """
     if table_name == "subscribers":
+        user_id = ""
         try:
             response = (
                 supabase.table("subscribers")
@@ -2024,10 +2281,12 @@ def hard_delete_record(table_name, record_id):
             )
             rows = _response_data(response)
             user_id = str(rows[0].get("user_id") or "") if rows else ""
-            if user_id:
-                delete_auth_member(user_id)
         except Exception:
-            pass
+            user_id = ""
+
+        if user_id:
+            delete_all_member_photos(user_id)
+            delete_auth_member(user_id)
 
     supabase.table(table_name).delete().eq("id", int(record_id)).execute()
 
@@ -2307,7 +2566,7 @@ with tab1:
                     else:
                         st.error(result)
 
-            st.caption("로그인하면 기록 요정과 교사의 온도에서 생성한 내용이 개인 기록으로 30일간 보관됩니다.")
+            st.caption("로그인하면 기록 요정과 교사의 온도에서 생성한 내용이 개인 기록으로 1년간 보관됩니다.")
 
     with join_tab:
         st.markdown("### 1. 기관 기본 정보")
@@ -2530,7 +2789,7 @@ with tab1:
         )
 
         if st.button("회원가입 완료", key="join_submit"):
-            if auth_supabase is None:
+            if get_supabase_auth_client() is None:
                 st.error("로그인용 Supabase 공개 키가 설정되지 않았습니다. Streamlit Secrets의 supabase.anon_key를 추가해 주세요.")
             elif not institution_name:
                 st.warning("기관명을 입력해 주세요.")
@@ -3198,23 +3457,6 @@ DIARY_MESSAGE_BANK_BY_AGE["2세"] = {
 }
 
 
-def make_diary_message(
-    restructured_text: str,
-    teacher_tone: str,
-    daily_scope: str,
-    record_type: str,
-    age: str | None = "2세",
-) -> str:
-    """연령별 DIARY_MESSAGE_BANK에서 문장 2개를 뽑아 붙입니다."""
-    age = normalize_age(age)
-    age_bank = DIARY_MESSAGE_BANK_BY_AGE.get(age, DIARY_MESSAGE_BANK_BY_AGE["2세"])
-    type_bank = age_bank.get(record_type) or age_bank.get("알림장용", {})
-    sentence_bank = type_bank.get(teacher_tone, [])
-    selected = random.sample(sentence_bank, k=min(2, len(sentence_bank))) if sentence_bank else []
-    selected_text = "\n".join([f"- {age_sanitize(s, age)}" for s in selected])
-    return age_sanitize(f"{restructured_text}\n\n{selected_text}".strip(), age)
-
-
 PARENT_TEMPLATES_BY_AGE = {
     "0세": {
         "일반형": [
@@ -3664,82 +3906,6 @@ for _age in ["3세", "4세", "5세"]:
     }
     PARENT_TEMPLATES_BY_AGE[_age] = PRESCHOOL_PARENT_TEMPLATES
     OBSERVATION_TEMPLATES_BY_AGE[_age] = PRESCHOOL_OBSERVATION_TEMPLATES
-
-
-def make_diary_message(
-    restructured_text: str,
-    teacher_tone: str,
-    daily_scope: str,
-    record_type: str,
-    age: str | None = "2세",
-) -> str:
-    age = normalize_age(age)
-    bank = GENERAL_DIARY_MESSAGE_BANK.get(record_type, GENERAL_DIARY_MESSAGE_BANK["알림장용"]).get(teacher_tone, [])
-    selected = random.sample(bank, k=min(2, len(bank))) if bank else []
-    selected_text = "\n".join([f"- {age_sanitize(s, age)}" for s in selected])
-    return age_sanitize(f"{restructured_text}\n\n{selected_text}".strip(), age)
-
-
-def get_child_action_options(age: str | None) -> list[str]:
-    age = normalize_age(age)
-    if age not in ["0세", "1세", "2세", "3세", "4세", "5세"]:
-        return ["- 선택 -"]
-    if age == "0세":
-        return [
-            "- 선택 -",
-            "주변 소리와 움직임에 시선을 두는 모습",
-            "손으로 만지고 입으로 탐색하려는 모습",
-            "교사의 말소리와 표정에 반응하는 모습",
-            "편안한 자세로 머물며 감각을 느끼는 모습",
-            "표정, 울음, 옹알이, 몸짓으로 반응하는 모습",
-            "관심 있는 놀잇감을 바라보거나 손을 뻗는 모습",
-            "익숙한 사람 곁에서 안정감을 보이는 모습",
-            "반복되는 소리나 움직임에 관심을 보이는 모습",
-        ]
-    if age == "1세":
-        return [
-            "- 선택 -",
-            "관심 있는 놀잇감을 반복해서 살펴보는 모습",
-            "몸짓과 말소리로 요구를 나타내는 모습",
-            "교사의 도움을 받아 놀이에 참여하는 모습",
-            "놀이 자료를 만지고 움직이며 탐색하는 모습",
-            "또래의 행동을 바라보고 가까이 다가가는 모습",
-            "익숙한 행동을 흉내 내는 모습",
-            "스스로 해보려는 시도를 반복하는 모습",
-            "간단한 말이나 손짓으로 반응하는 모습",
-        ]
-    if age == "2세":
-        return [
-            "- 선택 -",
-            "호기심을 보이며 탐색하는 모습",
-            "단어와 짧은 말로 요구를 표현하는 모습",
-            "반복하며 시도하는 모습",
-            "교사의 지원을 받아 안정적으로 참여하는 모습",
-            "놀이 자료를 조심스럽게 살펴보는 모습",
-            "또래 곁에서 놀이하며 반응하는 모습",
-            "자신이 선택한 놀이에 집중하는 모습",
-            "감각적으로 느끼고 몸으로 표현하는 모습",
-            "익숙한 일상 행동을 놀이로 나타내는 모습",
-        ]
-    return [
-        "- 선택 -",
-        "호기심을 보이며 탐색하는 모습",
-        "친구와 함께 협력하는 모습",
-        "자신의 생각을 표현하는 모습",
-        "반복하며 시도하는 모습",
-        "새로운 방법을 찾아보는 모습",
-        "교사의 지원을 받아 안정적으로 참여하는 모습",
-        "놀이 자료를 조심스럽게 살펴보는 모습",
-        "또래의 행동을 관찰하고 따라 해보는 모습",
-        "자신이 선택한 놀이에 집중하는 모습",
-        "완성한 결과물을 교사나 친구에게 보여주는 모습",
-        "규칙을 이해하고 놀이에 참여하려는 모습",
-        "감각적으로 느끼고 몸으로 표현하는 모습",
-        "상상한 내용을 역할이나 말로 나타내는 모습",
-        "어려운 부분을 다시 시도하며 조절하는 모습",
-        "친구의 제안을 듣고 함께 방향을 바꾸어 보는 모습",
-    ]
-
 
 
 # =========================
@@ -4644,59 +4810,67 @@ with tab2:
     )
 
     st.markdown("### 0. 사진으로 놀이 기록 초안 만들기")
-    uploaded_play_photos = st.file_uploader(
-        "놀이 사진 업로드",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
-        key="fairy_play_photo_uploader",
-        help="한 번에 최대 5장, 1장당 최대 10MB까지 업로드할 수 있습니다.",
-    )
-    photo_analysis_agree = st.checkbox(
-        "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 업로드한 사진은 초안 생성에만 사용되며 플랫폼 DB에는 저장하지 않습니다.",
-        key="fairy_photo_analysis_agree",
-    )
+    st.caption("사진 원본은 회원별 비공개 Supabase Storage에 저장됩니다. OpenAI API에는 사진 분석을 위해 Base64 이미지 데이터가 전달되며, 사진은 내 정보 보기에서 회원 본인이 직접 삭제할 수 있습니다.")
 
-    if st.button("사진 분석 후 놀이 기록 초안 만들기", key="fairy_photo_draft_button"):
-        if not uploaded_play_photos:
-            st.warning("분석할 놀이 사진을 한 장 이상 업로드해 주세요.")
-        elif not photo_analysis_agree:
-            st.warning("사진 활용 확인에 동의한 뒤 분석을 진행해 주세요.")
-        else:
-            try:
-                with st.spinner("사진 속 놀이 장면을 읽고 초안을 만들고 있습니다."):
-                    analysis_result = analyze_play_photos(uploaded_play_photos)
+    if not member_is_logged_in():
+        st.info("사진 원본 저장과 개인 기록 연결을 위해 소통 탭에서 로그인한 뒤 이용해 주세요.")
+    else:
+        uploaded_play_photos = st.file_uploader(
+            "놀이 사진 업로드",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key="fairy_play_photo_uploader",
+            help="한 번에 최대 5장, 1장당 최대 10MB까지 업로드할 수 있습니다.",
+        )
+        photo_analysis_agree = st.checkbox(
+            "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 업로드한 사진 원본은 비공개 Supabase Storage에 저장되며, 내 정보 보기에서 본인이 직접 삭제할 수 있습니다.",
+            key="fairy_photo_analysis_agree",
+        )
 
-                st.session_state["photo_analysis_result"] = analysis_result
-                st.session_state["photo_analysis_draft_text"] = analysis_result["draft"]
+        if st.button("사진 저장 및 놀이 기록 초안 만들기", key="fairy_photo_draft_button"):
+            if not uploaded_play_photos:
+                st.warning("분석·저장할 놀이 사진을 한 장 이상 업로드해 주세요.")
+            elif not photo_analysis_agree:
+                st.warning("사진 활용 확인에 동의한 뒤 진행해 주세요.")
+            else:
+                stored_photo_records = []
+                try:
+                    with st.spinner("사진을 안전하게 저장하고 놀이 장면을 읽고 있습니다."):
+                        stored_photo_records = store_play_photos(
+                            uploaded_play_photos,
+                            current_member_user_id(),
+                        )
+                        analysis_result = analyze_play_photos(uploaded_play_photos)
+                        attach_photo_analysis_to_records(stored_photo_records, analysis_result)
 
-                # 기존 상황별 문구 생성 입력은 유지하되, 사진 분석 결과가 바로 이어서 쓰일 수 있게 일부만 채웁니다.
-                st.session_state["photo_play_story_name"] = analysis_result["play_title"]
-                st.session_state["photo_play_keyword"] = analysis_result["play_keyword"]
-                st.session_state["photo_child_action"] = "직접 입력"
-                st.session_state["photo_child_action_custom"] = analysis_result["observed_action"]
+                    st.session_state["photo_analysis_result"] = analysis_result
+                    st.session_state["photo_analysis_draft_text"] = analysis_result["draft"]
 
-                saved = save_phrase_log(
-                    record_type="사진 분석 초안",
-                    play_keyword=analysis_result["play_keyword"],
-                    age_group="",
-                    curriculum_area="",
-                    development_area="",
-                    child_action=analysis_result["observed_action"],
-                    generated_text=(
-                        f"[사진 분석 메모]\n{analysis_result['observed_action']}\n\n"
-                        f"[놀이 기록 초안]\n{analysis_result['draft']}"
-                    ),
-                )
+                    # 기존 상황별 문구 생성 입력은 유지하되, 사진 분석 결과가 바로 이어서 쓰일 수 있게 일부만 채웁니다.
+                    st.session_state["photo_play_story_name"] = analysis_result["play_title"]
+                    st.session_state["photo_play_keyword"] = analysis_result["play_keyword"]
+                    st.session_state["photo_child_action"] = "직접 입력"
+                    st.session_state["photo_child_action_custom"] = analysis_result["observed_action"]
 
-                st.success("사진을 바탕으로 놀이 기록 초안을 만들었습니다.")
-                if saved:
-                    st.caption("초안은 내 정보 보기에서 30일간 확인할 수 있습니다.")
-                else:
-                    st.caption("로그인하지 않은 상태에서는 초안이 화면에만 표시됩니다. 로그인하면 개인 기록으로 30일간 보관됩니다.")
+                    save_phrase_log(
+                        record_type="사진 분석 초안",
+                        play_keyword=analysis_result["play_keyword"],
+                        age_group="",
+                        curriculum_area="",
+                        development_area="",
+                        child_action=analysis_result["observed_action"],
+                        generated_text=(
+                            f"[사진 분석 메모]\n{analysis_result['observed_action']}\n\n"
+                            f"[놀이 기록 초안]\n{analysis_result['draft']}"
+                        ),
+                    )
 
-            except Exception as e:
-                st.error("사진 분석 초안을 만들지 못했습니다.")
-                st.caption(str(e))
+                    st.success("사진을 저장하고, 사진을 바탕으로 놀이 기록 초안을 만들었습니다.")
+                    st.caption("초안은 내 정보 보기에서 1년간 확인할 수 있습니다. 사진 원본은 자동 삭제되지 않으며, 내 정보 보기에서 직접 삭제할 수 있습니다.")
+
+                except Exception as exc:
+                    st.error("사진 저장 또는 놀이 기록 초안 생성을 완료하지 못했습니다.")
+                    st.caption(str(exc))
 
     photo_analysis_result = st.session_state.get("photo_analysis_result") or {}
     if photo_analysis_result:
@@ -4711,10 +4885,7 @@ with tab2:
             key="photo_analysis_draft_text",
             help="사진을 바탕으로 만든 초안입니다. 연령, 교육과정 영역, 교사의 해석은 다음 입력 단계에서 최종 확인해 주세요.",
         )
-        st.caption("※ 사진 원본은 Supabase DB나 플랫폼 저장소에 보관하지 않습니다. 연령·발달·정서에 대한 최종 판단은 교사가 확인해 주세요.")
-
-    if not member_is_logged_in():
-        st.info("로그인하지 않아도 생성 기능은 사용할 수 있지만, 생성한 내용은 내 정보 보기에 저장되지 않습니다.")
+        st.caption("※ 사진 원본은 비공개 Supabase Storage에 저장됩니다. 연령·발달·정서에 대한 최종 판단은 교사가 확인해 주세요.")
 
     # 1) 기록 유형을 가장 먼저 선택합니다.
     observation_type = st.selectbox(
@@ -5287,7 +5458,7 @@ with tab5:
                 saved = save_temperature_log("감성 일기", best_moment, emotion_word, "", None, "", result)
                 st.success("감성 일기가 생성되었습니다.")
                 if saved:
-                    st.caption("내 정보 보기에서 이 기록을 30일간 확인할 수 있습니다.")
+                    st.caption("내 정보 보기에서 이 기록을 1년간 확인할 수 있습니다.")
                 else:
                     st.caption("로그인하지 않아 화면에만 표시됩니다.")
                 st.markdown("### 생성 결과")
@@ -5333,7 +5504,7 @@ with tab5:
                 saved = save_temperature_log("3줄 요약 다이어리", memory, emotion, temperature, average_temp, temp_message, result)
                 st.success("3줄 요약 다이어리가 생성되었습니다.")
                 if saved:
-                    st.caption("내 정보 보기에서 이 기록과 월별 마음온도 그래프를 30일간 확인할 수 있습니다.")
+                    st.caption("내 정보 보기에서 이 기록과 월별 마음온도 그래프를 1년간 확인할 수 있습니다.")
                 else:
                     st.caption("로그인하지 않아 화면에만 표시됩니다.")
                 st.metric(label="🌡️ 선생님들의 오늘, 평균 마음온도", value=f"{average_temp}℃")
