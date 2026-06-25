@@ -937,27 +937,49 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 # 모든 누적 기록은 Supabase 테이블에 저장하고, 관리자 페이지도 Supabase에서 다시 불러옵니다.
 
 @st.cache_resource
-def get_supabase_service_client():
-    """서버 전용 서비스 역할 클라이언트입니다.
 
-    서비스 역할 키는 회원 정보·관리자 데이터 처리에만 사용하며, 브라우저로 노출하지 않습니다.
-    """
+# =========================
+# Supabase 연결 설정
+# =========================
+create_client = None
+Client = None
+supabase_import_error = None
+
+try:
+    from supabase import create_client, Client
+except Exception as exc:
+    supabase_import_error = exc
+
+
+@st.cache_resource
+def get_supabase_service_client():
     if create_client is None:
-        st.error("Supabase 라이브러리가 설치되지 않았습니다. requirements.txt에 supabase를 추가해 주세요.")
+        st.error("Supabase 라이브러리를 불러오지 못했습니다.")
+
+        if supabase_import_error is not None:
+            st.code(
+                f"Supabase import 오류: {repr(supabase_import_error)}",
+                language="text"
+            )
+
         st.stop()
 
     try:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["service_role_key"]
     except Exception:
-        st.error("Supabase secrets가 설정되지 않았습니다. Streamlit Cloud Secrets에 [supabase] url, service_role_key를 등록해 주세요.")
+        st.error(
+            "Supabase Secrets 설정을 확인해 주세요. "
+            "[supabase] 아래에 url과 service_role_key가 필요합니다."
+        )
         st.stop()
 
     return create_client(url, key)
 
 
-def get_supabase_auth_client():
-    """이메일·비밀번호 로그인에만 사용하는 공개 키 클라이언트입니다.
+supabase = get_supabase_service_client()
+```
+
 
     캐시하지 않습니다. 사용자별 로그인 세션이 서버의 다른 사용자와 섞이지 않도록 매 실행마다 새 클라이언트를 만듭니다.
     """
