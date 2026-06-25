@@ -6,3 +6,4 @@ pandas
 matplotlib
 streamlit-javascript
 supabase
+openai>=2.0.0
