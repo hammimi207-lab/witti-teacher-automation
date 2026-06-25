@@ -2,12 +2,15 @@
 # 교사의 발견_현장 업무 자동화 파일럿 서비스
 # 실행: streamlit run streamlit_app.py
 
+import base64
 import re
 import html
 import io
+import json
 import random
 import tempfile
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import smtplib
@@ -23,6 +26,11 @@ try:
     import altair as alt
 except Exception:
     alt = None
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 from manual_automation_app import rank_images
 
@@ -928,15 +936,12 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 # 주의: SQLite(witti_data.db)는 배포 환경에서 PC/세션마다 기록이 달라질 수 있어 사용하지 않습니다.
 # 모든 누적 기록은 Supabase 테이블에 저장하고, 관리자 페이지도 Supabase에서 다시 불러옵니다.
 
-try:
-    from supabase import create_client, Client
-except Exception:
-    create_client = None
-    Client = None
-
-
 @st.cache_resource
-def get_supabase_client():
+def get_supabase_service_client():
+    """서버 전용 서비스 역할 클라이언트입니다.
+
+    서비스 역할 키는 회원 정보·관리자 데이터 처리에만 사용하며, 브라우저로 노출하지 않습니다.
+    """
     if create_client is None:
         st.error("Supabase 라이브러리가 설치되지 않았습니다. requirements.txt에 supabase를 추가해 주세요.")
         st.stop()
@@ -951,7 +956,31 @@ def get_supabase_client():
     return create_client(url, key)
 
 
-supabase = get_supabase_client()
+def get_supabase_auth_client():
+    """이메일·비밀번호 로그인에만 사용하는 공개 키 클라이언트입니다.
+
+    캐시하지 않습니다. 사용자별 로그인 세션이 서버의 다른 사용자와 섞이지 않도록 매 실행마다 새 클라이언트를 만듭니다.
+    """
+    if create_client is None:
+        return None
+
+    try:
+        config = st.secrets["supabase"]
+        url = config["url"]
+        publishable_key = ""
+        if "anon_key" in config:
+            publishable_key = config["anon_key"]
+        elif "publishable_key" in config:
+            publishable_key = config["publishable_key"]
+        if not publishable_key:
+            return None
+        return create_client(url, publishable_key)
+    except Exception:
+        return None
+
+
+supabase = get_supabase_service_client()
+auth_supabase = get_supabase_auth_client()
 
 
 TABLE_NAMES = {
@@ -967,7 +996,485 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-23-play-story-body-polish-v2"
+APP_VERSION = "2026-06-25-member-photo-draft-private-records-v1"
+
+
+# =========================
+# 회원·개인기록·OpenAI 사진 분석 공통 기능
+# =========================
+PRIVATE_RECORD_TABLES = ("phrase_logs", "teacher_temperature_logs", "diary_logs")
+PRIVATE_RECORD_RETENTION_DAYS = 30
+MAX_PLAY_PHOTO_COUNT = 5
+MAX_PLAY_PHOTO_BYTES = 10 * 1024 * 1024  # 사진 1장당 10MB
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _expiry_iso(days: int = PRIVATE_RECORD_RETENTION_DAYS) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def current_member_user_id() -> str:
+    return str(st.session_state.get("member_user_id") or "").strip()
+
+
+def current_member_email() -> str:
+    return str(st.session_state.get("member_email") or "").strip()
+
+
+def member_is_logged_in() -> bool:
+    return bool(current_member_user_id())
+
+
+def set_member_session(user_id: str, email: str, platform_member_id: str = ""):
+    st.session_state["member_user_id"] = str(user_id)
+    st.session_state["member_email"] = str(email or "")
+    st.session_state["member_platform_id"] = str(platform_member_id or "")
+
+
+def clear_member_session():
+    for key in [
+        "member_user_id",
+        "member_email",
+        "member_platform_id",
+        "member_access_token",
+        "member_refresh_token",
+    ]:
+        st.session_state.pop(key, None)
+
+
+def generate_platform_member_id() -> str:
+    """로그인용 이메일과 별도로 보여 주는 플랫폼 회원 ID입니다."""
+    date_part = datetime.now().strftime("%Y%m%d")
+    random_part = uuid.uuid4().hex[:6].upper()
+    return f"WT-{date_part}-{random_part}"
+
+
+def get_member_profile(user_id: str) -> dict:
+    if not user_id:
+        return {}
+
+    try:
+        response = (
+            supabase.table("subscribers")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = _response_data(response)
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
+def update_member_last_login(user_id: str):
+    if not user_id:
+        return
+    try:
+        (
+            supabase.table("subscribers")
+            .update({"last_login_at": _utc_now_iso()})
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        # 구버전 DB에서 migration 전 잠시 발생할 수 있으므로 로그인 자체는 막지 않습니다.
+        pass
+
+
+def authenticate_member(email: str, password: str) -> tuple[bool, str]:
+    """Supabase Auth로 로그인하고, 공개 프로필의 활성 상태를 한 번 더 확인합니다."""
+    if auth_supabase is None:
+        return False, "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다."
+
+    try:
+        auth_response = auth_supabase.auth.sign_in_with_password(
+            {"email": email.strip().lower(), "password": password}
+        )
+        auth_user = getattr(auth_response, "user", None)
+        if not auth_user:
+            return False, "로그인 정보를 확인하지 못했습니다."
+
+        user_id = str(getattr(auth_user, "id", "") or "")
+        profile = get_member_profile(user_id)
+        if not profile:
+            return False, "회원 프로필을 찾지 못했습니다. 관리자에게 문의해 주세요."
+
+        if bool(profile.get("deleted")) or profile.get("is_active") is False:
+            return False, "현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요."
+
+        session = getattr(auth_response, "session", None)
+        set_member_session(
+            user_id=user_id,
+            email=str(getattr(auth_user, "email", "") or email).lower(),
+            platform_member_id=str(profile.get("platform_member_id") or ""),
+        )
+        if session:
+            st.session_state["member_access_token"] = str(getattr(session, "access_token", "") or "")
+            st.session_state["member_refresh_token"] = str(getattr(session, "refresh_token", "") or "")
+
+        update_member_last_login(user_id)
+        return True, str(profile.get("platform_member_id") or "")
+
+    except Exception:
+        return False, "이메일 또는 비밀번호가 올바르지 않습니다."
+
+
+def create_auth_member(email: str, password: str, platform_member_id: str, member_name: str) -> str:
+    """기존 이메일 인증이 완료된 뒤에만 Supabase Auth 계정을 생성합니다."""
+    response = supabase.auth.admin.create_user(
+        {
+            "email": email.strip().lower(),
+            "password": password,
+            "email_confirm": True,
+            "user_metadata": {
+                "platform_member_id": platform_member_id,
+                "member_name": member_name,
+            },
+        }
+    )
+    auth_user = getattr(response, "user", None)
+    user_id = str(getattr(auth_user, "id", "") or "")
+    if not user_id:
+        raise RuntimeError("회원 계정 생성 후 사용자 ID를 확인하지 못했습니다.")
+    return user_id
+
+
+def delete_auth_member(user_id: str):
+    if not user_id:
+        return
+    try:
+        supabase.auth.admin.delete_user(str(user_id))
+    except Exception:
+        # 프로필이 이미 삭제되었거나 Auth 계정이 없는 이전 데이터는 DB 삭제를 계속 진행합니다.
+        pass
+
+
+def private_log_metadata() -> dict | None:
+    """로그인한 회원의 기록에만 30일 보관 정보를 붙입니다."""
+    user_id = current_member_user_id()
+    if not user_id:
+        return None
+    return {
+        "user_id": user_id,
+        "expires_at": _expiry_iso(),
+    }
+
+
+def purge_expired_private_records():
+    """개인 기록의 만료일이 지나면 영구 삭제합니다.
+
+    앱 접속 시에도 한 번 실행하고, DB Cron 작업으로 매일 한 번 더 실행합니다.
+    """
+    now_iso = _utc_now_iso()
+    for table_name in PRIVATE_RECORD_TABLES:
+        try:
+            (
+                supabase.table(table_name)
+                .delete()
+                .lte("expires_at", now_iso)
+                .execute()
+            )
+        except Exception:
+            # migration 전·테이블 미반영 상태에서 기존 화면을 멈추지 않기 위한 호환 처리입니다.
+            pass
+
+
+def purge_expired_private_records_once_per_session():
+    state_key = "_private_record_retention_cleanup_ran"
+    if st.session_state.get(state_key):
+        return
+    purge_expired_private_records()
+    st.session_state[state_key] = True
+
+
+def load_member_records(table_name: str, user_id: str) -> pd.DataFrame:
+    if not user_id:
+        return pd.DataFrame()
+
+    try:
+        response = (
+            supabase.table(table_name)
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("deleted", False)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return pd.DataFrame(_response_data(response))
+    except Exception:
+        return pd.DataFrame()
+
+
+def _format_kst_datetime_column(df: pd.DataFrame, source_column: str = "created_at", target_column: str = "작성일시") -> pd.DataFrame:
+    if df.empty or source_column not in df.columns:
+        return df
+
+    copied = df.copy()
+    converted = pd.to_datetime(copied[source_column], errors="coerce", utc=True)
+    copied[target_column] = converted.dt.tz_convert("Asia/Seoul").dt.strftime("%Y-%m-%d %H:%M")
+    return copied
+
+
+@st.cache_resource
+def get_openai_client():
+    if OpenAI is None:
+        return None
+
+    try:
+        api_key = st.secrets["openai"]["api_key"]
+    except Exception:
+        return None
+
+    return OpenAI(api_key=api_key)
+
+
+def get_openai_vision_model() -> str:
+    try:
+        config = st.secrets["openai"]
+        return str(config["vision_model"] if "vision_model" in config else "gpt-5.4-mini")
+    except Exception:
+        return "gpt-5.4-mini"
+
+
+def _image_data_url(uploaded_file) -> str:
+    image_bytes = uploaded_file.getvalue()
+    if len(image_bytes) > MAX_PLAY_PHOTO_BYTES:
+        raise ValueError(f"'{uploaded_file.name}' 파일이 10MB를 초과합니다.")
+
+    mime_type = str(getattr(uploaded_file, "type", "") or "").lower()
+    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+        suffix = Path(str(getattr(uploaded_file, "name", ""))).suffix.lower()
+        mime_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }.get(suffix, "image/jpeg")
+
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _parse_photo_draft_json(raw_text: str) -> dict:
+    cleaned = (raw_text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        payload = json.loads(cleaned)
+    except Exception:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                payload = json.loads(cleaned[start:end + 1])
+            except Exception:
+                payload = {}
+        else:
+            payload = {}
+
+    if not isinstance(payload, dict):
+        payload = {}
+
+    return {
+        "play_title": str(payload.get("play_title") or "사진 속 놀이 장면").strip(),
+        "play_keyword": str(payload.get("play_keyword") or "사진 기반 놀이 관찰").strip(),
+        "observed_action": str(payload.get("observed_action") or "사진 속 자료를 살피고 놀이에 참여하는 모습").strip(),
+        "draft": str(payload.get("draft") or cleaned or "사진 분석 결과를 바탕으로 초안을 만들지 못했습니다.").strip(),
+    }
+
+
+def analyze_play_photos(uploaded_files) -> dict:
+    """사진을 DB·스토리지에 저장하지 않고 OpenAI Responses API로 바로 전달해 초안을 반환합니다."""
+    if not uploaded_files:
+        raise ValueError("분석할 사진을 한 장 이상 업로드해 주세요.")
+
+    if len(uploaded_files) > MAX_PLAY_PHOTO_COUNT:
+        raise ValueError(f"사진은 한 번에 최대 {MAX_PLAY_PHOTO_COUNT}장까지 업로드할 수 있습니다.")
+
+    client = get_openai_client()
+    if client is None:
+        raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
+
+    prompt = """
+당신은 한국 어린이집·유치원 교사의 놀이 기록 초안을 돕는 보조자입니다.
+업로드된 사진에서 실제로 보이는 자료, 공간, 행동, 상호작용의 흐름만 바탕으로 한국어 초안을 작성하세요.
+
+반드시 지킬 점:
+- 사진 속 사람의 이름, 신원, 성별, 정확한 나이, 가족관계, 건강·장애·발달 상태를 추정하거나 단정하지 마세요.
+- 사진에 보이지 않는 사건·대화·감정·교육적 효과를 지어내지 마세요.
+- 특정 영유아를 평가하거나 진단하지 마세요.
+- 연령과 교육과정 영역은 교사가 최종 선택하므로, 사진만으로 이를 단정하지 마세요.
+- 3~4문장, 250~420자 정도의 부드럽고 사실 중심인 '놀이 내용과 상황 초안'을 작성하세요.
+- 사용자가 바로 수정할 수 있는 초안이므로, 확정적인 평가 대신 '...하는 모습이 보였습니다', '...로 이어질 수 있었습니다'처럼 관찰 중심 표현을 쓰세요.
+
+아래 JSON 객체만 반환하세요.
+{
+  "play_title": "짧고 자연스러운 놀이명",
+  "play_keyword": "놀이 - 세부 구분",
+  "observed_action": "사진 속 아이들의 모습 선택란에 넣기 좋은 ‘...하는 모습’ 문장",
+  "draft": "놀이 내용과 상황에 대한 3~4문장 초안"
+}
+""".strip()
+
+    content = [{"type": "input_text", "text": prompt}]
+    for uploaded_file in uploaded_files:
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": _image_data_url(uploaded_file),
+                "detail": "low",
+            }
+        )
+
+    response = client.responses.create(
+        model=get_openai_vision_model(),
+        input=[{"role": "user", "content": content}],
+        max_output_tokens=700,
+        store=False,
+    )
+    raw_text = str(getattr(response, "output_text", "") or "").strip()
+    if not raw_text:
+        raise RuntimeError("사진 분석 결과 텍스트를 받지 못했습니다.")
+
+    return _parse_photo_draft_json(raw_text)
+
+
+def render_member_information_page():
+    """회원 본인만 자신의 가입 정보와 30일간 기록을 확인하는 화면입니다."""
+    render_menu_card(
+        "👤 내 정보 보기",
+        "회원 정보와 최근 30일간의 기록 요정·교사의 온도 기록을 개인 화면에서 확인합니다.",
+        ["가입 정보", "최근 30일 기록", "월별 마음온도"]
+    )
+
+    purge_expired_private_records_once_per_session()
+
+    user_id = current_member_user_id()
+    if not user_id:
+        st.info("소통 탭에서 이메일과 비밀번호로 로그인하면 개인 기록을 확인할 수 있습니다.")
+        return
+
+    profile = get_member_profile(user_id)
+    if not profile:
+        st.warning("회원 프로필을 확인하지 못했습니다. 다시 로그인하거나 관리자에게 문의해 주세요.")
+        return
+
+    if bool(profile.get("deleted")) or profile.get("is_active") is False:
+        st.warning("현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.")
+        clear_member_session()
+        return
+
+    st.markdown("### 가입 정보")
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        st.write(f"**회원 ID**  {profile.get('platform_member_id') or '-'}")
+        st.write(f"**가입자 성명**  {profile.get('subscriber_name') or '-'}")
+        st.write(f"**이메일**  {profile.get('email') or current_member_email() or '-'}")
+        st.write(f"**직책**  {profile.get('position') or '-'}")
+    with info_col2:
+        st.write(f"**기관명**  {profile.get('institution_name') or '-'}")
+        st.write(f"**기관 구분·유형**  {(profile.get('institution_group') or '-')} / {(profile.get('institution_type') or '-')}")
+        st.write(f"**기관 특성**  {profile.get('institution_feature') or '-'}")
+        st.write(f"**최근 로그인**  {profile.get('last_login_at') or '-'}")
+
+    st.caption("기록 요정과 교사의 온도에 저장된 개인 기록은 작성일로부터 30일 후 자동으로 영구 삭제됩니다. 업로드한 사진 원본은 저장하지 않습니다.")
+
+    if st.button("로그아웃", key="my_page_logout"):
+        clear_member_session()
+        st.success("로그아웃했습니다.")
+        st.rerun()
+
+    phrase_df = load_member_records("phrase_logs", user_id)
+    temp_df = load_member_records("teacher_temperature_logs", user_id)
+
+    record_tab1, record_tab2, record_tab3 = st.tabs(["🧚‍♀️ 기록 요정", "🌿 교사의 온도", "📈 월별 마음온도"])
+
+    with record_tab1:
+        st.markdown("#### 최근 30일 기록 요정 기록")
+        if phrase_df.empty:
+            st.caption("최근 30일간 저장된 기록 요정 내용이 없습니다.")
+        else:
+            display = _format_kst_datetime_column(phrase_df)
+            columns = [column for column in ["작성일시", "record_type", "play_keyword", "generated_text", "expires_at"] if column in display.columns]
+            display = display[columns].rename(
+                columns={
+                    "record_type": "기록 유형",
+                    "play_keyword": "놀이 키워드",
+                    "generated_text": "작성 내용",
+                    "expires_at": "자동 삭제 예정일",
+                }
+            )
+            st.dataframe(display, use_container_width=True, hide_index=True, height=360)
+
+    with record_tab2:
+        st.markdown("#### 최근 30일 교사의 온도 기록")
+        if temp_df.empty:
+            st.caption("최근 30일간 저장된 교사의 온도 기록이 없습니다.")
+        else:
+            display = _format_kst_datetime_column(temp_df)
+            columns = [column for column in ["작성일시", "diary_type", "memory", "emotion", "temperature", "average_temp", "result_text", "expires_at"] if column in display.columns]
+            display = display[columns].rename(
+                columns={
+                    "diary_type": "기록 유형",
+                    "memory": "기억",
+                    "emotion": "감정",
+                    "temperature": "입력 온도",
+                    "average_temp": "평균 마음온도",
+                    "result_text": "작성 내용",
+                    "expires_at": "자동 삭제 예정일",
+                }
+            )
+            st.dataframe(display, use_container_width=True, hide_index=True, height=360)
+
+    with record_tab3:
+        st.markdown("#### 월별 마음온도 그래프")
+        graph_df = temp_df.copy()
+        if graph_df.empty or "average_temp" not in graph_df.columns or "created_at" not in graph_df.columns:
+            st.caption("그래프로 표시할 평균 마음온도 기록이 없습니다. ‘3줄 요약 다이어리’를 작성하면 그래프가 만들어집니다.")
+        else:
+            graph_df["average_temp"] = pd.to_numeric(graph_df["average_temp"], errors="coerce")
+            graph_df["작성일시_kr"] = pd.to_datetime(graph_df["created_at"], errors="coerce", utc=True).dt.tz_convert("Asia/Seoul")
+            graph_df = graph_df.dropna(subset=["average_temp", "작성일시_kr"])
+
+            if graph_df.empty:
+                st.caption("그래프로 표시할 평균 마음온도 기록이 없습니다.")
+            else:
+                graph_df["월"] = graph_df["작성일시_kr"].dt.strftime("%Y-%m")
+                month_options = sorted(graph_df["월"].dropna().unique().tolist(), reverse=True)
+                selected_month = st.selectbox("확인할 월", month_options, key="my_page_temperature_month")
+                selected = graph_df[graph_df["월"] == selected_month].copy()
+                selected["날짜"] = selected["작성일시_kr"].dt.date
+                daily = (
+                    selected.groupby("날짜", as_index=False)["average_temp"]
+                    .mean()
+                    .rename(columns={"average_temp": "평균 마음온도"})
+                )
+
+                if alt is not None:
+                    chart = (
+                        alt.Chart(daily)
+                        .mark_line(point=True)
+                        .encode(
+                            x=alt.X("날짜:T", title="날짜"),
+                            y=alt.Y("평균 마음온도:Q", title="평균 마음온도(℃)", scale=alt.Scale(domain=[30, 41])),
+                            tooltip=[
+                                alt.Tooltip("날짜:T", title="날짜"),
+                                alt.Tooltip("평균 마음온도:Q", title="평균 마음온도", format=".1f"),
+                            ],
+                        )
+                        .properties(height=320)
+                    )
+                    st.altair_chart(chart, use_container_width=True, theme=None)
+                else:
+                    st.line_chart(daily.set_index("날짜")["평균 마음온도"])
+
+                st.caption("이 그래프는 본인 계정의 3줄 요약 다이어리 평균 마음온도만 표시하며, 다른 회원이나 관리자가 아닌 본인 화면에서 확인합니다.")
 
 
 def platform_info_text() -> str:
@@ -1371,8 +1878,10 @@ def _response_data(response):
 
 
 def save_subscriber(data):
-    """소통 탭에서 입력받은 구독자/기관 정보를 Supabase에 저장합니다."""
+    """소통 탭에서 입력받은 회원·기관 정보를 Supabase public profile 테이블에 저장합니다."""
     payload = {
+        "user_id": data.get("회원 UID", ""),
+        "platform_member_id": data.get("회원 ID", ""),
         "institution_name": data.get("기관명", ""),
         "institution_group": data.get("기관 구분", ""),
         "institution_type": data.get("기관 유형", ""),
@@ -1383,13 +1892,20 @@ def save_subscriber(data):
         "email": data.get("이메일", ""),
         "privacy_agree": str(data.get("개인정보 동의", False)),
         "mailing_agree": str(data.get("메일링 수신 동의", False)),
+        "is_active": True,
+        "member_created_at": _utc_now_iso(),
+        "last_login_at": _utc_now_iso(),
         "deleted": False,
     }
     supabase.table("subscribers").insert(payload).execute()
 
 
 def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summary, generated_message):
-    """TAB4 알림장/관찰기록/서술형일지/기관홍보 생성 기록을 저장합니다."""
+    """알림장 기록은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    private_meta = private_log_metadata()
+    if not private_meta:
+        return False
+
     payload = {
         "record_type": record_type,
         "teacher_tone": teacher_tone,
@@ -1398,12 +1914,18 @@ def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summar
         "summary": summary,
         "generated_message": generated_message,
         "deleted": False,
+        **private_meta,
     }
     supabase.table("diary_logs").insert(payload).execute()
+    return True
 
 
 def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
-    """TAB2 상황별 문구 자동 생성 기록을 저장합니다."""
+    """기록 요정의 문구·사진 분석 초안은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    private_meta = private_log_metadata()
+    if not private_meta:
+        return False
+
     payload = {
         "record_type": record_type,
         "play_keyword": play_keyword,
@@ -1413,12 +1935,18 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
         "child_action": child_action,
         "generated_text": generated_text,
         "deleted": False,
+        **private_meta,
     }
     supabase.table("phrase_logs").insert(payload).execute()
+    return True
 
 
 def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
-    """TAB5 교사의 온도 기록을 저장합니다."""
+    """교사의 온도 기록은 로그인한 회원의 개인 기록으로만 30일 저장합니다."""
+    private_meta = private_log_metadata()
+    if not private_meta:
+        return False
+
     payload = {
         "diary_type": diary_type,
         "memory": memory,
@@ -1428,8 +1956,10 @@ def save_temperature_log(diary_type, memory, emotion, temperature, average_temp,
         "temp_message": temp_message,
         "result_text": result_text,
         "deleted": False,
+        **private_meta,
     }
     supabase.table("teacher_temperature_logs").insert(payload).execute()
+    return True
 
 
 def load_table(table_name, include_deleted=False):
@@ -1446,17 +1976,38 @@ def load_table(table_name, include_deleted=False):
 
 
 def soft_delete_record(table_name, record_id):
-    supabase.table(table_name).update({"deleted": True}).eq("id", int(record_id)).execute()
+    payload = {"deleted": True}
+    if table_name == "subscribers":
+        payload["is_active"] = False
+    supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
 
 
 def restore_record(table_name, record_id):
-    supabase.table(table_name).update({"deleted": False}).eq("id", int(record_id)).execute()
+    payload = {"deleted": False}
+    if table_name == "subscribers":
+        payload["is_active"] = True
+    supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
 
 
 def hard_delete_record(table_name, record_id):
-    """Supabase에서 선택한 기록을 영구 삭제합니다. 복원할 수 없습니다."""
-    supabase.table(table_name).delete().eq("id", int(record_id)).execute()
+    """Supabase에서 선택한 기록을 영구 삭제합니다. 회원은 Auth 계정과 연결된 개인 기록도 함께 삭제합니다."""
+    if table_name == "subscribers":
+        try:
+            response = (
+                supabase.table("subscribers")
+                .select("user_id")
+                .eq("id", int(record_id))
+                .limit(1)
+                .execute()
+            )
+            rows = _response_data(response)
+            user_id = str(rows[0].get("user_id") or "") if rows else ""
+            if user_id:
+                delete_auth_member(user_id)
+        except Exception:
+            pass
 
+    supabase.table(table_name).delete().eq("id", int(record_id)).execute()
 
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
@@ -1583,8 +2134,9 @@ with st.sidebar:
 force_sidebar_collapsed_on_first_load()
 apply_sidebar_open_hint()
 apply_mobile_settings_launcher()
+purge_expired_private_records_once_per_session()
 
-tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "🌿 교사의 온도", "🔐 관리자"]
+tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "🌿 교사의 온도", "👤 내 정보 보기", "🔐 관리자"]
 if SHOW_DIARY_FEATURE:
     tab_labels.insert(3, "📝 알림장")
 
@@ -1595,10 +2147,12 @@ if SHOW_DIARY_FEATURE:
     tab4 = tabs[3]
     tab5 = tabs[4]
     tab6 = tabs[5]
+    tab7 = tabs[6]
 else:
     tab4 = None
     tab5 = tabs[3]
     tab6 = tabs[4]
+    tab7 = tabs[5]
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -1689,227 +2243,339 @@ def send_verification_email(to_email, code):
 with tab1:
     render_menu_card(
         "💬 함께 소통해요",
-        "교사의 발견 소식과 자료를 받아볼 수 있도록 기본 정보를 입력해 주세요.",
-        ["회원가입", "이메일 인증", "자료 안내"]
+        "회원가입 후 이메일과 비밀번호로 로그인하면 기록 요정과 교사의 온도를 개인 기록으로 안전하게 관리할 수 있습니다.",
+        ["회원가입", "이메일 인증", "이메일 로그인", "개인 기록"]
     )
 
-    st.markdown("### 1. 기관 기본 정보")
-    institution_name = st.text_input(
-        "기관명",
-        placeholder="예: 한솔 / 아이키움",
-        key="join_institution_name"
-    )
+    login_tab, join_tab = st.tabs(["로그인", "회원가입"])
 
-    institution_group = st.selectbox(
-        "기관 구분",
-        ["- 선택 -", "어린이집", "유치원"],
-        key="join_institution_group"
-    )
+    with login_tab:
+        st.markdown("### 이메일 로그인")
 
-    if institution_group == "유치원":
-        institution_type = st.selectbox(
-            "유치원 유형",
-            ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"],
-            key="join_kinder_type"
-        )
-    elif institution_group == "어린이집":
-        institution_type = st.selectbox(
-            "어린이집 유형",
-            ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"],
-            key="join_childcare_type"
-        )
-    else:
-        institution_type = "- 선택 -"
-
-    institution_feature = st.multiselect(
-        "기관 특성",
-        ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"],
-        key="join_institution_feature"
-    )
-
-    st.caption("※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. 본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다.")
-
-    st.markdown("### 2. 기관 연락처")
-    phone_col1, phone_col2 = st.columns([1, 3])
-
-    with phone_col1:
-        area_code = st.selectbox(
-            "지역번호",
-            ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"],
-            key="join_area_code"
-        )
-
-    with phone_col2:
-        phone_number = st.text_input(
-            "기관 연락처",
-            placeholder="예: 1234-5678",
-            key="join_phone_number"
-        )
-    st.caption("※ 기관 연락처를 정확하게 입력해주세요.")
-
-    full_phone = f"{area_code}-{phone_number}" if phone_number else ""
-
-    st.markdown("### 3. 가입자 정보")
-    user_col1, user_col2 = st.columns([2, 2])
-
-    with user_col1:
-        subscriber_name = st.text_input(
-            "가입자 성명",
-            placeholder="예: 홍길동",
-            key="join_subscriber_name"
-        )
-
-    st.caption("※ 본 플랫폼은 개별 맞춤 정보 제공을 위해 개인 회원가입 후 이용이 가능합니다.")
-
-    with user_col2:
-        position = st.selectbox(
-            "직책",
-            ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
-            key="join_position"
-        )
-
-    st.markdown("### 4. 이메일 정보 및 인증")
-
-    email_col1, email_col2 = st.columns([2, 2])
-
-    with email_col1:
-        email_id = st.text_input(
-            "이메일 아이디",
-            placeholder="예: witti",
-            key="join_email_id"
-        )
-
-    with email_col2:
-        email_domain = st.selectbox(
-            "이메일 도메인",
-            ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"],
-            key="join_email_domain"
-        )
-
-    custom_domain = ""
-    if email_domain == "직접 입력":
-        custom_domain = st.text_input(
-            "도메인 직접 입력",
-            placeholder="예: example.com",
-            key="join_custom_domain"
-        )
-        email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
-    elif email_domain != "- 선택 -":
-        email = f"{email_id}@{email_domain}" if email_id else ""
-    else:
-        email = ""
-
-    if "email_verification_code" not in st.session_state:
-        st.session_state["email_verification_code"] = ""
-
-    if "email_verified" not in st.session_state:
-        st.session_state["email_verified"] = False
-
-    st.markdown("#### 이메일 인증")
-
-    verify_col1, verify_col2, verify_col3 = st.columns([1.2, 2.2, 1])
-
-    with verify_col1:
-        send_code = st.button(
-            "인증번호 받기",
-            key="create_email_code",
-            use_container_width=True
-        )
-
-    with verify_col2:
-        input_code = st.text_input(
-            "인증번호 입력",
-            placeholder="6자리 인증번호 입력",
-            label_visibility="collapsed",
-            key="email_code_input"
-        )
-
-    with verify_col3:
-        verify_email = st.button(
-            "인증 확인",
-            key="check_email_code",
-            use_container_width=True
-        )
-
-    if send_code:
-        if not email:
-            st.warning("이메일을 먼저 입력해 주세요.")
+        if member_is_logged_in():
+            st.success(
+                f"{current_member_email() or '회원'}님이 로그인되어 있습니다. "
+                f"회원 ID: {st.session_state.get('member_platform_id') or '-'}"
+            )
+            if st.button("로그아웃", key="communication_logout"):
+                clear_member_session()
+                st.success("로그아웃했습니다.")
+                st.rerun()
         else:
-            code = str(random.randint(100000, 999999))
-            st.session_state["email_verification_code"] = code
-            st.session_state["email_verified"] = False
+            login_email = st.text_input(
+                "이메일",
+                placeholder="예: witti@example.com",
+                key="member_login_email",
+            )
+            login_password = st.text_input(
+                "비밀번호",
+                type="password",
+                placeholder="회원가입 시 설정한 비밀번호",
+                key="member_login_password",
+            )
 
+            if st.button("로그인", key="member_login_button"):
+                if not login_email.strip() or not login_password:
+                    st.warning("이메일과 비밀번호를 모두 입력해 주세요.")
+                else:
+                    success, result = authenticate_member(login_email, login_password)
+                    if success:
+                        st.success(f"로그인되었습니다. 회원 ID: {result or '-'}")
+                        st.rerun()
+                    else:
+                        st.error(result)
+
+            st.caption("로그인하면 기록 요정과 교사의 온도에서 생성한 내용이 개인 기록으로 30일간 보관됩니다.")
+
+    with join_tab:
+        st.markdown("### 1. 기관 기본 정보")
+        institution_name = st.text_input(
+            "기관명",
+            placeholder="예: 한솔 / 아이키움",
+            key="join_institution_name"
+        )
+
+        institution_group = st.selectbox(
+            "기관 구분",
+            ["- 선택 -", "어린이집", "유치원"],
+            key="join_institution_group"
+        )
+
+        if institution_group == "유치원":
+            institution_type = st.selectbox(
+                "유치원 유형",
+                ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"],
+                key="join_kinder_type"
+            )
+        elif institution_group == "어린이집":
+            institution_type = st.selectbox(
+                "어린이집 유형",
+                ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"],
+                key="join_childcare_type"
+            )
+        else:
+            institution_type = "- 선택 -"
+
+        institution_feature = st.multiselect(
+            "기관 특성",
+            ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"],
+            key="join_institution_feature"
+        )
+
+        st.caption("※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. 본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다.")
+
+        st.markdown("### 2. 기관 연락처")
+        phone_col1, phone_col2 = st.columns([1, 3])
+
+        with phone_col1:
+            area_code = st.selectbox(
+                "지역번호",
+                ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"],
+                key="join_area_code"
+            )
+
+        with phone_col2:
+            phone_number = st.text_input(
+                "기관 연락처",
+                placeholder="예: 1234-5678",
+                key="join_phone_number"
+            )
+        st.caption("※ 기관 연락처를 정확하게 입력해주세요.")
+
+        full_phone = f"{area_code}-{phone_number}" if phone_number else ""
+
+        st.markdown("### 3. 가입자 정보")
+        user_col1, user_col2 = st.columns([2, 2])
+
+        with user_col1:
+            subscriber_name = st.text_input(
+                "가입자 성명",
+                placeholder="예: 홍길동",
+                key="join_subscriber_name"
+            )
+
+        with user_col2:
+            position = st.selectbox(
+                "직책",
+                ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
+                key="join_position"
+            )
+
+        st.caption("※ 본 플랫폼은 개별 맞춤 정보 제공을 위해 개인 회원가입 후 이용이 가능합니다.")
+
+        st.markdown("### 4. 계정 정보")
+        st.text_input(
+            "회원 ID",
+            value="회원가입 완료 후 자동 발급됩니다. 예: WT-20260625-ABC123",
+            disabled=True,
+            key="join_platform_id_preview",
+        )
+
+        password_col1, password_col2 = st.columns(2)
+        with password_col1:
+            member_password = st.text_input(
+                "비밀번호",
+                type="password",
+                placeholder="8자 이상 입력",
+                key="join_member_password",
+            )
+        with password_col2:
+            member_password_confirm = st.text_input(
+                "비밀번호 확인",
+                type="password",
+                placeholder="비밀번호를 한 번 더 입력",
+                key="join_member_password_confirm",
+            )
+        st.caption("※ 비밀번호는 Supabase Auth에 암호화되어 저장되며, 플랫폼 데이터베이스에는 저장하지 않습니다.")
+
+        st.markdown("### 5. 이메일 정보 및 인증")
+        email_col1, email_col2 = st.columns([2, 2])
+
+        with email_col1:
+            email_id = st.text_input(
+                "이메일 아이디",
+                placeholder="예: witti",
+                key="join_email_id"
+            )
+
+        with email_col2:
+            email_domain = st.selectbox(
+                "이메일 도메인",
+                ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"],
+                key="join_email_domain"
+            )
+
+        custom_domain = ""
+        if email_domain == "직접 입력":
+            custom_domain = st.text_input(
+                "도메인 직접 입력",
+                placeholder="예: example.com",
+                key="join_custom_domain"
+            )
+            email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
+        elif email_domain != "- 선택 -":
+            email = f"{email_id}@{email_domain}" if email_id else ""
+        else:
+            email = ""
+
+        if "email_verification_code" not in st.session_state:
+            st.session_state["email_verification_code"] = ""
+        if "email_verified" not in st.session_state:
+            st.session_state["email_verified"] = False
+        if "email_verified_for" not in st.session_state:
+            st.session_state["email_verified_for"] = ""
+        if "email_verification_sent_at" not in st.session_state:
+            st.session_state["email_verification_sent_at"] = ""
+
+        st.markdown("#### 이메일 인증")
+        verify_col1, verify_col2, verify_col3 = st.columns([1.2, 2.2, 1])
+
+        with verify_col1:
+            send_code = st.button(
+                "인증번호 받기",
+                key="create_email_code",
+                use_container_width=True
+            )
+
+        with verify_col2:
+            input_code = st.text_input(
+                "인증번호 입력",
+                placeholder="6자리 인증번호 입력",
+                label_visibility="collapsed",
+                key="email_code_input"
+            )
+
+        with verify_col3:
+            verify_email = st.button(
+                "인증 확인",
+                key="check_email_code",
+                use_container_width=True
+            )
+
+        if send_code:
+            if not email:
+                st.warning("이메일을 먼저 입력해 주세요.")
+            else:
+                code = str(random.randint(100000, 999999))
+                st.session_state["email_verification_code"] = code
+                st.session_state["email_verified"] = False
+                st.session_state["email_verified_for"] = ""
+                st.session_state["email_verification_sent_at"] = _utc_now_iso()
+
+                try:
+                    send_verification_email(email, code)
+                    st.success("인증번호를 이메일로 보냈습니다.")
+                except Exception as e:
+                    st.error("이메일 발송 중 오류가 발생했습니다.")
+                    st.caption(str(e))
+
+        if verify_email:
+            sent_at_raw = st.session_state.get("email_verification_sent_at") or ""
+            is_not_expired = False
             try:
-                send_verification_email(email, code)
-                st.success("인증번호를 이메일로 보냈습니다.")
-            except Exception as e:
-                st.error("이메일 발송 중 오류가 발생했습니다.")
-                st.caption(str(e))
+                sent_at = datetime.fromisoformat(sent_at_raw)
+                is_not_expired = (datetime.now(timezone.utc) - sent_at) <= timedelta(minutes=5)
+            except Exception:
+                is_not_expired = False
 
-    if verify_email:
-        if input_code == st.session_state["email_verification_code"] and input_code:
-            st.session_state["email_verified"] = True
-            st.success("이메일 인증이 완료되었습니다.")
-        else:
-            st.session_state["email_verified"] = False
-            st.warning("인증번호가 일치하지 않습니다.")
+            if (
+                input_code == st.session_state["email_verification_code"]
+                and input_code
+                and is_not_expired
+            ):
+                st.session_state["email_verified"] = True
+                st.session_state["email_verified_for"] = email.strip().lower()
+                st.success("이메일 인증이 완료되었습니다.")
+            elif not is_not_expired:
+                st.session_state["email_verified"] = False
+                st.warning("인증번호 유효 시간이 지났습니다. 인증번호를 다시 받아 주세요.")
+            else:
+                st.session_state["email_verified"] = False
+                st.warning("인증번호가 일치하지 않습니다.")
 
-    st.caption("※ 인증번호 메일이 보이지 않으면 스팸함 또는 프로모션함을 확인해 주세요.")
-    st.caption("※ 5분 이내에 인증 메일이 도착하지 않으면 다시 시도해 주세요.")
+        st.caption("※ 인증번호 메일이 보이지 않으면 스팸함 또는 프로모션함을 확인해 주세요.")
+        st.caption("※ 인증번호는 발송 후 5분 동안 유효합니다.")
 
+        st.markdown("### 6. 제공 정보 동의 및 제출")
+        privacy_agree = st.checkbox(
+            "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다.",
+            key="join_privacy_agree"
+        )
 
-    st.markdown("### 5. 제공 정보 동의 및 제출")
-    privacy_agree = st.checkbox(
-        "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다.",
-        key="join_privacy_agree"
-    )
+        mailing_agree = st.checkbox(
+            "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다.",
+            key="join_mailing_agree"
+        )
 
-    mailing_agree = st.checkbox(
-        "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다.",
-        key="join_mailing_agree"
-    )
+        if st.button("회원가입 완료", key="join_submit"):
+            if auth_supabase is None:
+                st.error("로그인용 Supabase 공개 키가 설정되지 않았습니다. Streamlit Secrets의 supabase.anon_key를 추가해 주세요.")
+            elif not institution_name:
+                st.warning("기관명을 입력해 주세요.")
+            elif institution_group == "- 선택 -":
+                st.warning("기관 구분을 선택해 주세요.")
+            elif institution_type == "- 선택 -":
+                st.warning("기관 유형을 선택해 주세요.")
+            elif not phone_number:
+                st.warning("기관 연락처를 입력해 주세요.")
+            elif not subscriber_name:
+                st.warning("가입자 성명을 입력해 주세요.")
+            elif position == "- 선택 -":
+                st.warning("직책을 선택해 주세요.")
+            elif len(member_password) < 8:
+                st.warning("비밀번호는 8자 이상으로 입력해 주세요.")
+            elif member_password != member_password_confirm:
+                st.warning("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
+            elif not email_id:
+                st.warning("이메일 아이디를 입력해 주세요.")
+            elif email_domain == "- 선택 -":
+                st.warning("이메일 도메인을 선택해 주세요.")
+            elif email_domain == "직접 입력" and not custom_domain:
+                st.warning("이메일 도메인을 직접 입력해 주세요.")
+            elif (
+                not st.session_state.get("email_verified")
+                or st.session_state.get("email_verified_for") != email.strip().lower()
+            ):
+                st.warning("현재 이메일 주소의 인증을 완료해 주세요.")
+            elif not privacy_agree:
+                st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
+            else:
+                platform_member_id = generate_platform_member_id()
+                created_user_id = ""
 
-    if st.button("정보 제출하기", key="join_submit"):
-        if not institution_name:
-            st.warning("기관명을 입력해 주세요.")
-        elif institution_group == "- 선택 -":
-            st.warning("기관 구분을 선택해 주세요.")
-        elif institution_type == "- 선택 -":
-            st.warning("기관 유형을 선택해 주세요.")
-        elif not phone_number:
-            st.warning("기관 연락처를 입력해 주세요.")
-        elif not subscriber_name:
-            st.warning("가입자 성명을 입력해 주세요.")
-        elif position == "- 선택 -":
-            st.warning("직책을 선택해 주세요.")
-        elif not email_id:
-            st.warning("이메일 아이디를 입력해 주세요.")
-        elif email_domain == "- 선택 -":
-            st.warning("이메일 도메인을 선택해 주세요.")
-        elif email_domain == "직접 입력" and not custom_domain:
-            st.warning("이메일 도메인을 직접 입력해 주세요.")
-        elif not st.session_state.get("email_verified"):
-            st.warning("이메일 인증을 완료해 주세요.")
-        elif not privacy_agree:
-            st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
-        else:
-            submitted_data = {
-                "기관명": institution_name,
-                "기관 구분": institution_group,
-                "기관 유형": institution_type,
-                "기관 특성": ", ".join(institution_feature),
-                "기관 연락처": full_phone,
-                "가입자 성명": subscriber_name,
-                "직책": position,
-                "이메일": email,
-                "개인정보 동의": privacy_agree,
-                "메일링 수신 동의": mailing_agree,
-            }
+                try:
+                    created_user_id = create_auth_member(
+                        email=email,
+                        password=member_password,
+                        platform_member_id=platform_member_id,
+                        member_name=subscriber_name,
+                    )
 
-            save_subscriber(submitted_data)
-            st.session_state["is_subscribed"] = True
-            st.success("정보가 제출되었습니다.")
-            st.json(submitted_data)
+                    submitted_data = {
+                        "회원 UID": created_user_id,
+                        "회원 ID": platform_member_id,
+                        "기관명": institution_name,
+                        "기관 구분": institution_group,
+                        "기관 유형": institution_type,
+                        "기관 특성": ", ".join(institution_feature),
+                        "기관 연락처": full_phone,
+                        "가입자 성명": subscriber_name,
+                        "직책": position,
+                        "이메일": email.strip().lower(),
+                        "개인정보 동의": privacy_agree,
+                        "메일링 수신 동의": mailing_agree,
+                    }
+                    save_subscriber(submitted_data)
+                    set_member_session(created_user_id, email.strip().lower(), platform_member_id)
+                    st.session_state["is_subscribed"] = True
+                    st.success("회원가입이 완료되었습니다.")
+                    st.info(f"회원 ID: {platform_member_id}\n\n이제 로그인 상태로 기록 요정과 교사의 온도를 사용할 수 있습니다.")
+
+                except Exception as e:
+                    if created_user_id:
+                        delete_auth_member(created_user_id)
+                    st.error("회원가입을 완료하지 못했습니다. 이미 등록된 이메일인지 확인해 주세요.")
+                    st.caption(str(e))
 
 # =========================
 # TAB 2. 기록 요정
@@ -3955,6 +4621,79 @@ with tab2:
         ["관찰 기록", "서술형 일지", "놀이 이야기", "알림장", "기관 홍보 문구"]
     )
 
+    st.markdown("### 0. 사진으로 놀이 기록 초안 만들기")
+    uploaded_play_photos = st.file_uploader(
+        "놀이 사진 업로드",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="fairy_play_photo_uploader",
+        help="한 번에 최대 5장, 1장당 최대 10MB까지 업로드할 수 있습니다.",
+    )
+    photo_analysis_agree = st.checkbox(
+        "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 업로드한 사진은 초안 생성에만 사용되며 플랫폼 DB에는 저장하지 않습니다.",
+        key="fairy_photo_analysis_agree",
+    )
+
+    if st.button("사진 분석 후 놀이 기록 초안 만들기", key="fairy_photo_draft_button"):
+        if not uploaded_play_photos:
+            st.warning("분석할 놀이 사진을 한 장 이상 업로드해 주세요.")
+        elif not photo_analysis_agree:
+            st.warning("사진 활용 확인에 동의한 뒤 분석을 진행해 주세요.")
+        else:
+            try:
+                with st.spinner("사진 속 놀이 장면을 읽고 초안을 만들고 있습니다."):
+                    analysis_result = analyze_play_photos(uploaded_play_photos)
+
+                st.session_state["photo_analysis_result"] = analysis_result
+                st.session_state["photo_analysis_draft_text"] = analysis_result["draft"]
+
+                # 기존 상황별 문구 생성 입력은 유지하되, 사진 분석 결과가 바로 이어서 쓰일 수 있게 일부만 채웁니다.
+                st.session_state["photo_play_story_name"] = analysis_result["play_title"]
+                st.session_state["photo_play_keyword"] = analysis_result["play_keyword"]
+                st.session_state["photo_child_action"] = "직접 입력"
+                st.session_state["photo_child_action_custom"] = analysis_result["observed_action"]
+
+                saved = save_phrase_log(
+                    record_type="사진 분석 초안",
+                    play_keyword=analysis_result["play_keyword"],
+                    age_group="",
+                    curriculum_area="",
+                    development_area="",
+                    child_action=analysis_result["observed_action"],
+                    generated_text=(
+                        f"[사진 분석 메모]\n{analysis_result['observed_action']}\n\n"
+                        f"[놀이 기록 초안]\n{analysis_result['draft']}"
+                    ),
+                )
+
+                st.success("사진을 바탕으로 놀이 기록 초안을 만들었습니다.")
+                if saved:
+                    st.caption("초안은 내 정보 보기에서 30일간 확인할 수 있습니다.")
+                else:
+                    st.caption("로그인하지 않은 상태에서는 초안이 화면에만 표시됩니다. 로그인하면 개인 기록으로 30일간 보관됩니다.")
+
+            except Exception as e:
+                st.error("사진 분석 초안을 만들지 못했습니다.")
+                st.caption(str(e))
+
+    photo_analysis_result = st.session_state.get("photo_analysis_result") or {}
+    if photo_analysis_result:
+        st.markdown("#### 사진 기반 놀이 기록 초안")
+        st.caption(
+            f"추천 놀이명: {photo_analysis_result.get('play_title') or '-'} · "
+            f"추천 키워드: {photo_analysis_result.get('play_keyword') or '-'}"
+        )
+        st.text_area(
+            "초안 수정",
+            height=190,
+            key="photo_analysis_draft_text",
+            help="사진을 바탕으로 만든 초안입니다. 연령, 교육과정 영역, 교사의 해석은 다음 입력 단계에서 최종 확인해 주세요.",
+        )
+        st.caption("※ 사진 원본은 Supabase DB나 플랫폼 저장소에 보관하지 않습니다. 연령·발달·정서에 대한 최종 판단은 교사가 확인해 주세요.")
+
+    if not member_is_logged_in():
+        st.info("로그인하지 않아도 생성 기능은 사용할 수 있지만, 생성한 내용은 내 정보 보기에 저장되지 않습니다.")
+
     # 1) 기록 유형을 가장 먼저 선택합니다.
     observation_type = st.selectbox(
         "기록 유형 선택",
@@ -4488,6 +5227,9 @@ with tab5:
         ["감성 일기", "3줄 요약", "마음온도"]
     )
 
+    if not member_is_logged_in():
+        st.info("로그인하지 않아도 작성할 수 있지만, 내 정보 보기에 기록을 남기려면 먼저 로그인해 주세요.")
+
     diary_type = st.radio("기록 양식 선택", ["🕯️ 감성 일기", "✒️ 3줄 요약 다이어리"], horizontal=True, key="temperature_diary_type")
     st.divider()
 
@@ -4520,8 +5262,12 @@ with tab5:
                 st.warning("나에게 한마디를 선택해 주세요.")
             else:
                 result = f"오늘 하루를 돌아보면, {one_line}\n\n그중 가장 마음에 남는 순간은 {best_moment}\n\n오늘 내 마음은 {emotion_word} 쪽에 가까웠어요.\n\n그래도 나에게 이렇게 말해주고 싶어요.\n{self_message}"
-                save_temperature_log("감성 일기", best_moment, emotion_word, "", None, "", result)
+                saved = save_temperature_log("감성 일기", best_moment, emotion_word, "", None, "", result)
                 st.success("감성 일기가 생성되었습니다.")
+                if saved:
+                    st.caption("내 정보 보기에서 이 기록을 30일간 확인할 수 있습니다.")
+                else:
+                    st.caption("로그인하지 않아 화면에만 표시됩니다.")
                 st.markdown("### 생성 결과")
                 st.markdown(f"<div class='letter-box'>{result}</div>", unsafe_allow_html=True)
 
@@ -4562,8 +5308,12 @@ with tab5:
                 else:
                     temp_message = "마음의 온도가 낮아진 날이에요. 오늘은 회복이 먼저예요."
                 result = f"오늘 하루를 돌아보면, {memory}\n\n그 순간의 내 마음에는 {emotion}\n\n그래서 오늘의 마음온도는 {temperature}에 가까웠어요.\n\n{temp_message}\n\n오늘도 충분히 애쓴 하루였어요."
-                save_temperature_log("3줄 요약 다이어리", memory, emotion, temperature, average_temp, temp_message, result)
+                saved = save_temperature_log("3줄 요약 다이어리", memory, emotion, temperature, average_temp, temp_message, result)
                 st.success("3줄 요약 다이어리가 생성되었습니다.")
+                if saved:
+                    st.caption("내 정보 보기에서 이 기록과 월별 마음온도 그래프를 30일간 확인할 수 있습니다.")
+                else:
+                    st.caption("로그인하지 않아 화면에만 표시됩니다.")
                 st.metric(label="🌡️ 선생님들의 오늘, 평균 마음온도", value=f"{average_temp}℃")
                 st.info(temp_message)
                 st.markdown("### 생성 결과")
@@ -4571,26 +5321,41 @@ with tab5:
 
 
 # =========================
-# TAB 6. 관리자
+# TAB 6. 내 정보 보기
 # =========================
 with tab6:
-    ADMIN_ID = "admin"
-    ADMIN_PW = "witti7942"
+    render_member_information_page()
+
+
+# =========================
+# TAB 7. 관리자
+# =========================
+with tab7:
+    try:
+        admin_config = st.secrets["admin"]
+        ADMIN_ID = str(admin_config["id"] if "id" in admin_config else "")
+        ADMIN_PW = str(admin_config["password"] if "password" in admin_config else "")
+    except Exception:
+        ADMIN_ID = ""
+        ADMIN_PW = ""
 
     render_menu_card(
         "🔐 관리자 모드",
-        "가입자 정보와 생성 기록을 확인하고, 통계 그래프와 CSV 다운로드를 관리합니다.",
-        ["누적 기록", "통계", "CSV"]
+        "회원 정보와 생성 기록을 확인하고, 통계 그래프와 CSV 다운로드를 관리합니다.",
+        ["회원 관리", "누적 기록", "통계", "CSV"]
     )
 
     with st.expander("관리자 메뉴 열기", expanded=False):
-        st.write("가입자 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
+        st.write("회원 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
 
         admin_id = st.text_input("관리자 아이디", key="admin_id_input")
         admin_pw = st.text_input("관리자 비밀번호", type="password", key="admin_pw_input")
 
         if st.button("관리자 로그인", key="admin_login_button"):
-            if admin_id.strip() == ADMIN_ID and admin_pw.strip() == ADMIN_PW:
+            if not ADMIN_ID or not ADMIN_PW:
+                st.session_state["admin_logged_in"] = False
+                st.error("관리자 계정이 Secrets에 설정되지 않았습니다. [admin] id, password를 등록해 주세요.")
+            elif admin_id.strip() == ADMIN_ID and admin_pw.strip() == ADMIN_PW:
                 st.session_state["admin_logged_in"] = True
                 st.success("관리자 로그인에 성공했습니다.")
             else:
@@ -4623,10 +5388,10 @@ with tab6:
                 ].shape[0]
 
             col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("가입자 수", f"{len(subscribers_filtered)}명")
+            col1.metric("회원 수", f"{len(subscribers_filtered)}명")
             col2.metric("메일링 동의", f"{mailing_count}명")
             col3.metric("알림장 생성", f"{len(diary_filtered)}건")
-            col4.metric("상황별 문구 생성", f"{len(phrase_filtered)}건")
+            col4.metric("기록 요정 생성", f"{len(phrase_filtered)}건")
             col5.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
 
             st.divider()
@@ -4659,7 +5424,7 @@ with tab6:
                     st.caption("알림장 기록이 없습니다.")
 
             with graph_col3:
-                st.markdown("#### 상황별 문구 자동 생성 유형")
+                st.markdown("#### 기록 요정 생성 유형")
 
                 if not phrase_filtered.empty and "record_type" in phrase_filtered.columns:
                     phrase_counts = phrase_filtered["record_type"].dropna()
@@ -4668,7 +5433,7 @@ with tab6:
                     if not phrase_counts.empty:
                         draw_category_chart(
                             phrase_counts.value_counts(),
-                            "상황별 문구 자동 생성 유형"
+                            "기록 요정 생성 유형"
                         )
 
                 else:
@@ -4678,21 +5443,21 @@ with tab6:
 
             admin_menu = st.selectbox(
                 "조회할 데이터 선택",
-                ["가입자 정보", "알림장 생성 기록", "상황별 문구 생성 기록", "교사의 온도 기록"],
+                ["회원 관리", "알림장 생성 기록", "기록 요정 생성 기록", "교사의 온도 기록"],
                 key="admin_data_select"
             )
 
             table_map = {
-                "가입자 정보": "subscribers",
+                "회원 관리": "subscribers",
                 "알림장 생성 기록": "diary_logs",
-                "상황별 문구 생성 기록": "phrase_logs",
+                "기록 요정 생성 기록": "phrase_logs",
                 "교사의 온도 기록": "teacher_temperature_logs"
             }
 
             file_map = {
-                "가입자 정보": "subscribers.csv",
+                "회원 관리": "members.csv",
                 "알림장 생성 기록": "diary_logs.csv",
-                "상황별 문구 생성 기록": "phrase_logs.csv",
+                "기록 요정 생성 기록": "phrase_logs.csv",
                 "교사의 온도 기록": "teacher_temperature_logs.csv"
             }
 
@@ -4710,9 +5475,14 @@ with tab6:
                 "institution_type": "기관 유형",
                 "institution_feature": "기관 특성",
                 "phone": "연락처",
+                "user_id": "회원 UID",
+                "platform_member_id": "회원 ID",
                 "subscriber_name": "가입자 성명",
                 "position": "직책",
                 "email": "이메일",
+                "is_active": "계정 활성",
+                "member_created_at": "회원가입일",
+                "last_login_at": "최근 로그인",
                 "privacy_agree": "개인정보 동의",
                 "mailing_agree": "메일링 동의",
 
@@ -4737,6 +5507,7 @@ with tab6:
                 "average_temp": "평균 마음온도",
                 "temp_message": "온도 해석",
                 "result_text": "생성 결과",
+                "expires_at": "자동 삭제 예정일",
                 "created_at_dt": "조회용 날짜",
                 "deleted": "삭제 여부",
             }
@@ -4902,9 +5673,9 @@ with tab6:
                 st.warning("테스트 데이터 정리 기능입니다. 숨김 처리는 복원 가능하지만, 영구 삭제는 복원할 수 없습니다.")
 
                 all_delete_targets = {
-                    "가입자 정보": "subscribers",
+                    "회원 관리": "subscribers",
                     "알림장 생성 기록": "diary_logs",
-                    "상황별 문구 생성 기록": "phrase_logs",
+                    "기록 요정 생성 기록": "phrase_logs",
                     "교사의 온도 기록": "teacher_temperature_logs",
                 }
 
