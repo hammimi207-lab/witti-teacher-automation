@@ -3,7 +3,11 @@
 # 실행: streamlit run streamlit_app.py
 
 import base64
+import hashlib
+import hmac
 import re
+import secrets
+import shutil
 import html
 import io
 import json
@@ -996,8 +1000,10 @@ TABLE_NAMES = {
     "subscribers": "subscribers",
     "diary_logs": "diary_logs",
     "phrase_logs": "phrase_logs",
-    "teacher_temperature_logs": "teacher_temperature_logs",
     "photo_records": "photo_records",
+    "play_sessions": "play_sessions",
+    "generated_texts": "generated_texts",
+    "email_verifications": "email_verifications",
 }
 
 
@@ -1006,15 +1012,18 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-25-member-photo-storage-one-year-v2"
+APP_VERSION = "2026-06-29-play-record-wizard-username-recovery-v2"
 
 
 # =========================
 # 회원·개인기록·OpenAI 사진 분석 공통 기능
 # =========================
-PRIVATE_RECORD_TABLES = ("phrase_logs", "teacher_temperature_logs", "diary_logs")
+PRIVATE_RECORD_TABLES = ("phrase_logs", "diary_logs", "generated_texts")
 PRIVATE_RECORD_RETENTION_DAYS = 365
+# 업로드는 최대 20장, 자동 추천·Storage 저장·AI 분석은 그중 3~5장으로 제한합니다.
+MAX_PLAY_UPLOAD_COUNT = 20
 MAX_PLAY_PHOTO_COUNT = 5
+MIN_RECOMMENDED_PLAY_PHOTO_COUNT = 3
 MAX_PLAY_PHOTO_BYTES = 10 * 1024 * 1024  # 사진 1장당 10MB
 PLAY_PHOTO_BUCKET = "play-photos"
 PLAY_PHOTO_SIGNED_URL_TTL_SECONDS = 300  # 본인 화면 표시용 5분 URL
@@ -1057,17 +1066,21 @@ def clear_member_session():
         st.session_state.pop(key, None)
 
 
-def generate_platform_member_id() -> str:
-    """로그인용 이메일과 별도로 보여 주는 플랫폼 회원 ID입니다."""
-    date_part = datetime.now().strftime("%Y%m%d")
-    random_part = uuid.uuid4().hex[:6].upper()
-    return f"WT-{date_part}-{random_part}"
+def normalize_username(username: str) -> str:
+    """로그인 아이디는 영문 소문자·숫자·밑줄만 사용하도록 정규화합니다."""
+    return re.sub(r"\s+", "", str(username or "").strip().lower())
+
+
+def validate_username(username: str) -> tuple[bool, str]:
+    normalized = normalize_username(username)
+    if not re.fullmatch(r"[a-z][a-z0-9_]{3,19}", normalized):
+        return False, "아이디는 영문 소문자로 시작하며, 영문 소문자·숫자·밑줄(_)만 사용해 4~20자로 입력해 주세요."
+    return True, normalized
 
 
 def get_member_profile(user_id: str) -> dict:
     if not user_id:
         return {}
-
     try:
         response = (
             supabase.table("subscribers")
@@ -1082,6 +1095,37 @@ def get_member_profile(user_id: str) -> dict:
         return {}
 
 
+def get_member_profile_by_username(username: str) -> dict:
+    """직접 지정한 아이디로 회원 프로필을 찾습니다. 기존 자동 ID 회원도 일시적으로 호환합니다."""
+    normalized = normalize_username(username)
+    if not normalized:
+        return {}
+
+    for column in ("username", "platform_member_id"):
+        try:
+            response = (
+                supabase.table("subscribers")
+                .select("*")
+                .eq(column, normalized)
+                .limit(1)
+                .execute()
+            )
+            rows = _response_data(response)
+            if rows:
+                return rows[0]
+        except Exception:
+            continue
+    return {}
+
+
+def username_is_available(username: str) -> bool:
+    valid, normalized_or_message = validate_username(username)
+    if not valid:
+        return False
+    normalized = normalized_or_message
+    return not bool(get_member_profile_by_username(normalized))
+
+
 def update_member_last_login(user_id: str):
     if not user_id:
         return
@@ -1093,58 +1137,61 @@ def update_member_last_login(user_id: str):
             .execute()
         )
     except Exception:
-        # 구버전 DB에서 migration 전 잠시 발생할 수 있으므로 로그인 자체는 막지 않습니다.
         pass
 
 
-def authenticate_member(email: str, password: str) -> tuple[bool, str]:
-    """Supabase Auth로 로그인하고, 공개 프로필의 활성 상태를 한 번 더 확인합니다."""
+def authenticate_member(username: str, password: str) -> tuple[bool, str]:
+    """아이디로 프로필을 조회한 뒤 Supabase Auth에는 연결된 이메일·비밀번호로 로그인합니다."""
     auth_client = get_supabase_auth_client()
     if auth_client is None:
         return False, "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다."
 
+    profile = get_member_profile_by_username(username)
+    if not profile:
+        return False, "아이디 또는 비밀번호가 올바르지 않습니다."
+    if bool(profile.get("deleted")) or profile.get("is_active") is False:
+        return False, "현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요."
+
+    email = str(profile.get("email") or "").strip().lower()
+    if not email:
+        return False, "계정에 연결된 이메일을 찾지 못했습니다. 관리자에게 문의해 주세요."
+
     try:
         auth_response = auth_client.auth.sign_in_with_password(
-            {"email": email.strip().lower(), "password": password}
+            {"email": email, "password": password}
         )
         auth_user = getattr(auth_response, "user", None)
         if not auth_user:
-            return False, "로그인 정보를 확인하지 못했습니다."
+            return False, "아이디 또는 비밀번호가 올바르지 않습니다."
 
         user_id = str(getattr(auth_user, "id", "") or "")
-        profile = get_member_profile(user_id)
-        if not profile:
-            return False, "회원 프로필을 찾지 못했습니다. 관리자에게 문의해 주세요."
-
-        if bool(profile.get("deleted")) or profile.get("is_active") is False:
-            return False, "현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요."
-
-        session = getattr(auth_response, "session", None)
         set_member_session(
             user_id=user_id,
             email=str(getattr(auth_user, "email", "") or email).lower(),
-            platform_member_id=str(profile.get("platform_member_id") or ""),
+            platform_member_id=str(profile.get("username") or profile.get("platform_member_id") or ""),
         )
+        session = getattr(auth_response, "session", None)
         if session:
             st.session_state["member_access_token"] = str(getattr(session, "access_token", "") or "")
             st.session_state["member_refresh_token"] = str(getattr(session, "refresh_token", "") or "")
-
         update_member_last_login(user_id)
-        return True, str(profile.get("platform_member_id") or "")
-
+        return True, str(profile.get("username") or profile.get("platform_member_id") or "")
     except Exception:
-        return False, "이메일 또는 비밀번호가 올바르지 않습니다."
+        return False, "아이디 또는 비밀번호가 올바르지 않습니다."
 
 
-def create_auth_member(email: str, password: str, platform_member_id: str, member_name: str) -> str:
-    """기존 이메일 인증이 완료된 뒤에만 Supabase Auth 계정을 생성합니다."""
+def create_auth_member(email: str, password: str, username: str, member_name: str) -> str:
+    """이메일 인증을 마친 뒤 Supabase Auth 계정을 만듭니다.
+
+    비밀번호 해시는 auth.users에만 안전하게 보관되며 public 테이블에는 저장하지 않습니다.
+    """
     response = supabase.auth.admin.create_user(
         {
             "email": email.strip().lower(),
             "password": password,
             "email_confirm": True,
             "user_metadata": {
-                "platform_member_id": platform_member_id,
+                "username": normalize_username(username),
                 "member_name": member_name,
             },
         }
@@ -1162,8 +1209,150 @@ def delete_auth_member(user_id: str):
     try:
         supabase.auth.admin.delete_user(str(user_id))
     except Exception:
-        # 프로필이 이미 삭제되었거나 Auth 계정이 없는 이전 데이터는 DB 삭제를 계속 진행합니다.
         pass
+
+
+EMAIL_VERIFICATION_TTL_MINUTES = 5
+EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
+
+
+def _verification_code_hash(email: str, purpose: str, code: str) -> str:
+    raw = f"{email.strip().lower()}|{purpose}|{code}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def issue_email_verification(email: str, purpose: str) -> str:
+    """인증번호 원문은 DB에 저장하지 않고 SHA-256 해시만 저장합니다."""
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        raise ValueError("이메일을 입력해 주세요.")
+    if purpose not in {"signup", "account_recovery"}:
+        raise ValueError("지원하지 않는 이메일 인증 목적입니다.")
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=EMAIL_VERIFICATION_TTL_MINUTES)
+
+    # 이전 미완료 인증번호는 즉시 만료 처리합니다.
+    try:
+        (
+            supabase.table("email_verifications")
+            .update({"expires_at": _utc_now_iso()})
+            .eq("email", normalized_email)
+            .eq("purpose", purpose)
+            .eq("verified", False)
+            .execute()
+        )
+    except Exception:
+        pass
+
+    payload = {
+        "email": normalized_email,
+        "purpose": purpose,
+        "code_hash": _verification_code_hash(normalized_email, purpose, code),
+        "expires_at": expires_at.isoformat(),
+        "attempts": 0,
+        "verified": False,
+    }
+    supabase.table("email_verifications").insert(payload).execute()
+    return code
+
+
+def verify_email_verification(email: str, purpose: str, input_code: str) -> tuple[bool, str]:
+    normalized_email = str(email or "").strip().lower()
+    code = str(input_code or "").strip()
+    if not normalized_email or not code:
+        return False, "이메일과 인증번호를 모두 입력해 주세요."
+
+    try:
+        response = (
+            supabase.table("email_verifications")
+            .select("*")
+            .eq("email", normalized_email)
+            .eq("purpose", purpose)
+            .eq("verified", False)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = _response_data(response)
+        if not rows:
+            return False, "유효한 인증번호를 찾지 못했습니다. 인증번호를 다시 받아 주세요."
+        record = rows[0]
+        record_id = record.get("id")
+        expires_at = pd.to_datetime(record.get("expires_at"), utc=True, errors="coerce")
+        if pd.isna(expires_at) or expires_at.to_pydatetime() < datetime.now(timezone.utc):
+            return False, "인증번호 유효 시간이 지났습니다. 인증번호를 다시 받아 주세요."
+        attempts = int(record.get("attempts") or 0)
+        if attempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS:
+            return False, "인증번호 입력 가능 횟수를 초과했습니다. 새 인증번호를 받아 주세요."
+
+        expected = str(record.get("code_hash") or "")
+        actual = _verification_code_hash(normalized_email, purpose, code)
+        if not hmac.compare_digest(expected, actual):
+            if record_id:
+                (
+                    supabase.table("email_verifications")
+                    .update({"attempts": attempts + 1})
+                    .eq("id", record_id)
+                    .execute()
+                )
+            return False, "인증번호가 일치하지 않습니다."
+
+        if record_id:
+            (
+                supabase.table("email_verifications")
+                .update({"verified": True, "verified_at": _utc_now_iso()})
+                .eq("id", record_id)
+                .execute()
+            )
+        return True, "이메일 인증이 완료되었습니다."
+    except Exception as exc:
+        return False, f"이메일 인증 정보를 확인하지 못했습니다: {exc}"
+
+
+def find_member_id_by_email(email: str) -> str:
+    normalized_email = str(email or "").strip().lower()
+    if not normalized_email:
+        return ""
+    try:
+        response = (
+            supabase.table("subscribers")
+            .select("username, platform_member_id")
+            .eq("email", normalized_email)
+            .eq("deleted", False)
+            .limit(1)
+            .execute()
+        )
+        rows = _response_data(response)
+        if not rows:
+            return ""
+        return str(rows[0].get("username") or rows[0].get("platform_member_id") or "")
+    except Exception:
+        return ""
+
+
+def reset_member_password_by_email(email: str, new_password: str):
+    """본인 이메일 인증이 완료된 경우에만 서버에서 비밀번호를 새 값으로 교체합니다."""
+    normalized_email = str(email or "").strip().lower()
+    try:
+        response = (
+            supabase.table("subscribers")
+            .select("user_id")
+            .eq("email", normalized_email)
+            .eq("deleted", False)
+            .limit(1)
+            .execute()
+        )
+        rows = _response_data(response)
+        if not rows or not rows[0].get("user_id"):
+            raise ValueError("등록된 회원 정보를 찾지 못했습니다.")
+        supabase.auth.admin.update_user_by_id(
+            str(rows[0]["user_id"]),
+            {"password": new_password},
+        )
+    except Exception as exc:
+        raise RuntimeError(f"비밀번호를 재설정하지 못했습니다: {exc}")
+
 
 
 def private_log_metadata() -> dict | None:
@@ -1282,201 +1471,422 @@ def _image_data_url(uploaded_file) -> str:
     encoded = base64.b64encode(image_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
 
-def _parse_photo_draft_json(raw_text: str) -> dict:
+def _parse_json_object(raw_text: str) -> dict:
     cleaned = (raw_text or "").strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-
     try:
         payload = json.loads(cleaned)
     except Exception:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start >= 0 and end > start:
+        start_at, end_at = cleaned.find("{"), cleaned.rfind("}")
+        if start_at >= 0 and end_at > start_at:
             try:
-                payload = json.loads(cleaned[start:end + 1])
+                payload = json.loads(cleaned[start_at:end_at + 1])
             except Exception:
                 payload = {}
         else:
             payload = {}
+    return payload if isinstance(payload, dict) else {}
 
-    if not isinstance(payload, dict):
-        payload = {}
 
+def _as_text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
+
+
+def curriculum_display_text(areas) -> str:
+    values = _as_text_list(areas)
+    return ", ".join(values) if values else "교육과정 영역 미선택"
+
+
+def _parse_photo_draft_json(raw_text: str) -> dict:
+    payload = _parse_json_object(raw_text)
+    cleaned = (raw_text or "").strip()
     return {
         "play_title": str(payload.get("play_title") or "사진 속 놀이 장면").strip(),
         "play_keyword": str(payload.get("play_keyword") or "사진 기반 놀이 관찰").strip(),
         "observed_action": str(payload.get("observed_action") or "사진 속 자료를 살피고 놀이에 참여하는 모습").strip(),
+        "ai_caption": str(payload.get("ai_caption") or "사진 속 놀이 장면을 관찰한 결과입니다.").strip(),
         "draft": str(payload.get("draft") or cleaned or "사진 분석 결과를 바탕으로 초안을 만들지 못했습니다.").strip(),
     }
 
 
-def analyze_play_photos(uploaded_files) -> dict:
-    """사진 원본은 Private Storage에 보관하고, OpenAI에는 Base64 이미지 데이터로 전달해 초안을 반환합니다."""
+def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
+    """선정된 3~5장 사진과 교사 입력값을 함께 읽어 4~6문장의 1차 기록을 만듭니다."""
     if not uploaded_files:
         raise ValueError("분석할 사진을 한 장 이상 업로드해 주세요.")
-
     if len(uploaded_files) > MAX_PLAY_PHOTO_COUNT:
-        raise ValueError(f"사진은 한 번에 최대 {MAX_PLAY_PHOTO_COUNT}장까지 업로드할 수 있습니다.")
+        raise ValueError(f"AI 분석은 자동 추천된 최대 {MAX_PLAY_PHOTO_COUNT}장 사진만 진행합니다.")
 
     client = get_openai_client()
     if client is None:
         raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
 
-    prompt = """
-당신은 한국 어린이집·유치원 교사의 놀이 기록 초안을 돕는 보조자입니다.
-업로드된 사진에서 실제로 보이는 자료, 공간, 행동, 상호작용의 흐름만 바탕으로 한국어 초안을 작성하세요.
+    context = context or {}
+    play_name = str(context.get("play_name") or "").strip()
+    play_goal = str(context.get("play_goal") or "").strip()
+    age_group = str(context.get("age_group") or "").strip()
+    child_alias = str(context.get("child_alias") or "").strip()
+    curriculum = curriculum_display_text(context.get("curriculum_areas"))
+    output_type = str(context.get("output_type") or "놀이 이야기")
+
+    prompt = f"""
+당신은 한국 어린이집·유치원 교사의 사진 기반 놀이 기록을 돕는 보조자입니다.
+아래의 교사 입력값과 업로드된 사진에서 실제로 확인되는 장면만 바탕으로 1차 기록 초안을 작성하세요.
+
+[교사 입력]
+- 놀이명: {play_name or '미입력'}
+- 놀이 목표: {play_goal or '미입력'}
+- 연령: {age_group or '미입력'}
+- 아이 별칭: {child_alias or '미입력'}
+- 선택 교육과정 영역: {curriculum}
+- 만들 기록: {output_type}
 
 반드시 지킬 점:
-- 사진 속 사람의 이름, 신원, 성별, 정확한 나이, 가족관계, 건강·장애·발달 상태를 추정하거나 단정하지 마세요.
+- 사진 속 사람의 이름, 성별, 정확한 나이, 가족관계, 건강·장애·발달 상태를 추정하거나 단정하지 마세요.
 - 사진에 보이지 않는 사건·대화·감정·교육적 효과를 지어내지 마세요.
-- 특정 영유아를 평가하거나 진단하지 마세요.
-- 연령과 교육과정 영역은 교사가 최종 선택하므로, 사진만으로 이를 단정하지 마세요.
-- 3~4문장, 250~420자 정도의 부드럽고 사실 중심인 '놀이 내용과 상황 초안'을 작성하세요.
-- 사용자가 바로 수정할 수 있는 초안이므로, 확정적인 평가 대신 '...하는 모습이 보였습니다', '...로 이어질 수 있었습니다'처럼 관찰 중심 표현을 쓰세요.
+- 관찰 중심 표현을 사용하고, 교사의 입력값은 사실로 보지 말고 기록 구성의 맥락으로만 활용하세요.
+- draft는 한국어 4~6문장, 약 300~500자 안팎으로 작성하세요.
+- 교사가 수정하기 쉬운 초안이므로 단정적인 평가보다 '...하는 모습이 보였습니다', '...로 이어질 수 있었습니다' 같은 표현을 사용하세요.
 
 아래 JSON 객체만 반환하세요.
-{
-  "play_title": "짧고 자연스러운 놀이명",
-  "play_keyword": "놀이 - 세부 구분",
+{{
+  "play_title": "사용자 놀이명을 자연스럽게 정리한 짧은 제목",
+  "play_keyword": "놀이 - 세부 구분 형식의 짧은 키워드",
   "observed_action": "사진 속 아이들의 모습 선택란에 넣기 좋은 ‘...하는 모습’ 문장",
-  "draft": "놀이 내용과 상황에 대한 3~4문장 초안"
-}
+  "ai_caption": "사진에서 확인되는 자료·공간·행동을 1~2문장으로 요약",
+  "draft": "교사가 수정할 수 있는 4~6문장 1차 놀이 기록"
+}}
 """.strip()
 
     content = [{"type": "input_text", "text": prompt}]
     for uploaded_file in uploaded_files:
-        content.append(
-            {
-                "type": "input_image",
-                "image_url": _image_data_url(uploaded_file),
-                "detail": "low",
-            }
-        )
+        content.append({"type": "input_image", "image_url": _image_data_url(uploaded_file), "detail": "low"})
 
     response = client.responses.create(
         model=get_openai_vision_model(),
         input=[{"role": "user", "content": content}],
-        max_output_tokens=700,
+        max_output_tokens=1000,
         store=False,
     )
     raw_text = str(getattr(response, "output_text", "") or "").strip()
     if not raw_text:
         raise RuntimeError("사진 분석 결과 텍스트를 받지 못했습니다.")
-
     return _parse_photo_draft_json(raw_text)
 
 
 def _safe_storage_filename(file_name: str) -> str:
-    """Storage 경로에 안전하게 쓸 수 있는 파일명으로 정리합니다."""
     raw_name = Path(str(file_name or "photo")).name
     stem = Path(raw_name).stem
     suffix = Path(raw_name).suffix.lower()
     clean_stem = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", stem).strip("._") or "photo"
-    clean_stem = clean_stem[:80]
-    return f"{clean_stem}{suffix}"
+    return f"{clean_stem[:80]}{suffix}"
 
 
-def store_play_photos(uploaded_files, user_id: str) -> list[dict]:
-    """사진 원본을 Private Supabase Storage에 저장하고 photo_records 메타데이터를 생성합니다."""
+def select_recommended_play_photos(uploaded_files, recommended_count: int) -> tuple[list, dict[str, float | None]]:
+    """기존 사진 선별 모듈을 재사용해 업로드본 중 3~5장의 후보를 고릅니다.
+
+    선별 실패 시 업로드 순서대로 고르되, 기록 생성 자체가 멈추지 않게 합니다.
+    """
+    files = list(uploaded_files or [])
+    if not files:
+        return [], {}
+    if len(files) > MAX_PLAY_UPLOAD_COUNT:
+        raise ValueError(f"한 번에 최대 {MAX_PLAY_UPLOAD_COUNT}장까지 업로드할 수 있습니다.")
+    count = max(1, min(int(recommended_count), MAX_PLAY_PHOTO_COUNT, len(files)))
+    if len(files) <= count:
+        return files, {str(getattr(file, "name", "")): None for file in files}
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="witti_play_rank_"))
+    mapping: dict[str, object] = {}
+    try:
+        for index, uploaded_file in enumerate(files):
+            safe_name = _safe_storage_filename(getattr(uploaded_file, "name", f"photo_{index}.jpg"))
+            temp_path = tmp_dir / f"{index:03d}_{safe_name}"
+            temp_path.write_bytes(uploaded_file.getvalue())
+            mapping[temp_path.name] = uploaded_file
+            mapping[str(temp_path)] = uploaded_file
+
+        ranked = rank_images(str(tmp_dir))
+        selected, score_map = [], {}
+        for image_path, score in ranked[:count]:
+            file = mapping.get(str(image_path)) or mapping.get(Path(str(image_path)).name)
+            if file is not None:
+                selected.append(file)
+                score_map[str(getattr(file, "name", ""))] = float(score)
+        if selected:
+            return selected, score_map
+    except Exception:
+        pass
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    fallback = files[:count]
+    return fallback, {str(getattr(file, "name", "")): None for file in fallback}
+
+
+def create_play_session(
+    user_id: str,
+    play_name: str,
+    play_goal: str,
+    age_group: str,
+    child_alias: str,
+    curriculum_areas: list[str],
+    output_type: str,
+    play_subcategories: list[str],
+    teacher_supports: list[str],
+) -> dict:
+    payload = {
+        "user_id": user_id,
+        "play_name": play_name.strip(),
+        "play_goal": play_goal.strip(),
+        "age_group": age_group,
+        "child_alias": child_alias.strip(),
+        "curriculum_areas": curriculum_areas,
+        "record_type": output_type,
+        "play_subcategories": play_subcategories,
+        "teacher_supports": teacher_supports,
+        "deleted": False,
+    }
+    response = supabase.table("play_sessions").insert(payload).execute()
+    rows = _response_data(response)
+    if not rows:
+        raise RuntimeError("놀이 기록 세션을 만들지 못했습니다.")
+    return rows[0]
+
+
+def update_play_session_analysis(session_id: str, analysis_result: dict):
+    if not session_id:
+        return
+    payload = {
+        "ai_summary": str(analysis_result.get("draft") or ""),
+        "ai_caption": str(analysis_result.get("ai_caption") or ""),
+        "updated_at": _utc_now_iso(),
+    }
+    supabase.table("play_sessions").update(payload).eq("session_id", session_id).execute()
+
+
+def store_play_photos(
+    uploaded_files,
+    user_id: str,
+    session_id: str,
+    child_alias: str = "",
+    quality_scores: dict[str, float | None] | None = None,
+) -> list[dict]:
+    """추천된 사진 원본만 Private Storage에 저장하고 놀이 세션에 연결합니다."""
     if not user_id:
         raise PermissionError("사진을 저장하려면 먼저 로그인해 주세요.")
+    if not session_id:
+        raise ValueError("사진을 연결할 놀이 기록 세션이 없습니다.")
     if not uploaded_files:
         raise ValueError("저장할 사진을 한 장 이상 업로드해 주세요.")
     if len(uploaded_files) > MAX_PLAY_PHOTO_COUNT:
-        raise ValueError(f"사진은 한 번에 최대 {MAX_PLAY_PHOTO_COUNT}장까지 업로드할 수 있습니다.")
+        raise ValueError(f"저장·분석할 사진은 최대 {MAX_PLAY_PHOTO_COUNT}장입니다.")
 
     created_records: list[dict] = []
     uploaded_paths: list[str] = []
+    quality_scores = quality_scores or {}
 
     try:
         for uploaded_file in uploaded_files:
             file_bytes, mime_type = _uploaded_file_bytes_and_mime(uploaded_file)
             now_utc = datetime.now(timezone.utc)
             safe_name = _safe_storage_filename(getattr(uploaded_file, "name", "photo"))
-            file_path = (
-                f"{user_id}/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/"
-                f"{uuid.uuid4().hex}_{safe_name}"
-            )
-
+            file_path = f"{user_id}/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/{uuid.uuid4().hex}_{safe_name}"
             supabase.storage.from_(PLAY_PHOTO_BUCKET).upload(
                 file_path,
                 file_bytes,
                 file_options={"content-type": mime_type, "upsert": "false"},
             )
             uploaded_paths.append(file_path)
-
+            score = quality_scores.get(str(getattr(uploaded_file, "name", "")))
             payload = {
                 "user_id": user_id,
+                "session_id": session_id,
                 "storage_bucket": PLAY_PHOTO_BUCKET,
                 "file_path": file_path,
                 "original_file_name": str(getattr(uploaded_file, "name", "") or safe_name),
                 "mime_type": mime_type,
                 "size_bytes": len(file_bytes),
+                "child_alias": child_alias.strip(),
+                "quality_score": score,
+                "selection_reason": (f"기존 사진 선별 도구의 선명도·밝기 기준 자동 추천 (점수 {score:.1f})" if score is not None else "업로드 사진 수가 적어 자동 추천 대상에 포함"),
+                "is_selected": True,
+                "deleted": False,
             }
             response = supabase.table("photo_records").insert(payload).execute()
-            response_rows = _response_data(response)
-            created_records.append(response_rows[0] if response_rows else payload)
-
+            rows = _response_data(response)
+            created_records.append(rows[0] if rows else payload)
         return created_records
-
     except Exception:
-        # 일부 파일만 올라간 경우에도 남지 않도록 보상 삭제합니다.
         if uploaded_paths:
             try:
                 supabase.storage.from_(PLAY_PHOTO_BUCKET).remove(uploaded_paths)
             except Exception:
                 pass
-        try:
-            for record in created_records:
-                record_id = record.get("id")
-                if record_id:
-                    supabase.table("photo_records").delete().eq("id", int(record_id)).execute()
-        except Exception:
-            pass
+        for record in created_records:
+            if record.get("id"):
+                try:
+                    supabase.table("photo_records").delete().eq("id", int(record["id"])).execute()
+                except Exception:
+                    pass
         raise
 
 
 def attach_photo_analysis_to_records(photo_records: list[dict], analysis_result: dict):
-    """사진 메타데이터에 공통 AI 분석 결과를 연결합니다."""
     if not photo_records:
         return
-
-    analysis_payload = {
+    payload = {
         "play_title": str(analysis_result.get("play_title") or ""),
         "play_keyword": str(analysis_result.get("play_keyword") or ""),
         "observed_action": str(analysis_result.get("observed_action") or ""),
         "draft_text": str(analysis_result.get("draft") or ""),
+        "ai_caption": str(analysis_result.get("ai_caption") or ""),
         "analyzed_at": _utc_now_iso(),
     }
-
     for record in photo_records:
         record_id = record.get("id")
-        file_path = record.get("file_path")
-        try:
-            if record_id:
-                supabase.table("photo_records").update(analysis_payload).eq("id", int(record_id)).execute()
-            elif file_path:
-                supabase.table("photo_records").update(analysis_payload).eq("file_path", str(file_path)).execute()
-        except Exception:
-            # 사진은 이미 저장되어 있으므로 분석 텍스트 연결 실패가 원본 보관을 막지 않게 합니다.
-            pass
+        if record_id:
+            try:
+                supabase.table("photo_records").update(payload).eq("id", int(record_id)).execute()
+            except Exception:
+                pass
+
+
+def generate_final_play_record(context: dict, edited_draft: str, revision_direction: str = "") -> dict:
+    """사진 1차 분석과 교사 수정 내용을 반영해 최종 놀이 이야기 또는 3개 작문 예시를 만듭니다."""
+    client = get_openai_client()
+    if client is None:
+        raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
+
+    output_type = str(context.get("output_type") or "놀이 이야기")
+    play_name = str(context.get("play_name") or "오늘의 놀이")
+    play_goal = str(context.get("play_goal") or "")
+    age_group = str(context.get("age_group") or "")
+    child_alias = str(context.get("child_alias") or "")
+    curriculum = curriculum_display_text(context.get("curriculum_areas"))
+    detail_tags = ", ".join(_as_text_list(context.get("play_subcategories"))) or "미선택"
+    supports = ", ".join(_as_text_list(context.get("teacher_supports"))) or "미선택"
+
+    if output_type == "놀이 이야기":
+        output_schema = """{\n  \"sections\": {\n    \"놀이 주제\": \"1~2문장\",\n    \"놀이에서 읽은 배움\": \"1~2문장\",\n    \"교사의 지원\": \"1~2문장\",\n    \"다음 놀이로 이어가기\": \"1~2문장\"\n  }\n}"""
+    else:
+        output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+
+    prompt = f"""
+당신은 한국 영유아교육 현장의 기록 문장을 돕는 보조자입니다.
+사진 분석으로 만든 1차 초안과 교사의 수정 내용을 바탕으로 최종 기록을 작성하세요.
+
+[놀이 정보]
+- 놀이명: {play_name}
+- 놀이 목표: {play_goal or '미입력'}
+- 연령: {age_group or '미입력'}
+- 아이 별칭: {child_alias or '미입력'}
+- 교육과정 영역(복수): {curriculum}
+- 놀이 세부 구분(복수): {detail_tags}
+- 교사의 지원(복수): {supports}
+- 기록 유형: {output_type}
+
+[교사가 수정한 1차 초안]
+{edited_draft.strip()}
+
+[추가 수정 방향]
+{revision_direction.strip() or '없음'}
+
+반드시 지킬 점:
+- 사진에 직접 드러나지 않은 대화·사건·정서·발달 수준을 지어내지 마세요.
+- 특정 아동의 진단, 비교, 평가를 하지 마세요.
+- 교육과정 영역은 교사가 선택한 항목을 맥락으로 연결하되 과도하게 나열하지 마세요.
+- 놀이 이야기는 네 개 섹션 전체가 합쳐 4~6문장 안팎이 되도록 간결하게 작성하세요.
+- 일지·알림장은 각각 서로 다른 문체의 예시 3개를 만들고, 각 예시는 3~5문장 이내로 작성하세요.
+- 아동 실명 대신 입력한 별칭 또는 '영아/유아' 같은 일반 표현을 사용하세요.
+
+아래 JSON 형식만 반환하세요.
+{output_schema}
+""".strip()
+
+    response = client.responses.create(
+        model=get_openai_vision_model(),
+        input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+        max_output_tokens=1500,
+        store=False,
+    )
+    raw = str(getattr(response, "output_text", "") or "").strip()
+    payload = _parse_json_object(raw)
+    if output_type == "놀이 이야기":
+        sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+        ordered = ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]
+        normalized = {name: str(sections.get(name) or "").strip() for name in ordered}
+        if not all(normalized.values()):
+            normalized = {
+                "놀이 주제": f"{play_name} 놀이에서 사진 속 장면과 교사가 정리한 관찰을 중심으로 놀이 흐름을 살펴보았습니다.",
+                "놀이에서 읽은 배움": f"{edited_draft.strip()} 선택한 {curriculum} 영역의 경험이 놀이 속에서 함께 드러났습니다.",
+                "교사의 지원": f"교사는 {supports if supports != '미선택' else '아이의 반응을 살피는 상호작용'}을 통해 놀이가 이어질 수 있도록 지원했습니다.",
+                "다음 놀이로 이어가기": "오늘 관심을 보인 자료와 표현을 다시 꺼내어 다음 탐색으로 연결해 볼 수 있습니다.",
+            }
+        plain = "\n\n".join(f"{name}\n{normalized[name]}" for name in ordered)
+        return {"output_type": output_type, "sections": normalized, "examples": [], "plain_text": plain}
+
+    examples = payload.get("examples") if isinstance(payload.get("examples"), list) else []
+    examples = [str(item).strip() for item in examples if str(item).strip()][:3]
+    if len(examples) < 3:
+        base = edited_draft.strip()
+        subject = child_alias.strip() or ("영아" if age_group in ["0세", "1세", "2세"] else "유아")
+        tone_word = "일지" if output_type == "일지" else "알림장"
+        examples = [
+            f"{base}\n\n{subject}의 관심과 반응을 중심으로 {tone_word}에 담았습니다.",
+            f"{play_name} 활동에서 관찰된 장면을 바탕으로 기록했습니다. {base}",
+            f"오늘의 {play_name} 경험은 {curriculum} 영역과 연결해 살펴볼 수 있었습니다. {base}",
+        ]
+    plain = "\n\n".join(f"예시 {index + 1}\n{item}" for index, item in enumerate(examples))
+    return {"output_type": output_type, "sections": {}, "examples": examples, "plain_text": plain}
+
+
+def save_generated_text(session_id: str, user_id: str, output_type: str, result_text: str, edited_text: str, source_text: str):
+    payload = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "output_type": output_type,
+        "result_text": result_text,
+        "edited_text": edited_text,
+        "source_text": source_text,
+        "expires_at": _expiry_iso(),
+        "deleted": False,
+    }
+    response = supabase.table("generated_texts").insert(payload).execute()
+    rows = _response_data(response)
+    return rows[0] if rows else payload
+
+
+def load_member_play_sessions(user_id: str) -> pd.DataFrame:
+    if not user_id:
+        return pd.DataFrame()
+    try:
+        response = supabase.table("play_sessions").select("*").eq("user_id", user_id).eq("deleted", False).order("created_at", desc=True).execute()
+        return pd.DataFrame(_response_data(response))
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_member_generated_texts(user_id: str) -> pd.DataFrame:
+    if not user_id:
+        return pd.DataFrame()
+    try:
+        response = supabase.table("generated_texts").select("*").eq("user_id", user_id).eq("deleted", False).order("created_at", desc=True).execute()
+        return pd.DataFrame(_response_data(response))
+    except Exception:
+        return pd.DataFrame()
 
 
 def load_member_photo_records(user_id: str) -> pd.DataFrame:
-    """로그인한 회원의 사진 메타데이터만 불러옵니다."""
     if not user_id:
         return pd.DataFrame()
-
     try:
-        response = (
-            supabase.table("photo_records")
-            .select("*")
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .execute()
-        )
+        response = supabase.table("photo_records").select("*").eq("user_id", user_id).eq("deleted", False).order("created_at", desc=True).execute()
         return pd.DataFrame(_response_data(response))
     except Exception:
         return pd.DataFrame()
@@ -1560,35 +1970,27 @@ def delete_all_member_photos(user_id: str):
 
 
 def render_member_information_page():
-    """회원 본인만 자신의 가입 정보, 1년 기록, 보관 사진을 확인하는 화면입니다."""
+    """교사의 온도 없이, 회원별 놀이 세션·생성문장·비공개 사진만 보여 줍니다."""
     render_menu_card(
         "👤 내 정보 보기",
-        "회원 정보와 최근 1년간의 기록 요정·교사의 온도 기록, 비공개로 보관된 놀이 사진을 개인 화면에서 확인합니다.",
-        ["가입 정보", "1년 기록", "월별 마음온도", "내 놀이 사진"]
+        "내 계정, 저장된 놀이 기록과 비공개 사진을 확인하고 사진을 직접 삭제할 수 있습니다.",
+        ["가입 정보", "놀이 기록", "생성 문장", "내 놀이 사진"]
     )
-
     purge_expired_private_records_once_per_session()
-
     user_id = current_member_user_id()
     if not user_id:
-        st.info("소통 탭에서 이메일과 비밀번호로 로그인하면 개인 기록과 보관 사진을 확인할 수 있습니다.")
+        st.info("소통 탭에서 아이디와 비밀번호로 로그인하면 내 놀이 기록과 보관 사진을 확인할 수 있습니다.")
         return
-
     profile = get_member_profile(user_id)
     if not profile:
         st.warning("회원 프로필을 확인하지 못했습니다. 다시 로그인하거나 관리자에게 문의해 주세요.")
         return
 
-    if bool(profile.get("deleted")) or profile.get("is_active") is False:
-        st.warning("현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.")
-        clear_member_session()
-        return
-
     st.markdown("### 가입 정보")
     info_col1, info_col2 = st.columns(2)
     with info_col1:
-        st.write(f"**회원 ID**  {profile.get('platform_member_id') or '-'}")
-        st.write(f"**가입자 성명**  {profile.get('subscriber_name') or '-'}")
+        st.write(f"**아이디**  {profile.get('username') or profile.get('platform_member_id') or '-'}")
+        st.write(f"**가입자 성명**  {profile.get('subscriber_name') or profile.get('display_name') or '-'}")
         st.write(f"**이메일**  {profile.get('email') or current_member_email() or '-'}")
         st.write(f"**직책**  {profile.get('position') or '-'}")
     with info_col2:
@@ -1596,159 +1998,77 @@ def render_member_information_page():
         st.write(f"**기관 구분·유형**  {(profile.get('institution_group') or '-')} / {(profile.get('institution_type') or '-')}")
         st.write(f"**기관 특성**  {profile.get('institution_feature') or '-'}")
         st.write(f"**최근 로그인**  {profile.get('last_login_at') or '-'}")
-
-    st.caption("기록 요정과 교사의 온도에 저장된 개인 기록은 작성일로부터 1년 후 자동으로 영구 삭제됩니다. 놀이 사진 원본은 비공개 Storage에 보관되며, 자동 삭제되지 않고 회원 본인이 직접 삭제할 수 있습니다.")
-
+    st.caption("생성된 텍스트 기록은 작성일로부터 1년 후 자동 삭제됩니다. 사진 원본은 비공개 Storage에 보관되며 자동 삭제되지 않고 본인이 직접 삭제할 수 있습니다.")
     if st.button("로그아웃", key="my_page_logout"):
         clear_member_session()
-        st.success("로그아웃했습니다.")
         st.rerun()
 
-    phrase_df = load_member_records("phrase_logs", user_id)
-    temp_df = load_member_records("teacher_temperature_logs", user_id)
+    sessions_df = load_member_play_sessions(user_id)
+    texts_df = load_member_generated_texts(user_id)
+    legacy_phrase_df = load_member_records("phrase_logs", user_id)
     photo_df = load_member_photo_records(user_id)
-
-    record_tab1, record_tab2, record_tab3, record_tab4 = st.tabs(
-        ["🧚‍♀️ 기록 요정", "🌿 교사의 온도", "📈 월별 마음온도", "📷 내 놀이 사진"]
-    )
+    record_tab1, record_tab2, record_tab3 = st.tabs(["🗂️ 내 놀이 기록", "📝 생성 문장", "📷 내 놀이 사진"])
 
     with record_tab1:
-        st.markdown("#### 최근 1년 기록 요정 기록")
-        if phrase_df.empty:
-            st.caption("최근 1년간 저장된 기록 요정 내용이 없습니다.")
+        if sessions_df.empty:
+            st.caption("저장된 놀이 기록이 없습니다. 기록 요정에서 사진 분석을 시작해 주세요.")
         else:
-            display = _format_kst_datetime_column(phrase_df)
-            columns = [column for column in ["작성일시", "record_type", "play_keyword", "generated_text", "expires_at"] if column in display.columns]
-            display = display[columns].rename(
-                columns={
-                    "record_type": "기록 유형",
-                    "play_keyword": "놀이 키워드",
-                    "generated_text": "작성 내용",
-                    "expires_at": "자동 삭제 예정일",
-                }
-            )
+            display = _format_kst_datetime_column(sessions_df)
+            cols = [c for c in ["작성일시", "play_name", "play_goal", "age_group", "child_alias", "record_type", "curriculum_areas", "ai_summary"] if c in display.columns]
+            display = display[cols].rename(columns={
+                "play_name": "놀이명", "play_goal": "놀이 목표", "age_group": "연령", "child_alias": "아이 별칭",
+                "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진 1차 분석",
+            })
             st.dataframe(display, use_container_width=True, hide_index=True, height=360)
 
     with record_tab2:
-        st.markdown("#### 최근 1년 교사의 온도 기록")
-        if temp_df.empty:
-            st.caption("최근 1년간 저장된 교사의 온도 기록이 없습니다.")
+        if texts_df.empty and legacy_phrase_df.empty:
+            st.caption("저장된 생성 문장이 없습니다.")
         else:
-            display = _format_kst_datetime_column(temp_df)
-            columns = [column for column in ["작성일시", "diary_type", "memory", "emotion", "temperature", "average_temp", "result_text", "expires_at"] if column in display.columns]
-            display = display[columns].rename(
-                columns={
-                    "diary_type": "기록 유형",
-                    "memory": "기억",
-                    "emotion": "감정",
-                    "temperature": "입력 온도",
-                    "average_temp": "평균 마음온도",
-                    "result_text": "작성 내용",
-                    "expires_at": "자동 삭제 예정일",
-                }
-            )
-            st.dataframe(display, use_container_width=True, hide_index=True, height=360)
+            if not texts_df.empty:
+                st.markdown("#### 사진 기반 생성 문장")
+                for record in _format_kst_datetime_column(texts_df).to_dict("records"):
+                    label = f"{record.get('작성일시') or record.get('created_at') or '-'} · {record.get('output_type') or '기록'}"
+                    with st.expander(label, expanded=False):
+                        st.write(record.get("result_text") or "")
+                        if record.get("edited_text"):
+                            st.caption("교사가 수정한 1차 초안")
+                            st.write(record.get("edited_text"))
+            if not legacy_phrase_df.empty:
+                st.markdown("#### 이전 기록 요정 기록")
+                legacy = _format_kst_datetime_column(legacy_phrase_df)
+                cols = [c for c in ["작성일시", "record_type", "play_keyword", "generated_text"] if c in legacy.columns]
+                st.dataframe(legacy[cols], use_container_width=True, hide_index=True, height=240)
 
     with record_tab3:
-        st.markdown("#### 월별 마음온도 그래프")
-        graph_df = temp_df.copy()
-        if graph_df.empty or "average_temp" not in graph_df.columns or "created_at" not in graph_df.columns:
-            st.caption("그래프로 표시할 평균 마음온도 기록이 없습니다. ‘3줄 요약 다이어리’를 작성하면 그래프가 만들어집니다.")
-        else:
-            graph_df["average_temp"] = pd.to_numeric(graph_df["average_temp"], errors="coerce")
-            graph_df["작성일시_kr"] = pd.to_datetime(graph_df["created_at"], errors="coerce", utc=True).dt.tz_convert("Asia/Seoul")
-            graph_df = graph_df.dropna(subset=["average_temp", "작성일시_kr"])
-
-            if graph_df.empty:
-                st.caption("그래프로 표시할 평균 마음온도 기록이 없습니다.")
-            else:
-                graph_df["월"] = graph_df["작성일시_kr"].dt.strftime("%Y-%m")
-                month_options = sorted(graph_df["월"].dropna().unique().tolist(), reverse=True)
-                selected_month = st.selectbox("확인할 월", month_options, key="my_page_temperature_month")
-                selected = graph_df[graph_df["월"] == selected_month].copy()
-                selected["날짜"] = selected["작성일시_kr"].dt.date
-                daily = (
-                    selected.groupby("날짜", as_index=False)["average_temp"]
-                    .mean()
-                    .rename(columns={"average_temp": "평균 마음온도"})
-                )
-
-                if alt is not None:
-                    chart = (
-                        alt.Chart(daily)
-                        .mark_line(point=True)
-                        .encode(
-                            x=alt.X("날짜:T", title="날짜"),
-                            y=alt.Y("평균 마음온도:Q", title="평균 마음온도(℃)", scale=alt.Scale(domain=[30, 41])),
-                            tooltip=[
-                                alt.Tooltip("날짜:T", title="날짜"),
-                                alt.Tooltip("평균 마음온도:Q", title="평균 마음온도", format=".1f"),
-                            ],
-                        )
-                        .properties(height=320)
-                    )
-                    st.altair_chart(chart, use_container_width=True, theme=None)
-                else:
-                    st.line_chart(daily.set_index("날짜")["평균 마음온도"])
-
-                st.caption("이 그래프는 본인 계정의 3줄 요약 다이어리 평균 마음온도만 표시하며, 다른 회원이나 관리자가 아닌 본인 화면에서 확인합니다.")
-
-    with record_tab4:
-        st.markdown("#### 내 놀이 사진")
-        st.caption("사진 원본은 비공개 Supabase Storage에 보관됩니다. 사진은 자동으로 삭제되지 않으며, 아래에서 본인이 직접 영구 삭제할 수 있습니다.")
-
+        st.caption("사진 원본은 비공개 Supabase Storage에 보관됩니다. 삭제하면 원본 파일과 연결 정보가 함께 영구 삭제됩니다.")
         if photo_df.empty:
-            st.caption("보관된 놀이 사진이 없습니다. 기록 요정에서 사진 분석을 실행하면 이곳에 저장됩니다.")
+            st.caption("보관된 놀이 사진이 없습니다.")
         else:
-            photo_display = _format_kst_datetime_column(photo_df)
-            photo_records = photo_display.to_dict("records")
-
-            for row_index in range(0, len(photo_records), 2):
-                photo_columns = st.columns(2)
-                for column, record in zip(photo_columns, photo_records[row_index:row_index + 2]):
-                    photo_id = record.get("id")
+            records = _format_kst_datetime_column(photo_df).to_dict("records")
+            for row_index in range(0, len(records), 2):
+                columns = st.columns(2)
+                for column, record in zip(columns, records[row_index:row_index + 2]):
                     with column:
-                        signed_url = create_member_photo_signed_url(
-                            str(record.get("file_path") or ""),
-                            str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
-                        )
+                        photo_id = record.get("id")
+                        signed_url = create_member_photo_signed_url(str(record.get("file_path") or ""), str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET))
                         if signed_url:
                             st.image(signed_url, use_container_width=True)
-                        else:
-                            st.warning("사진을 불러오지 못했습니다. Storage 설정 또는 파일 상태를 확인해 주세요.")
-
-                        st.caption(
-                            f"{record.get('작성일시') or record.get('created_at') or '-'} · "
-                            f"{record.get('original_file_name') or '놀이 사진'}"
-                        )
+                        st.caption(f"{record.get('작성일시') or '-'} · {record.get('original_file_name') or '놀이 사진'}")
                         if record.get("play_title"):
-                            st.write(f"**연결된 놀이명**  {record.get('play_title')}")
-                        if record.get("draft_text"):
-                            with st.expander("연결된 놀이 기록 초안", expanded=False):
-                                st.write(record.get("draft_text"))
-
-                        delete_request_key = f"member_photo_delete_request_{photo_id}"
+                            st.write(f"**연결 놀이명**  {record.get('play_title')}")
+                        if record.get("selection_reason"):
+                            st.caption(record.get("selection_reason"))
+                        request_key = f"member_photo_delete_request_{photo_id}"
                         if st.button("이 사진 삭제", key=f"member_photo_delete_button_{photo_id}"):
-                            st.session_state[delete_request_key] = True
-
-                        if st.session_state.get(delete_request_key):
-                            confirmed = st.checkbox(
-                                "사진 원본과 연결 정보가 영구 삭제되는 것을 확인했습니다.",
-                                key=f"member_photo_delete_confirm_{photo_id}",
-                            )
-                            if st.button(
-                                "사진 영구 삭제",
-                                key=f"member_photo_delete_confirm_button_{photo_id}",
-                                disabled=not confirmed,
-                            ):
-                                try:
-                                    delete_member_photo(int(photo_id), user_id)
-                                    st.session_state.pop(delete_request_key, None)
-                                    st.success("사진을 영구 삭제했습니다.")
-                                    st.rerun()
-                                except Exception as exc:
-                                    st.error("사진을 삭제하지 못했습니다.")
-                                    st.caption(str(exc))
+                            st.session_state[request_key] = True
+                        if st.session_state.get(request_key):
+                            confirmed = st.checkbox("사진 원본과 연결 정보가 영구 삭제되는 것을 확인했습니다.", key=f"member_photo_delete_confirm_{photo_id}")
+                            if st.button("사진 영구 삭제", key=f"member_photo_delete_confirm_button_{photo_id}", disabled=not confirmed):
+                                delete_member_photo(int(photo_id), user_id)
+                                st.session_state.pop(request_key, None)
+                                st.success("사진을 영구 삭제했습니다.")
+                                st.rerun()
 
 
 def platform_info_text() -> str:
@@ -2156,6 +2476,9 @@ def save_subscriber(data):
     payload = {
         "user_id": data.get("회원 UID", ""),
         "platform_member_id": data.get("회원 ID", ""),
+        "username": data.get("아이디", data.get("회원 ID", "")),
+        "display_name": data.get("가입자 성명", ""),
+        "role": "teacher",
         "institution_name": data.get("기관명", ""),
         "institution_group": data.get("기관 구분", ""),
         "institution_type": data.get("기관 유형", ""),
@@ -2215,26 +2538,6 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
     return True
 
 
-def save_temperature_log(diary_type, memory, emotion, temperature, average_temp, temp_message, result_text):
-    """교사의 온도 기록은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
-    private_meta = private_log_metadata()
-    if not private_meta:
-        return False
-
-    payload = {
-        "diary_type": diary_type,
-        "memory": memory,
-        "emotion": emotion,
-        "temperature": temperature,
-        "average_temp": average_temp,
-        "temp_message": temp_message,
-        "result_text": result_text,
-        "deleted": False,
-        **private_meta,
-    }
-    supabase.table("teacher_temperature_logs").insert(payload).execute()
-    return True
-
 
 def load_table(table_name, include_deleted=False):
     """관리자 페이지에서 Supabase 테이블을 DataFrame으로 불러옵니다."""
@@ -2244,9 +2547,13 @@ def load_table(table_name, include_deleted=False):
             query = query.eq("deleted", False)
         response = query.execute()
         return pd.DataFrame(_response_data(response))
-    except Exception as e:
-        st.warning(f"{table_name} 데이터를 불러오지 못했습니다: {e}")
-        return pd.DataFrame()
+    except Exception:
+        try:
+            response = supabase.table(table_name).select("*").order("id", desc=True).execute()
+            return pd.DataFrame(_response_data(response))
+        except Exception as e:
+            st.warning(f"{table_name} 데이터를 불러오지 못했습니다: {e}")
+            return pd.DataFrame()
 
 
 def soft_delete_record(table_name, record_id):
@@ -2263,32 +2570,59 @@ def restore_record(table_name, record_id):
     supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
 
 
-def hard_delete_record(table_name, record_id):
-    """Supabase에서 선택한 기록을 영구 삭제합니다.
+def delete_photos_for_session(session_id: str):
+    if not session_id:
+        return
+    try:
+        response = supabase.table("photo_records").select("id, storage_bucket, file_path").eq("session_id", session_id).execute()
+        rows = _response_data(response)
+    except Exception:
+        rows = []
+    buckets: dict[str, list[str]] = {}
+    for row in rows:
+        bucket = str(row.get("storage_bucket") or PLAY_PHOTO_BUCKET)
+        path = str(row.get("file_path") or "")
+        if path:
+            buckets.setdefault(bucket, []).append(path)
+    for bucket, paths in buckets.items():
+        try:
+            supabase.storage.from_(bucket).remove(paths)
+        except Exception:
+            pass
+    try:
+        supabase.table("photo_records").delete().eq("session_id", session_id).execute()
+    except Exception:
+        pass
 
-    회원을 영구 삭제할 때는 Auth 계정, 개인 기록 메타데이터와 함께 Private Storage의
-    사진 원본도 먼저 정리합니다.
-    """
+
+def hard_delete_record(table_name, record_id):
+    """관리자 영구 삭제 시 Auth·Storage까지 함께 정리합니다."""
     if table_name == "subscribers":
         user_id = ""
         try:
-            response = (
-                supabase.table("subscribers")
-                .select("user_id")
-                .eq("id", int(record_id))
-                .limit(1)
-                .execute()
-            )
-            rows = _response_data(response)
+            rows = _response_data(supabase.table("subscribers").select("user_id").eq("id", int(record_id)).limit(1).execute())
             user_id = str(rows[0].get("user_id") or "") if rows else ""
         except Exception:
-            user_id = ""
-
+            pass
         if user_id:
             delete_all_member_photos(user_id)
             delete_auth_member(user_id)
-
+    elif table_name == "photo_records":
+        try:
+            rows = _response_data(supabase.table("photo_records").select("storage_bucket, file_path").eq("id", int(record_id)).limit(1).execute())
+            if rows and rows[0].get("file_path"):
+                supabase.storage.from_(str(rows[0].get("storage_bucket") or PLAY_PHOTO_BUCKET)).remove([str(rows[0]["file_path"])])
+        except Exception:
+            pass
+    elif table_name == "play_sessions":
+        try:
+            rows = _response_data(supabase.table("play_sessions").select("session_id").eq("id", int(record_id)).limit(1).execute())
+            if rows:
+                delete_photos_for_session(str(rows[0].get("session_id") or ""))
+        except Exception:
+            pass
     supabase.table(table_name).delete().eq("id", int(record_id)).execute()
+
 
 def draw_category_chart(series: pd.Series, title: str):
     if series.empty:
@@ -2400,7 +2734,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 🌿 이용 안내")
-    st.caption("☞ 사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 교사의 하루 기록을 한 곳에서 사용할 수 있습니다.")
+    st.caption("☞ 사진 선별, 사진 기반 놀이 기록 생성, 사진 보정, 개인 기록 관리를 한 곳에서 사용할 수 있습니다.")
     st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
     st.markdown(
         f"""
@@ -2417,23 +2751,9 @@ apply_sidebar_open_hint()
 apply_mobile_settings_launcher()
 purge_expired_private_records_once_per_session()
 
-tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "🌿 교사의 온도", "👤 내 정보 보기", "🔐 관리자"]
-if SHOW_DIARY_FEATURE:
-    tab_labels.insert(3, "📝 알림장")
-
+tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "👤 내 정보 보기", "🔐 관리자"]
 tabs = st.tabs(tab_labels)
-tab1, tab2, tab3 = tabs[:3]
-
-if SHOW_DIARY_FEATURE:
-    tab4 = tabs[3]
-    tab5 = tabs[4]
-    tab6 = tabs[5]
-    tab7 = tabs[6]
-else:
-    tab4 = None
-    tab5 = tabs[3]
-    tab6 = tabs[4]
-    tab7 = tabs[5]
+tab1, tab2, tab3, tab6, tab7 = tabs
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -2524,317 +2844,144 @@ def send_verification_email(to_email, code):
 with tab1:
     render_menu_card(
         "💬 함께 소통해요",
-        "회원가입 후 이메일과 비밀번호로 로그인하면 기록 요정과 교사의 온도를 개인 기록으로 안전하게 관리할 수 있습니다.",
-        ["회원가입", "이메일 인증", "이메일 로그인", "개인 기록"]
+        "가입자가 직접 만든 아이디와 비밀번호로 로그인합니다. 이메일 인증은 회원가입과 아이디·비밀번호 찾기에 사용됩니다.",
+        ["아이디 로그인", "이메일 인증", "회원가입", "아이디·비밀번호 찾기"]
     )
 
-    login_tab, join_tab = st.tabs(["로그인", "회원가입"])
+    login_tab, join_tab, recovery_tab = st.tabs(["로그인", "회원가입", "아이디·비밀번호 찾기"])
 
     with login_tab:
-        st.markdown("### 이메일 로그인")
-
+        st.markdown("### 아이디 로그인")
         if member_is_logged_in():
-            st.success(
-                f"{current_member_email() or '회원'}님이 로그인되어 있습니다. "
-                f"회원 ID: {st.session_state.get('member_platform_id') or '-'}"
-            )
+            st.success(f"{st.session_state.get('member_platform_id') or '회원'}님이 로그인되어 있습니다.")
             if st.button("로그아웃", key="communication_logout"):
                 clear_member_session()
-                st.success("로그아웃했습니다.")
                 st.rerun()
         else:
-            login_email = st.text_input(
-                "이메일",
-                placeholder="예: witti@example.com",
-                key="member_login_email",
-            )
-            login_password = st.text_input(
-                "비밀번호",
-                type="password",
-                placeholder="회원가입 시 설정한 비밀번호",
-                key="member_login_password",
-            )
-
+            login_id = st.text_input("아이디", placeholder="회원가입 시 직접 만든 아이디", key="member_login_id")
+            login_password = st.text_input("비밀번호", type="password", placeholder="비밀번호 입력", key="member_login_password")
             if st.button("로그인", key="member_login_button"):
-                if not login_email.strip() or not login_password:
-                    st.warning("이메일과 비밀번호를 모두 입력해 주세요.")
+                if not login_id.strip() or not login_password:
+                    st.warning("아이디와 비밀번호를 모두 입력해 주세요.")
                 else:
-                    success, result = authenticate_member(login_email, login_password)
+                    success, result = authenticate_member(login_id, login_password)
                     if success:
-                        st.success(f"로그인되었습니다. 회원 ID: {result or '-'}")
+                        st.success(f"로그인되었습니다. 아이디: {result}")
                         st.rerun()
                     else:
                         st.error(result)
 
-            st.caption("로그인하면 기록 요정과 교사의 온도에서 생성한 내용이 개인 기록으로 1년간 보관됩니다.")
-
     with join_tab:
         st.markdown("### 1. 기관 기본 정보")
-        institution_name = st.text_input(
-            "기관명",
-            placeholder="예: 한솔 / 아이키움",
-            key="join_institution_name"
-        )
-
-        institution_group = st.selectbox(
-            "기관 구분",
-            ["- 선택 -", "어린이집", "유치원"],
-            key="join_institution_group"
-        )
-
+        institution_name = st.text_input("기관명", placeholder="예: 한솔 / 아이키움", key="join_institution_name")
+        institution_group = st.selectbox("기관 구분", ["- 선택 -", "어린이집", "유치원"], key="join_institution_group")
         if institution_group == "유치원":
-            institution_type = st.selectbox(
-                "유치원 유형",
-                ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"],
-                key="join_kinder_type"
-            )
+            institution_type = st.selectbox("유치원 유형", ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"], key="join_kinder_type")
         elif institution_group == "어린이집":
-            institution_type = st.selectbox(
-                "어린이집 유형",
-                ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"],
-                key="join_childcare_type"
-            )
+            institution_type = st.selectbox("어린이집 유형", ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"], key="join_childcare_type")
         else:
             institution_type = "- 선택 -"
-
-        institution_feature = st.multiselect(
-            "기관 특성",
-            ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"],
-            key="join_institution_feature"
-        )
-
-        st.caption("※ 기관 특성은 현재 유치원 알리미와 자동 연동되지 않습니다. 본 플랫폼에서는 사용자가 직접 선택하는 방식으로 운영합니다.")
+        institution_feature = st.multiselect("기관 특성", ["일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타"], key="join_institution_feature")
 
         st.markdown("### 2. 기관 연락처")
         phone_col1, phone_col2 = st.columns([1, 3])
-
         with phone_col1:
-            area_code = st.selectbox(
-                "지역번호",
-                ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"],
-                key="join_area_code"
-            )
-
+            area_code = st.selectbox("지역번호", ["02", "031", "032", "033", "041", "042", "043", "044", "051", "052", "053", "054", "055", "061", "062", "063", "064", "070"], key="join_area_code")
         with phone_col2:
-            phone_number = st.text_input(
-                "기관 연락처",
-                placeholder="예: 1234-5678",
-                key="join_phone_number"
-            )
-        st.caption("※ 기관 연락처를 정확하게 입력해주세요.")
-
+            phone_number = st.text_input("기관 연락처", placeholder="예: 1234-5678", key="join_phone_number")
         full_phone = f"{area_code}-{phone_number}" if phone_number else ""
 
         st.markdown("### 3. 가입자 정보")
         user_col1, user_col2 = st.columns([2, 2])
-
         with user_col1:
-            subscriber_name = st.text_input(
-                "가입자 성명",
-                placeholder="예: 홍길동",
-                key="join_subscriber_name"
-            )
-
+            subscriber_name = st.text_input("가입자 성명", placeholder="예: 홍길동", key="join_subscriber_name")
         with user_col2:
-            position = st.selectbox(
-                "직책",
-                ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
-                key="join_position"
-            )
-
-        st.caption("※ 본 플랫폼은 개별 맞춤 정보 제공을 위해 개인 회원가입 후 이용이 가능합니다.")
+            position = st.selectbox("직책", ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"], key="join_position")
 
         st.markdown("### 4. 계정 정보")
-        st.text_input(
-            "회원 ID",
-            value="회원가입 완료 후 자동 발급됩니다. 예: WT-20260625-ABC123",
-            disabled=True,
-            key="join_platform_id_preview",
-        )
-
+        member_username = st.text_input("아이디", placeholder="영문 소문자·숫자·밑줄(_) 4~20자", key="join_member_username")
+        st.caption("아이디는 로그인과 기록 소유자 구분에 사용됩니다. 가입 후 변경은 관리자 문의로 처리합니다.")
         password_col1, password_col2 = st.columns(2)
         with password_col1:
-            member_password = st.text_input(
-                "비밀번호",
-                type="password",
-                placeholder="8자 이상 입력",
-                key="join_member_password",
-            )
+            member_password = st.text_input("비밀번호", type="password", placeholder="8자 이상 입력", key="join_member_password")
         with password_col2:
-            member_password_confirm = st.text_input(
-                "비밀번호 확인",
-                type="password",
-                placeholder="비밀번호를 한 번 더 입력",
-                key="join_member_password_confirm",
-            )
-        st.caption("※ 비밀번호는 Supabase Auth에 암호화되어 저장되며, 플랫폼 데이터베이스에는 저장하지 않습니다.")
+            member_password_confirm = st.text_input("비밀번호 확인", type="password", placeholder="비밀번호를 한 번 더 입력", key="join_member_password_confirm")
+        st.caption("비밀번호는 Supabase Auth에만 해시 형태로 저장되며, 플랫폼 프로필 DB에는 저장하지 않습니다.")
 
         st.markdown("### 5. 이메일 정보 및 인증")
         email_col1, email_col2 = st.columns([2, 2])
-
         with email_col1:
-            email_id = st.text_input(
-                "이메일 아이디",
-                placeholder="예: witti",
-                key="join_email_id"
-            )
-
+            email_id = st.text_input("이메일 아이디", placeholder="예: witti", key="join_email_id")
         with email_col2:
-            email_domain = st.selectbox(
-                "이메일 도메인",
-                ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"],
-                key="join_email_domain"
-            )
-
+            email_domain = st.selectbox("이메일 도메인", ["- 선택 -", "gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "직접 입력"], key="join_email_domain")
         custom_domain = ""
         if email_domain == "직접 입력":
-            custom_domain = st.text_input(
-                "도메인 직접 입력",
-                placeholder="예: example.com",
-                key="join_custom_domain"
-            )
+            custom_domain = st.text_input("도메인 직접 입력", placeholder="예: example.com", key="join_custom_domain")
             email = f"{email_id}@{custom_domain}" if email_id and custom_domain else ""
         elif email_domain != "- 선택 -":
             email = f"{email_id}@{email_domain}" if email_id else ""
         else:
             email = ""
 
-        if "email_verification_code" not in st.session_state:
-            st.session_state["email_verification_code"] = ""
-        if "email_verified" not in st.session_state:
-            st.session_state["email_verified"] = False
-        if "email_verified_for" not in st.session_state:
-            st.session_state["email_verified_for"] = ""
-        if "email_verification_sent_at" not in st.session_state:
-            st.session_state["email_verification_sent_at"] = ""
-
-        st.markdown("#### 이메일 인증")
         verify_col1, verify_col2, verify_col3 = st.columns([1.2, 2.2, 1])
-
         with verify_col1:
-            send_code = st.button(
-                "인증번호 받기",
-                key="create_email_code",
-                use_container_width=True
-            )
-
+            send_code = st.button("인증번호 받기", key="signup_email_code_send", use_container_width=True)
         with verify_col2:
-            input_code = st.text_input(
-                "인증번호 입력",
-                placeholder="6자리 인증번호 입력",
-                label_visibility="collapsed",
-                key="email_code_input"
-            )
-
+            input_code = st.text_input("인증번호 입력", placeholder="6자리 인증번호", label_visibility="collapsed", key="signup_email_code_input")
         with verify_col3:
-            verify_email = st.button(
-                "인증 확인",
-                key="check_email_code",
-                use_container_width=True
-            )
-
+            verify_email = st.button("인증 확인", key="signup_email_code_verify", use_container_width=True)
         if send_code:
             if not email:
                 st.warning("이메일을 먼저 입력해 주세요.")
             else:
-                code = str(random.randint(100000, 999999))
-                st.session_state["email_verification_code"] = code
-                st.session_state["email_verified"] = False
-                st.session_state["email_verified_for"] = ""
-                st.session_state["email_verification_sent_at"] = _utc_now_iso()
-
                 try:
+                    code = issue_email_verification(email, "signup")
                     send_verification_email(email, code)
+                    st.session_state["signup_verified_email"] = ""
                     st.success("인증번호를 이메일로 보냈습니다.")
-                except Exception as e:
-                    st.error("이메일 발송 중 오류가 발생했습니다.")
-                    st.caption(str(e))
-
+                except Exception as exc:
+                    st.error("인증번호를 발송하지 못했습니다.")
+                    st.caption(str(exc))
         if verify_email:
-            sent_at_raw = st.session_state.get("email_verification_sent_at") or ""
-            is_not_expired = False
-            try:
-                sent_at = datetime.fromisoformat(sent_at_raw)
-                is_not_expired = (datetime.now(timezone.utc) - sent_at) <= timedelta(minutes=5)
-            except Exception:
-                is_not_expired = False
-
-            if (
-                input_code == st.session_state["email_verification_code"]
-                and input_code
-                and is_not_expired
-            ):
-                st.session_state["email_verified"] = True
-                st.session_state["email_verified_for"] = email.strip().lower()
-                st.success("이메일 인증이 완료되었습니다.")
-            elif not is_not_expired:
-                st.session_state["email_verified"] = False
-                st.warning("인증번호 유효 시간이 지났습니다. 인증번호를 다시 받아 주세요.")
+            verified, message = verify_email_verification(email, "signup", input_code)
+            if verified:
+                st.session_state["signup_verified_email"] = email.strip().lower()
+                st.success(message)
             else:
-                st.session_state["email_verified"] = False
-                st.warning("인증번호가 일치하지 않습니다.")
-
-        st.caption("※ 인증번호 메일이 보이지 않으면 스팸함 또는 프로모션함을 확인해 주세요.")
-        st.caption("※ 인증번호는 발송 후 5분 동안 유효합니다.")
+                st.warning(message)
+        st.caption("인증번호는 5분 동안 유효하며, DB에는 인증번호 원문 대신 해시값만 저장됩니다.")
 
         st.markdown("### 6. 제공 정보 동의 및 제출")
-        privacy_agree = st.checkbox(
-            "개인정보 수집 및 이용에 동의합니다. 입력한 정보는 교사의 발견 소식, 자료 안내, 서비스 개선 및 문의 응대를 위한 목적으로만 활용됩니다.",
-            key="join_privacy_agree"
-        )
-
-        mailing_agree = st.checkbox(
-            "메일링 수신에 동의합니다. 교사의 발견 콘텐츠, 자료, 소식 안내를 이메일로 받아보겠습니다.",
-            key="join_mailing_agree"
-        )
-
+        privacy_agree = st.checkbox("개인정보 수집 및 이용에 동의합니다. 입력한 정보는 서비스 제공, 문의 응대, 자료 안내 및 개선 목적으로만 활용됩니다.", key="join_privacy_agree")
+        mailing_agree = st.checkbox("메일링 수신에 동의합니다. 교사의 발견 콘텐츠와 자료, 소식 안내를 이메일로 받아보겠습니다.", key="join_mailing_agree")
         if st.button("회원가입 완료", key="join_submit"):
+            valid_username, username_result = validate_username(member_username)
             if get_supabase_auth_client() is None:
-                st.error("로그인용 Supabase 공개 키가 설정되지 않았습니다. Streamlit Secrets의 supabase.anon_key를 추가해 주세요.")
-            elif not institution_name:
-                st.warning("기관명을 입력해 주세요.")
-            elif institution_group == "- 선택 -":
-                st.warning("기관 구분을 선택해 주세요.")
-            elif institution_type == "- 선택 -":
-                st.warning("기관 유형을 선택해 주세요.")
-            elif not phone_number:
-                st.warning("기관 연락처를 입력해 주세요.")
-            elif not subscriber_name:
-                st.warning("가입자 성명을 입력해 주세요.")
-            elif position == "- 선택 -":
-                st.warning("직책을 선택해 주세요.")
+                st.error("로그인용 Supabase 공개 키가 설정되지 않았습니다. Streamlit Secrets의 supabase.anon_key를 확인해 주세요.")
+            elif not valid_username:
+                st.warning(username_result)
+            elif not username_is_available(username_result):
+                st.warning("이미 사용 중인 아이디입니다. 다른 아이디를 입력해 주세요.")
+            elif not institution_name or institution_group == "- 선택 -" or institution_type == "- 선택 -":
+                st.warning("기관명, 기관 구분, 기관 유형을 모두 입력해 주세요.")
+            elif not phone_number or not subscriber_name or position == "- 선택 -":
+                st.warning("기관 연락처, 가입자 성명, 직책을 모두 입력해 주세요.")
             elif len(member_password) < 8:
                 st.warning("비밀번호는 8자 이상으로 입력해 주세요.")
             elif member_password != member_password_confirm:
                 st.warning("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
-            elif not email_id:
-                st.warning("이메일 아이디를 입력해 주세요.")
-            elif email_domain == "- 선택 -":
-                st.warning("이메일 도메인을 선택해 주세요.")
-            elif email_domain == "직접 입력" and not custom_domain:
-                st.warning("이메일 도메인을 직접 입력해 주세요.")
-            elif (
-                not st.session_state.get("email_verified")
-                or st.session_state.get("email_verified_for") != email.strip().lower()
-            ):
+            elif not email or st.session_state.get("signup_verified_email") != email.strip().lower():
                 st.warning("현재 이메일 주소의 인증을 완료해 주세요.")
             elif not privacy_agree:
                 st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
             else:
-                platform_member_id = generate_platform_member_id()
                 created_user_id = ""
-
                 try:
-                    created_user_id = create_auth_member(
-                        email=email,
-                        password=member_password,
-                        platform_member_id=platform_member_id,
-                        member_name=subscriber_name,
-                    )
-
-                    submitted_data = {
+                    created_user_id = create_auth_member(email, member_password, username_result, subscriber_name)
+                    save_subscriber({
                         "회원 UID": created_user_id,
-                        "회원 ID": platform_member_id,
+                        "회원 ID": username_result,
+                        "아이디": username_result,
                         "기관명": institution_name,
                         "기관 구분": institution_group,
                         "기관 유형": institution_type,
@@ -2845,19 +2992,75 @@ with tab1:
                         "이메일": email.strip().lower(),
                         "개인정보 동의": privacy_agree,
                         "메일링 수신 동의": mailing_agree,
-                    }
-                    save_subscriber(submitted_data)
-                    set_member_session(created_user_id, email.strip().lower(), platform_member_id)
-                    st.session_state["is_subscribed"] = True
+                    })
+                    set_member_session(created_user_id, email.strip().lower(), username_result)
+                    st.session_state["signup_verified_email"] = ""
                     st.success("회원가입이 완료되었습니다.")
-                    st.info(f"회원 ID: {platform_member_id}\n\n이제 로그인 상태로 기록 요정과 교사의 온도를 사용할 수 있습니다.")
-
-                except Exception as e:
+                    st.info(f"내 아이디: {username_result}")
+                except Exception as exc:
                     if created_user_id:
                         delete_auth_member(created_user_id)
-                    st.error("회원가입을 완료하지 못했습니다. 이미 등록된 이메일인지 확인해 주세요.")
-                    st.caption(str(e))
+                    st.error("회원가입을 완료하지 못했습니다. 아이디와 이메일 중복 여부를 확인해 주세요.")
+                    st.caption(str(exc))
 
+    with recovery_tab:
+        st.markdown("### 아이디 찾기 · 비밀번호 재설정")
+        recovery_email = st.text_input("가입 시 등록한 이메일", placeholder="예: witti@example.com", key="recovery_email")
+        rec_col1, rec_col2, rec_col3 = st.columns([1.2, 2.2, 1])
+        with rec_col1:
+            send_recovery_code = st.button("인증번호 받기", key="recovery_email_code_send", use_container_width=True)
+        with rec_col2:
+            recovery_code = st.text_input("인증번호", placeholder="6자리 인증번호", label_visibility="collapsed", key="recovery_email_code_input")
+        with rec_col3:
+            verify_recovery_code = st.button("인증 확인", key="recovery_email_code_verify", use_container_width=True)
+        if send_recovery_code:
+            if not recovery_email.strip():
+                st.warning("이메일을 입력해 주세요.")
+            else:
+                try:
+                    code = issue_email_verification(recovery_email, "account_recovery")
+                    send_verification_email(recovery_email, code)
+                    st.session_state["recovery_verified_email"] = ""
+                    st.success("인증번호를 이메일로 보냈습니다.")
+                except Exception as exc:
+                    st.error("인증번호를 발송하지 못했습니다.")
+                    st.caption(str(exc))
+        if verify_recovery_code:
+            verified, message = verify_email_verification(recovery_email, "account_recovery", recovery_code)
+            if verified:
+                st.session_state["recovery_verified_email"] = recovery_email.strip().lower()
+                st.success(message)
+            else:
+                st.warning(message)
+
+        if st.session_state.get("recovery_verified_email") == recovery_email.strip().lower():
+            found_id = find_member_id_by_email(recovery_email)
+            if found_id:
+                st.success(f"가입 아이디는 **{found_id}** 입니다.")
+                st.markdown("#### 새 비밀번호 설정")
+                new_pw1, new_pw2 = st.columns(2)
+                with new_pw1:
+                    new_password = st.text_input("새 비밀번호", type="password", key="recovery_new_password")
+                with new_pw2:
+                    new_password_confirm = st.text_input("새 비밀번호 확인", type="password", key="recovery_new_password_confirm")
+                if st.button("비밀번호 재설정", key="recovery_reset_password"):
+                    if len(new_password) < 8:
+                        st.warning("새 비밀번호는 8자 이상으로 입력해 주세요.")
+                    elif new_password != new_password_confirm:
+                        st.warning("새 비밀번호와 확인 값이 일치하지 않습니다.")
+                    else:
+                        try:
+                            reset_member_password_by_email(recovery_email, new_password)
+                            st.session_state["recovery_verified_email"] = ""
+                            st.success("비밀번호를 재설정했습니다. 새 비밀번호로 로그인해 주세요.")
+                        except Exception as exc:
+                            st.error(str(exc))
+            else:
+                st.warning("해당 이메일로 가입된 계정을 찾지 못했습니다.")
+
+# =========================
+# TAB 2. 기록 요정
+# =========================
 # =========================
 # TAB 2. 기록 요정
 # =========================
@@ -3216,27 +3419,21 @@ def build_restructured_diary(
 # 0~2세 보육과정 영역별 설명. 기존 6영역 UI와 호환되도록 기본생활/신체운동 명칭을 유지합니다.
 CURRICULUM_RECORD_BY_AGE = {
     "0세": {
-        "기본생활": "도움을 받아 편안한 일과를 경험하고, 먹기·쉬기·배변 등 기본생활의 리듬을 알아가는 과정과 연결됩니다.",
-        "신체운동": "감각 자극에 반응하고, 몸을 움직이며 신체를 탐색하는 경험과 연결됩니다.",
-        "신체운동·건강": "편안한 일과와 감각·신체 움직임을 통해 건강한 생활의 기초를 경험하는 과정과 연결됩니다.",
+        "신체운동·건강": "편안한 일과와 감각·신체 움직임을 통해 건강한 생활의 기초를 경험하는 과정과 연결됩니다.", "감각 자극에 반응하고, 몸을 움직이며 신체를 탐색하는 경험과 연결됩니다.", "도움을 받아 편안한 일과를 경험하고, 먹기·쉬기·배변 등 일상생활의 리듬을 알아가는 과정과 연결됩니다.",
         "의사소통": "표정, 몸짓, 울음, 옹알이와 말소리로 의사를 나타내고 주변 소리에 관심을 갖는 경험과 연결됩니다.",
         "사회관계": "교사와 친숙한 사람에게 안정감을 느끼고, 또래가 있는 공간에 관심을 보이는 경험과 연결됩니다.",
         "예술경험": "소리, 리듬, 색, 촉감에 감각적으로 반응하며 아름다움을 느끼는 경험과 연결됩니다.",
         "자연탐구": "보고 듣고 만지는 감각 경험을 통해 주변 사물과 자연에 관심을 갖는 과정과 연결됩니다.",
     },
     "1세": {
-        "기본생활": "도움을 받으며 일과에 익숙해지고, 먹기·씻기·쉬기·배변 의사를 조금씩 나타내는 과정과 연결됩니다.",
-        "신체운동": "감각으로 주변을 탐색하고, 대소근육을 사용해 기본 움직임을 시도하는 경험과 연결됩니다.",
-        "신체운동·건강": "일상생활의 안정감과 신체 움직임을 바탕으로 건강하고 안전한 생활을 경험하는 과정과 연결됩니다.",
+        "신체운동·건강": "일상생활의 안정감과 신체 움직임을 바탕으로 건강하고 안전한 생활을 경험하는 과정과 연결됩니다.", "도움을 받으며 일과에 익숙해지고, 먹기·씻기·쉬기·배변 의사를 조금씩 나타내는 과정과 연결됩니다.", "감각으로 주변을 탐색하고, 대소근육을 사용해 기본 움직임을 시도하는 경험과 연결됩니다.",
         "의사소통": "표정, 몸짓, 말소리, 간단한 말로 관심과 요구를 나타내는 경험과 연결됩니다.",
         "사회관계": "친숙한 사람과 안정적인 관계를 맺고, 또래의 행동에 관심을 보이는 경험과 연결됩니다.",
         "예술경험": "소리와 리듬, 미술 재료의 촉감, 모방 행동을 즐기는 경험과 연결됩니다.",
         "자연탐구": "친숙한 사물과 자연을 감각으로 반복해서 탐색하는 경험과 연결됩니다.",
     },
     "2세": {
-        "기본생활": "자신의 몸과 일과에 관심을 가지고, 건강하고 안전한 생활습관의 기초를 형성하는 과정과 연결됩니다.",
-        "신체운동": "감각과 신체를 인식하고, 대소근육을 조절하며 신체활동을 즐기는 경험과 연결됩니다.",
-        "신체운동·건강": "몸의 움직임과 일상생활 습관을 함께 경험하며 건강하고 안전한 생활의 기초를 다지는 과정과 연결됩니다.",
+        "신체운동·건강": "몸의 움직임과 일상생활 습관을 함께 경험하며 건강하고 안전한 생활의 기초를 다지는 과정과 연결됩니다.", "자신의 몸과 일과에 관심을 가지고, 건강하고 안전한 생활습관의 기초를 형성하는 과정과 연결됩니다.", "감각과 신체를 인식하고, 대소근육을 조절하며 신체활동을 즐기는 경험과 연결됩니다.",
         "의사소통": "표정, 몸짓, 단어, 짧은 말로 요구와 느낌을 나타내고 말놀이와 이야기에 관심을 갖는 경험과 연결됩니다.",
         "사회관계": "나와 다른 사람을 구별하고, 또래 곁에서 또는 함께 놀이하며 다른 사람의 감정과 행동에 반응하는 경험과 연결됩니다.",
         "예술경험": "노래, 리듬, 움직임, 미술 재료를 활용해 자신의 느낌을 표현해 보는 경험과 연결됩니다.",
@@ -3804,7 +4001,7 @@ DEVELOPMENT_RECORD_NOTE = DEVELOPMENT_RECORD_NOTE_BY_AGE["2세"]
 
 
 # 0~2세 표준보육과정 / 3~5세 누리과정 UI 영역
-STANDARD_AREAS = ["기본생활", "신체운동", "의사소통", "사회관계", "예술경험", "자연탐구"]
+STANDARD_AREAS = ["신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"]
 NURI_AREAS = ["신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"]
 
 # 3~5세용 일반 문구. 0~2세는 위의 연령별 딕셔너리를 우선 사용합니다.
@@ -4799,311 +4996,231 @@ def reset_tab2_inputs_once():
     st.session_state[reset_flag] = True
 
 
-with tab2:
+PLAY_STORY_DETAIL_OPTIONS = [
+    "놀이의 시작", "탐색과 반복", "표현과 구성", "관계와 상호작용", "확장과 심화"
+]
 
-    reset_tab2_inputs_once()
 
-    render_menu_card(
-        "🧚‍♀️ 상황별 문구 자동 생성",
-        "사진 장면을 바탕으로 표준보육과정·누리과정, 발달 의미, 놀이 이야기와 기록 문장을 함께 생성합니다.",
-        ["관찰 기록", "서술형 일지", "놀이 이야기", "알림장", "기관 홍보 문구"]
+def render_final_play_output(output: dict):
+    output_type = str(output.get("output_type") or "")
+    if output_type == "놀이 이야기":
+        sections = output.get("sections") or {}
+        for title in ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]:
+            st.markdown(f"#### {title}")
+            render_result_card(str(sections.get(title) or ""), "result-card-gray")
+    else:
+        for index, example in enumerate(output.get("examples") or [], start=1):
+            st.markdown(f"#### {output_type} 예시 {index}")
+            render_result_card(str(example), "result-card-gray")
+
+
+def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
+    return (
+        "교사의 발견 | 사진 기반 놀이 기록\n\n"
+        f"놀이명: {context.get('play_name') or '-'}\n"
+        f"놀이 목표: {context.get('play_goal') or '-'}\n"
+        f"연령: {context.get('age_group') or '-'}\n"
+        f"아이 별칭: {context.get('child_alias') or '-'}\n"
+        f"교육과정 영역: {curriculum_display_text(context.get('curriculum_areas'))}\n"
+        f"기록 유형: {context.get('output_type') or '-'}\n\n"
+        f"[교사가 수정한 1차 정보]\n{first_draft.strip()}\n\n"
+        f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
     )
 
-    st.markdown("### 0. 사진으로 놀이 기록 초안 만들기")
-    st.caption("사진 원본은 회원별 비공개 Supabase Storage에 저장됩니다. OpenAI API에는 사진 분석을 위해 Base64 이미지 데이터가 전달되며, 사진은 내 정보 보기에서 회원 본인이 직접 삭제할 수 있습니다.")
+
+with tab2:
+    reset_tab2_inputs_once()
+    render_menu_card(
+        "🧚‍♀️ 사진 기반 놀이 기록 만들기",
+        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 교사가 1차 정보를 수정한 뒤 놀이 이야기·일지·알림장으로 다시 생성할 수 있습니다.",
+        ["사진 자동 추천", "1차 정보 생성", "교사 수정", "다시 생성", "기록 다운로드"]
+    )
 
     if not member_is_logged_in():
-        st.info("사진 원본 저장과 개인 기록 연결을 위해 소통 탭에서 로그인한 뒤 이용해 주세요.")
+        st.info("사진 저장과 개인 기록 연결을 위해 소통 탭에서 아이디와 비밀번호로 로그인해 주세요.")
     else:
+        st.markdown("### 1. 놀이 기본 정보")
+        play_name = st.text_input("놀이명", placeholder="예: 블록으로 만든 우리 동네", key="wizard_play_name")
+        play_goal = st.text_area("놀이 목표", placeholder="예: 블록을 연결하며 공간을 구성하고 친구의 놀이를 살펴본다.", height=90, key="wizard_play_goal")
+        info_col1, info_col2 = st.columns(2)
+        with info_col1:
+            age_group = st.selectbox("연령", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="wizard_age_group")
+        with info_col2:
+            child_alias = st.text_input("아이 별칭", placeholder="예: 민들레반 A, 별칭 등", key="wizard_child_alias")
+
+        if age_group in ["0세", "1세", "2세"]:
+            curriculum_options = STANDARD_AREAS
+            curriculum_label = "표준보육과정 영역 (복수 선택)"
+            curriculum_help = "0~2세는 기존 표준보육과정의 6개 영역 중 필요한 항목을 복수로 선택합니다."
+        elif age_group in ["3세", "4세", "5세"]:
+            curriculum_options = NURI_AREAS
+            curriculum_label = "누리과정 영역 (복수 선택)"
+            curriculum_help = "3~5세는 누리과정 5개 영역 중 필요한 항목을 복수로 선택합니다."
+        else:
+            curriculum_options = []
+            curriculum_label = "표준보육과정·누리과정 영역 (복수 선택)"
+            curriculum_help = "연령을 먼저 선택해 주세요."
+
+        curriculum_areas = st.multiselect(
+            curriculum_label,
+            curriculum_options,
+            key="wizard_curriculum_areas",
+            disabled=not bool(curriculum_options),
+            help=curriculum_help,
+        )
+        st.caption(curriculum_help)
+
+        record_type = st.selectbox("놀이 기록 유형", ["- 선택 -", "놀이 이야기", "일지", "알림장"], key="wizard_record_type")
+        play_subcategories: list[str] = []
+        teacher_supports: list[str] = []
+        if record_type == "놀이 이야기":
+            st.markdown("#### 놀이 이야기 세부 구성")
+            play_subcategories = st.multiselect("놀이 세부 구분 (복수 선택)", PLAY_STORY_DETAIL_OPTIONS, key="wizard_play_subcategories")
+            teacher_supports = st.multiselect("교사의 지원 (복수 선택)", TEACHER_SUPPORT_OPTIONS, key="wizard_teacher_supports")
+            st.caption("선택한 놀이 세부 구분과 교사의 지원은 ‘놀이에서 읽은 배움’과 ‘교사의 지원’ 결과에 반영됩니다.")
+
+        st.markdown("### 2. 사진 등록 및 자동 추천")
         uploaded_play_photos = st.file_uploader(
-            "놀이 사진 업로드",
+            "놀이 사진 등록",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
-            key="fairy_play_photo_uploader",
-            help="한 번에 최대 5장, 1장당 최대 10MB까지 업로드할 수 있습니다.",
+            key="wizard_play_photo_uploader",
+            help="최대 20장까지 올릴 수 있으며, 사진 선별 도구가 그중 3~5장을 추천합니다.",
         )
+        recommendation_count = st.slider("AI 분석할 추천 사진 수", min_value=3, max_value=5, value=3, key="wizard_recommendation_count")
         photo_analysis_agree = st.checkbox(
-            "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 업로드한 사진 원본은 비공개 Supabase Storage에 저장되며, 내 정보 보기에서 본인이 직접 삭제할 수 있습니다.",
-            key="fairy_photo_analysis_agree",
+            "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 자동 추천된 사진 원본은 비공개 Supabase Storage에 저장되며, 내 정보 보기에서 본인이 직접 삭제할 수 있습니다.",
+            key="wizard_photo_analysis_agree",
         )
 
-        if st.button("사진 저장 및 놀이 기록 초안 만들기", key="fairy_photo_draft_button"):
-            if not uploaded_play_photos:
-                st.warning("분석·저장할 놀이 사진을 한 장 이상 업로드해 주세요.")
+        if st.button("사진 자동 추천 및 1차 정보 만들기", key="wizard_start_analysis"):
+            if not play_name.strip():
+                st.warning("놀이명을 입력해 주세요.")
+            elif not play_goal.strip():
+                st.warning("놀이 목표를 입력해 주세요.")
+            elif age_group == "- 선택 -":
+                st.warning("연령을 선택해 주세요.")
+            elif not child_alias.strip():
+                st.warning("아이 별칭을 입력해 주세요.")
+            elif not curriculum_areas:
+                st.warning("표준보육과정 또는 누리과정 영역을 한 개 이상 선택해 주세요.")
+            elif record_type == "- 선택 -":
+                st.warning("놀이 기록 유형을 선택해 주세요.")
+            elif not uploaded_play_photos:
+                st.warning("놀이 사진을 한 장 이상 등록해 주세요.")
+            elif len(uploaded_play_photos) < MIN_RECOMMENDED_PLAY_PHOTO_COUNT:
+                st.warning(f"사진 자동 추천·분석은 최소 {MIN_RECOMMENDED_PLAY_PHOTO_COUNT}장부터 진행합니다.")
+            elif len(uploaded_play_photos) > MAX_PLAY_UPLOAD_COUNT:
+                st.warning(f"사진은 한 번에 최대 {MAX_PLAY_UPLOAD_COUNT}장까지 업로드할 수 있습니다.")
             elif not photo_analysis_agree:
                 st.warning("사진 활용 확인에 동의한 뒤 진행해 주세요.")
             else:
-                stored_photo_records = []
+                context = {
+                    "play_name": play_name,
+                    "play_goal": play_goal,
+                    "age_group": age_group,
+                    "child_alias": child_alias,
+                    "curriculum_areas": curriculum_areas,
+                    "output_type": record_type,
+                    "play_subcategories": play_subcategories,
+                    "teacher_supports": teacher_supports,
+                }
+                session_id = ""
                 try:
-                    with st.spinner("사진을 안전하게 저장하고 놀이 장면을 읽고 있습니다."):
-                        stored_photo_records = store_play_photos(
+                    with st.spinner("사진을 선별하고 비공개로 저장한 뒤, 놀이 장면을 분석하고 있습니다."):
+                        recommended_files, quality_scores = select_recommended_play_photos(
                             uploaded_play_photos,
-                            current_member_user_id(),
+                            recommendation_count,
                         )
-                        analysis_result = analyze_play_photos(uploaded_play_photos)
-                        attach_photo_analysis_to_records(stored_photo_records, analysis_result)
-
-                    st.session_state["photo_analysis_result"] = analysis_result
-                    st.session_state["photo_analysis_draft_text"] = analysis_result["draft"]
-
-                    # 기존 상황별 문구 생성 입력은 유지하되, 사진 분석 결과가 바로 이어서 쓰일 수 있게 일부만 채웁니다.
-                    st.session_state["photo_play_story_name"] = analysis_result["play_title"]
-                    st.session_state["photo_play_keyword"] = analysis_result["play_keyword"]
-                    st.session_state["photo_child_action"] = "직접 입력"
-                    st.session_state["photo_child_action_custom"] = analysis_result["observed_action"]
-
-                    save_phrase_log(
-                        record_type="사진 분석 초안",
-                        play_keyword=analysis_result["play_keyword"],
-                        age_group="",
-                        curriculum_area="",
-                        development_area="",
-                        child_action=analysis_result["observed_action"],
-                        generated_text=(
-                            f"[사진 분석 메모]\n{analysis_result['observed_action']}\n\n"
-                            f"[놀이 기록 초안]\n{analysis_result['draft']}"
-                        ),
-                    )
-
-                    st.success("사진을 저장하고, 사진을 바탕으로 놀이 기록 초안을 만들었습니다.")
-                    st.caption("초안은 내 정보 보기에서 1년간 확인할 수 있습니다. 사진 원본은 자동 삭제되지 않으며, 내 정보 보기에서 직접 삭제할 수 있습니다.")
-
+                        session = create_play_session(
+                            current_member_user_id(),
+                            play_name,
+                            play_goal,
+                            age_group,
+                            child_alias,
+                            curriculum_areas,
+                            record_type,
+                            play_subcategories,
+                            teacher_supports,
+                        )
+                        session_id = str(session.get("session_id") or "")
+                        stored_records = store_play_photos(
+                            recommended_files,
+                            current_member_user_id(),
+                            session_id,
+                            child_alias,
+                            quality_scores,
+                        )
+                        analysis = analyze_play_photos(recommended_files, context)
+                        attach_photo_analysis_to_records(stored_records, analysis)
+                        update_play_session_analysis(session_id, analysis)
+                    st.session_state["wizard_session_id"] = session_id
+                    st.session_state["wizard_context"] = context
+                    st.session_state["wizard_selected_photo_names"] = [str(getattr(file, "name", "")) for file in recommended_files]
+                    st.session_state["wizard_analysis_result"] = analysis
+                    st.session_state["wizard_initial_draft"] = analysis.get("draft") or ""
+                    st.session_state.pop("wizard_final_output", None)
+                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
                 except Exception as exc:
-                    st.error("사진 저장 또는 놀이 기록 초안 생성을 완료하지 못했습니다.")
+                    # 세션 생성 뒤 어느 단계에서든 실패하면 원본 파일과 메타데이터가 남지 않게 정리합니다.
+                    if session_id:
+                        delete_photos_for_session(session_id)
+                        try:
+                            supabase.table("play_sessions").delete().eq("session_id", session_id).execute()
+                        except Exception:
+                            pass
+                    st.error("사진 추천·저장 또는 1차 분석을 완료하지 못했습니다.")
                     st.caption(str(exc))
 
-    photo_analysis_result = st.session_state.get("photo_analysis_result") or {}
-    if photo_analysis_result:
-        st.markdown("#### 사진 기반 놀이 기록 초안")
-        st.caption(
-            f"추천 놀이명: {photo_analysis_result.get('play_title') or '-'} · "
-            f"추천 키워드: {photo_analysis_result.get('play_keyword') or '-'}"
-        )
-        st.text_area(
-            "초안 수정",
-            height=190,
-            key="photo_analysis_draft_text",
-            help="사진을 바탕으로 만든 초안입니다. 연령, 교육과정 영역, 교사의 해석은 다음 입력 단계에서 최종 확인해 주세요.",
-        )
-        st.caption("※ 사진 원본은 비공개 Supabase Storage에 저장됩니다. 연령·발달·정서에 대한 최종 판단은 교사가 확인해 주세요.")
+        analysis = st.session_state.get("wizard_analysis_result") or {}
+        context = st.session_state.get("wizard_context") or {}
+        if analysis and context:
+            st.markdown("### 3. 사진 1차 분석 정보")
+            selected_names = st.session_state.get("wizard_selected_photo_names") or []
+            st.caption("자동 추천 사진: " + ", ".join(selected_names))
+            if analysis.get("ai_caption"):
+                st.info(analysis.get("ai_caption"))
+            st.text_area(
+                "교사가 수정하는 1차 정보 (4~6문장)",
+                height=210,
+                key="wizard_initial_draft",
+                help="사진 분석으로 만든 초안입니다. 실제 관찰 내용과 기관의 기록 원칙에 맞게 교사가 수정해 주세요.",
+            )
+            revision_direction = st.text_area("수정 방향 (선택)", placeholder="예: 교사의 지원은 자료 지원보다 상호작용 지원 중심으로 표현해 주세요.", height=85, key="wizard_revision_direction")
+            if st.button("수정 방향 반영해 최종 문장 다시 생성", key="wizard_regenerate"):
+                edited_draft = str(st.session_state.get("wizard_initial_draft") or "").strip()
+                if not edited_draft:
+                    st.warning("교사가 수정한 1차 정보를 입력해 주세요.")
+                else:
+                    try:
+                        with st.spinner("교사가 수정한 방향을 반영해 최종 기록을 만들고 있습니다."):
+                            output = generate_final_play_record(context, edited_draft, revision_direction)
+                            save_generated_text(
+                                str(st.session_state.get("wizard_session_id") or ""),
+                                current_member_user_id(),
+                                str(context.get("output_type") or ""),
+                                str(output.get("plain_text") or ""),
+                                edited_draft,
+                                str(analysis.get("draft") or ""),
+                            )
+                        st.session_state["wizard_final_output"] = output
+                        st.success("최종 기록을 만들었습니다.")
+                    except Exception as exc:
+                        st.error("최종 기록을 만들지 못했습니다.")
+                        st.caption(str(exc))
 
-    # 1) 기록 유형을 가장 먼저 선택합니다.
-    observation_type = st.selectbox(
-        "기록 유형 선택",
-        ["- 선택 -", "관찰 기록용", "서술형 일지용", "기관 홍보용", "놀이 이야기"],
-        index=0,
-        key="photo_observation_type"
-    )
-
-    # 2) 놀이 이야기는 기록 유형 바로 아래에서 먼저 구성합니다.
-    play_story_steps: list[str] = []
-    teacher_supports: list[str] = []
-
-    if observation_type == "놀이 이야기":
-        st.markdown("#### 🎈 놀이 이야기 구성")
-        st.caption("놀이의 6단계와 교사의 지원은 필요한 항목을 복수 선택할 수 있습니다. 선택한 단계만 결과에 포함됩니다.")
-
-        play_story_steps = st.multiselect(
-            "놀이의 6단계",
-            PLAY_STORY_STAGE_OPTIONS,
-            default=[],
-            placeholder="예: 1. 시작 (놀이 발현), 2. 과정 (놀이 전개)",
-            key="photo_play_story_steps",
-        )
-
-        st.caption("교사의 지원 안내")
-        for support, guide in TEACHER_SUPPORT_GUIDE.items():
-            st.caption(f"• {support}: {guide}")
-
-        teacher_supports = st.multiselect(
-            "교사의 지원",
-            TEACHER_SUPPORT_OPTIONS,
-            default=[],
-            placeholder="예: 시간 지원, 상호작용 지원",
-            key="photo_teacher_supports",
-        )
-
-        if teacher_supports and "4. 교사의 지원" not in play_story_steps:
-            st.caption("※ 선택한 교사의 지원은 결과의 ‘4. 교사의 지원’ 단계에 자동으로 함께 반영됩니다.")
-
-    play_story_name = st.text_input(
-        "놀이명",
-        value="",
-        placeholder="예: 친구와 함께 만든 블록 마을",
-        key="photo_play_story_name"
-    )
-    st.caption("※ ‘놀이 이야기’ 선택 시 입력한 놀이명이 결과 제목으로 사용됩니다.")
-
-    play_keyword = st.text_input(
-        "사진 속 놀이 키워드 입력",
-        value="",
-        placeholder="예: 블록 놀이 - 기초 구성, 블록 놀이 - 다양한 구조물",
-        key="photo_play_keyword"
-    )
-    st.caption("※ ‘놀이 - 세부 구분’ 형식으로 입력하면 생성 문구가 더 구체적으로 구성됩니다.")
-
-    age_group = st.selectbox(
-        "연령 선택",
-        ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"],
-        index=0,
-        key="photo_age_group"
-    )
-
-    if age_group in ["0세", "1세", "2세"]:
-        curriculum_area = st.selectbox(
-            "표준보육과정 영역 선택",
-            ["- 선택 -"] + STANDARD_AREAS,
-            index=0,
-            key="photo_standard_area"
-        )
-        st.caption("※ 0~2세는 표준보육과정 영역을 기준으로 문구를 생성합니다.")
-    elif age_group in ["3세", "4세", "5세"]:
-        curriculum_area = st.selectbox(
-            "누리과정 영역 선택",
-            ["- 선택 -"] + NURI_AREAS,
-            index=0,
-            key="photo_nuri_area"
-        )
-        st.caption("※ 3~5세는 누리과정 영역을 기준으로 문구를 생성합니다.")
-    else:
-        curriculum_area = "- 선택 -"
-        st.selectbox(
-            "표준보육과정·누리과정 영역 선택",
-            ["연령을 먼저 선택해 주세요."],
-            index=0,
-            key="photo_curriculum_placeholder",
-            disabled=True
-        )
-
-    development_area = st.selectbox(
-        "발달영역 선택",
-        ["- 선택 -", "신체", "언어", "인지", "사회정서", "창의성"],
-        index=0,
-        key="photo_development_area"
-    )
-
-    child_action_choice = st.selectbox(
-        "사진 속 아이들의 모습 선택",
-        get_child_action_options_with_custom(age_group),
-        index=0,
-        key="photo_child_action"
-    )
-
-    child_action_custom = ""
-    if child_action_choice == "직접 입력":
-        child_action_custom = st.text_area(
-            "사진 속 아이들의 모습 직접 입력",
-            value="",
-            height=96,
-            placeholder="예: 블록을 차곡차곡 쌓은 뒤 친구가 만든 길과 연결해 보는 모습",
-            help="관찰된 행동이나 장면을 ‘…하는 모습’ 또는 완결된 문장으로 입력해 주세요.",
-            key="photo_child_action_custom",
-        )
-
-    child_action = (
-        child_action_custom.strip()
-        if child_action_choice == "직접 입력"
-        else child_action_choice
-    )
-
-    if st.button("상황별 문구 생성", key="photo_generate_text"):
-        if observation_type == "- 선택 -":
-            st.warning("기록 유형을 선택해 주세요.")
-        elif observation_type == "놀이 이야기" and not play_story_name.strip():
-            st.warning("놀이 이야기의 제목이 될 놀이명을 입력해 주세요.")
-        elif not play_keyword.strip():
-            st.warning("사진 속 놀이 키워드를 입력해 주세요.")
-        elif age_group == "- 선택 -":
-            st.warning("연령을 선택해 주세요.")
-        elif curriculum_area == "- 선택 -":
-            st.warning("표준보육과정·누리과정 영역을 선택해 주세요.")
-        elif development_area == "- 선택 -":
-            st.warning("발달영역을 선택해 주세요.")
-        elif child_action_choice == "- 선택 -":
-            st.warning("사진 속 아이들의 모습을 선택해 주세요.")
-        elif child_action_choice == "직접 입력" and not child_action_custom.strip():
-            st.warning("사진 속 아이들의 모습을 관찰 문장 또는 행동 묘사로 입력해 주세요.")
-        elif observation_type == "놀이 이야기" and not play_story_steps:
-            st.warning("놀이 이야기로 구성할 놀이의 6단계를 한 개 이상 선택해 주세요.")
-        elif (
-            observation_type == "놀이 이야기"
-            and "4. 교사의 지원" in play_story_steps
-            and not teacher_supports
-        ):
-            st.warning("‘4. 교사의 지원’을 선택한 경우 교사의 지원 유형을 한 개 이상 선택해 주세요.")
-        else:
-            child_label = "영아" if age_group in ["0세", "1세", "2세"] else "유아"
-
-            if observation_type == "놀이 이야기":
-                final_result = build_play_story(
-                    play_title=play_story_name,
-                    play_keyword=play_keyword,
-                    age_group=age_group,
-                    curriculum_area=curriculum_area,
-                    development_area=development_area,
-                    child_action=child_action,
-                    selected_steps=play_story_steps,
-                    selected_supports=teacher_supports,
-                )
-
-                st.success("놀이 이야기가 생성되었습니다.")
-                render_play_story(final_result)
-
-                save_phrase_log(
-                    record_type=observation_type,
-                    play_keyword=f"{play_story_name.strip()} | {play_keyword.strip()}",
-                    age_group=age_group,
-                    curriculum_area=curriculum_area,
-                    development_area=development_area,
-                    child_action=child_action,
-                    generated_text=final_result,
-                )
-            else:
-                template_bank = get_observation_template_bank(observation_type, age_group)
-                selected_sentences = random.sample(template_bank, k=min(3, len(template_bank)))
-                st.success("상황별 문구가 생성되었습니다.")
-
-                for idx, sentence in enumerate(selected_sentences, start=1):
-                    base_sentence = sentence.format(
-                        keyword=play_keyword,
-                        action=child_action,
-                        child=child_label
-                    )
-
-                    if observation_type == "관찰 기록용":
-                        final_result = (
-                            f"{base_sentence} "
-                            f"{get_development_record(development_area, age_group, note=True)}"
-                        )
-                    elif observation_type == "서술형 일지용":
-                        final_result = (
-                            f"{base_sentence} "
-                            f"{get_curriculum_record(curriculum_area, age_group, note=True)} "
-                            f"{get_development_record(development_area, age_group, note=True)}"
-                        )
-                    elif observation_type == "기관 홍보용":
-                        final_result = (
-                            f"{base_sentence} "
-                            f"{get_curriculum_record(curriculum_area, age_group)} "
-                            f"{get_development_record(development_area, age_group)}"
-                        )
-                    else:
-                        final_result = f"{base_sentence} {AGE_NOTICE[age_group]}"
-
-                    final_result = age_sanitize(final_result, age_group)
-                    render_generated_phrase(idx, final_result)
-
-                    save_phrase_log(
-                        record_type=observation_type,
-                        play_keyword=play_keyword,
-                        age_group=age_group,
-                        curriculum_area=curriculum_area,
-                        development_area=development_area,
-                        child_action=child_action,
-                        generated_text=final_result,
-                    )
+        output = st.session_state.get("wizard_final_output") or {}
+        if output and context:
+            st.markdown("### 4. 최종 생성 결과")
+            render_final_play_output(output)
+            download_text = build_record_download_text(context, str(st.session_state.get("wizard_initial_draft") or ""), output)
+            safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(context.get("play_name") or "놀이기록"))[:40]
+            st.download_button("기록 다운로드", data=download_text.encode("utf-8"), file_name=f"{safe_title}_놀이기록.txt", mime="text/plain", key="wizard_record_download")
 
 
+# =========================
+# TAB 3. 사진 보정
+# =========================
 # =========================
 # TAB 3. 사진 보정
 # =========================
@@ -5411,109 +5528,6 @@ if SHOW_DIARY_FEATURE:
                 )
 
 # =========================
-# TAB 5. 교사의 온도
-# =========================
-with tab5:
-    render_menu_card(
-        "🌡️ 지금 그리고 오늘, 교사의 온도",
-        "하루를 마무리하며, 교사의 마음을 짧게 기록하는 감성 기록 공간입니다.",
-        ["감성 일기", "3줄 요약", "마음온도"]
-    )
-
-    if not member_is_logged_in():
-        st.info("로그인하지 않아도 작성할 수 있지만, 내 정보 보기에 기록을 남기려면 먼저 로그인해 주세요.")
-
-    diary_type = st.radio("기록 양식 선택", ["🕯️ 감성 일기", "✒️ 3줄 요약 다이어리"], horizontal=True, key="temperature_diary_type")
-    st.divider()
-
-    if diary_type == "🕯️ 감성 일기":
-        st.markdown("### 🕯️ 감성 일기")
-        one_line_options = ["- 선택 -", "오늘도 아이들 곁에서 충분히 애쓴 하루였습니다.", "조금 지쳤지만, 그래도 마음이 따뜻해지는 순간이 있었습니다.", "작은 웃음 하나가 긴 하루를 버티게 해주었습니다.", "바쁜 하루였지만 아이들의 반응 속에서 힘을 얻었습니다.", "완벽하지 않아도 괜찮았던 하루였습니다.", "직접 입력"]
-        one_line_choice = st.selectbox("오늘의 한 줄 문장", one_line_options, key="temp_one_line_choice")
-        one_line = st.text_input("오늘의 한 줄 문장 직접 입력", key="temp_one_line_input") if one_line_choice == "직접 입력" else one_line_choice
-
-        best_moment_options = ["- 선택 -", "아이의 웃음이 가장 기억에 남았습니다.", "예상하지 못한 아이의 말 한마디가 마음에 남았습니다.", "함께 놀이하던 순간의 따뜻한 분위기가 좋았습니다.", "힘든 중에도 아이들이 즐겁게 참여하는 모습이 빛났습니다.", "동료와 주고받은 작은 응원이 기억에 남았습니다.", "직접 입력"]
-        best_moment_choice = st.selectbox("가장 빛났던 순간", best_moment_options, key="temp_best_moment_choice")
-        best_moment = st.text_area("가장 빛났던 순간 직접 입력", key="temp_best_moment_input") if best_moment_choice == "직접 입력" else best_moment_choice
-
-        emotion_options = ["- 선택 -", "따뜻한", "차분한", "벅찬", "지친", "뿌듯한", "복잡한", "고요한", "열정적인", "직접 입력"]
-        emotion_choice = st.selectbox("오늘 내 마음을 표현하는 단어", emotion_options, key="temp_emotion_choice")
-        emotion_word = st.text_input("감정 직접 입력", placeholder="예: 몽글몽글한, 단단한, 흔들리는", key="temp_emotion_input") if emotion_choice == "직접 입력" else emotion_choice
-
-        self_message_options = ["- 선택 -", "오늘도 충분히 잘했어.", "완벽하지 않아도 괜찮아.", "내가 버틴 하루도 소중해.", "조금 쉬어가도 괜찮아.", "내일의 나는 오늘의 나에게 고마워할 거야.", "직접 입력"]
-        self_message_choice = st.selectbox("나에게 한마디", self_message_options, key="temp_self_message_choice")
-        self_message = st.text_input("나에게 한마디 직접 입력", key="temp_self_message_input") if self_message_choice == "직접 입력" else self_message_choice
-
-        if st.button("감성 일기 생성", key="temp_emotional_button"):
-            if one_line == "- 선택 -":
-                st.warning("오늘의 한 줄 문장을 선택해 주세요.")
-            elif best_moment == "- 선택 -":
-                st.warning("가장 빛났던 순간을 선택해 주세요.")
-            elif emotion_word == "- 선택 -":
-                st.warning("오늘 내 마음을 표현하는 단어를 선택해 주세요.")
-            elif self_message == "- 선택 -":
-                st.warning("나에게 한마디를 선택해 주세요.")
-            else:
-                result = f"오늘 하루를 돌아보면, {one_line}\n\n그중 가장 마음에 남는 순간은 {best_moment}\n\n오늘 내 마음은 {emotion_word} 쪽에 가까웠어요.\n\n그래도 나에게 이렇게 말해주고 싶어요.\n{self_message}"
-                saved = save_temperature_log("감성 일기", best_moment, emotion_word, "", None, "", result)
-                st.success("감성 일기가 생성되었습니다.")
-                if saved:
-                    st.caption("내 정보 보기에서 이 기록을 1년간 확인할 수 있습니다.")
-                else:
-                    st.caption("로그인하지 않아 화면에만 표시됩니다.")
-                st.markdown("### 생성 결과")
-                st.markdown(f"<div class='letter-box'>{result}</div>", unsafe_allow_html=True)
-
-    elif diary_type == "✒️ 3줄 요약 다이어리":
-        st.markdown("### ✒️ 3줄 요약 다이어리")
-        st.write("선택한 기억, 감정, 온도 값을 바탕으로 오늘의 평균 마음온도를 자동 계산합니다.")
-
-        memory_options = ["- 선택 -", "아이의 웃음이 오래 기억에 남았습니다.", "예상하지 못한 아이의 표현이 마음에 남았습니다.", "함께 놀이하던 장면이 오늘의 가장 특별한 순간이었습니다.", "동료와 나눈 짧은 대화가 힘이 되었습니다.", "하루를 무사히 마무리한 것이 가장 큰 일이었습니다.", "직접 입력"]
-        memory_temperature = {"아이의 웃음이 오래 기억에 남았습니다.": 38.0, "예상하지 못한 아이의 표현이 마음에 남았습니다.": 37.5, "함께 놀이하던 장면이 오늘의 가장 특별한 순간이었습니다.": 37.0, "동료와 나눈 짧은 대화가 힘이 되었습니다.": 36.5, "하루를 무사히 마무리한 것이 가장 큰 일이었습니다.": 35.5, "직접 입력": 36.5}
-        memory_choice = st.selectbox("기억", memory_options, key="temp_memory_choice")
-        memory = st.text_input("기억 직접 입력", key="temp_memory_input") if memory_choice == "직접 입력" else memory_choice
-
-        emotion_options = ["- 선택 -", "뿌듯함이 남았습니다.", "조금 지쳤지만 따뜻함도 있었습니다.", "마음이 복잡했지만 잘 버텼습니다.", "작은 장면 하나에 위로를 받았습니다.", "생각보다 괜찮은 하루였습니다.", "직접 입력"]
-        emotion_temperature = {"뿌듯함이 남았습니다.": 38.5, "조금 지쳤지만 따뜻함도 있었습니다.": 36.5, "마음이 복잡했지만 잘 버텼습니다.": 34.5, "작은 장면 하나에 위로를 받았습니다.": 37.0, "생각보다 괜찮은 하루였습니다.": 36.0, "직접 입력": 36.5}
-        emotion_choice = st.selectbox("감정", emotion_options, key="temp_3line_emotion_choice")
-        emotion = st.text_input("감정 직접 입력", key="temp_3line_emotion_input") if emotion_choice == "직접 입력" else emotion_choice
-
-        temperature_options = ["- 선택 -", "따뜻한 36.5℃", "차분한 35℃", "열정적인 40℃", "조금 지친 32℃", "다시 회복 중인 34℃", "직접 입력"]
-        temperature_temperature = {"따뜻한 36.5℃": 36.5, "차분한 35℃": 35.0, "열정적인 40℃": 40.0, "조금 지친 32℃": 32.0, "다시 회복 중인 34℃": 34.0, "직접 입력": 36.5}
-        temperature_choice = st.selectbox("온도", temperature_options, key="temp_temperature_choice")
-        temperature = st.text_input("온도 직접 입력", placeholder="예: 몽글몽글한 37℃", key="temp_temperature_input") if temperature_choice == "직접 입력" else temperature_choice
-
-        if st.button("3줄 다이어리 생성", key="temp_3line_button"):
-            if memory_choice == "- 선택 -":
-                st.warning("기억을 선택해 주세요.")
-            elif emotion_choice == "- 선택 -":
-                st.warning("감정을 선택해 주세요.")
-            elif temperature_choice == "- 선택 -":
-                st.warning("온도를 선택해 주세요.")
-            else:
-                average_temp = round(memory_temperature[memory_choice] * 0.25 + emotion_temperature[emotion_choice] * 0.25 + temperature_temperature[temperature_choice] * 0.50, 1)
-                if average_temp >= 38:
-                    temp_message = "오늘은 마음의 에너지가 꽤 높았던 하루예요."
-                elif average_temp >= 36:
-                    temp_message = "따뜻함과 안정감이 남아 있는 하루예요."
-                elif average_temp >= 34:
-                    temp_message = "조금 지쳤지만 잘 버텨낸 하루예요."
-                else:
-                    temp_message = "마음의 온도가 낮아진 날이에요. 오늘은 회복이 먼저예요."
-                result = f"오늘 하루를 돌아보면, {memory}\n\n그 순간의 내 마음에는 {emotion}\n\n그래서 오늘의 마음온도는 {temperature}에 가까웠어요.\n\n{temp_message}\n\n오늘도 충분히 애쓴 하루였어요."
-                saved = save_temperature_log("3줄 요약 다이어리", memory, emotion, temperature, average_temp, temp_message, result)
-                st.success("3줄 요약 다이어리가 생성되었습니다.")
-                if saved:
-                    st.caption("내 정보 보기에서 이 기록과 월별 마음온도 그래프를 1년간 확인할 수 있습니다.")
-                else:
-                    st.caption("로그인하지 않아 화면에만 표시됩니다.")
-                st.metric(label="🌡️ 선생님들의 오늘, 평균 마음온도", value=f"{average_temp}℃")
-                st.info(temp_message)
-                st.markdown("### 생성 결과")
-                st.markdown(f"<div class='letter-box'>{result}</div>", unsafe_allow_html=True)
-
-
-# =========================
 # TAB 6. 내 정보 보기
 # =========================
 with tab6:
@@ -5526,24 +5540,19 @@ with tab6:
 with tab7:
     try:
         admin_config = st.secrets["admin"]
-        ADMIN_ID = str(admin_config["id"] if "id" in admin_config else "")
-        ADMIN_PW = str(admin_config["password"] if "password" in admin_config else "")
+        ADMIN_ID = str(admin_config.get("id") or "")
+        ADMIN_PW = str(admin_config.get("password") or "")
     except Exception:
-        ADMIN_ID = ""
-        ADMIN_PW = ""
+        ADMIN_ID, ADMIN_PW = "", ""
 
     render_menu_card(
         "🔐 관리자 모드",
-        "회원 정보와 생성 기록을 확인하고, 통계 그래프와 CSV 다운로드를 관리합니다.",
-        ["회원 관리", "누적 기록", "통계", "CSV"]
+        "회원, 놀이 기록 세션, 보관 사진과 생성 문장을 조회하고 CSV로 내려받을 수 있습니다.",
+        ["회원 관리", "놀이 세션", "사진 기록", "생성 문장", "CSV"]
     )
-
     with st.expander("관리자 메뉴 열기", expanded=False):
-        st.write("회원 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
-
         admin_id = st.text_input("관리자 아이디", key="admin_id_input")
         admin_pw = st.text_input("관리자 비밀번호", type="password", key="admin_pw_input")
-
         if st.button("관리자 로그인", key="admin_login_button"):
             if not ADMIN_ID or not ADMIN_PW:
                 st.session_state["admin_logged_in"] = False
@@ -5556,531 +5565,70 @@ with tab7:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
         if st.session_state.get("admin_logged_in"):
-
-            st.markdown("### 📊 데이터 분석 대시보드")
-
-            dashboard_period = st.selectbox(
-                "조회 단위",
-                ["전체", "오늘", "최근 7일", "이번 달"],
-                key="dashboard_period_select"
-            )
-
-            subscribers_df = load_table("subscribers")
-            diary_df = load_table("diary_logs")
-            temp_df = load_table("teacher_temperature_logs")
-            phrase_df = load_table("phrase_logs")
-
-            subscribers_filtered = filter_by_period(subscribers_df, dashboard_period)
-            diary_filtered = filter_by_period(diary_df, dashboard_period)
-            temp_filtered = filter_by_period(temp_df, dashboard_period)
-            phrase_filtered = filter_by_period(phrase_df, dashboard_period)
-            mailing_count = 0
-            if not subscribers_filtered.empty and "mailing_agree" in subscribers_filtered.columns:
-                mailing_count = subscribers_filtered[
-                    subscribers_filtered["mailing_agree"].astype(str) == "True"
-                ].shape[0]
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("회원 수", f"{len(subscribers_filtered)}명")
-            col2.metric("메일링 동의", f"{mailing_count}명")
-            col3.metric("알림장 생성", f"{len(diary_filtered)}건")
-            col4.metric("기록 요정 생성", f"{len(phrase_filtered)}건")
-            col5.metric("교사의 온도 기록", f"{len(temp_filtered)}건")
+            period = st.selectbox("조회 단위", ["전체", "오늘", "최근 7일", "이번 달"], key="dashboard_period_select")
+            table_options = {
+                "회원 관리": ("subscribers", "members.csv"),
+                "놀이 세션": ("play_sessions", "play_sessions.csv"),
+                "사진 기록": ("photo_records", "photo_records.csv"),
+                "생성 문장": ("generated_texts", "generated_texts.csv"),
+                "이전 기록 요정 기록": ("phrase_logs", "phrase_logs.csv"),
+            }
+            all_frames = {label: filter_by_period(load_table(table), period) for label, (table, _) in table_options.items()}
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("회원 수", f"{len(all_frames['회원 관리'])}명")
+            col2.metric("놀이 세션", f"{len(all_frames['놀이 세션'])}건")
+            col3.metric("보관 사진", f"{len(all_frames['사진 기록'])}장")
+            col4.metric("생성 문장", f"{len(all_frames['생성 문장'])}건")
 
             st.divider()
-            st.markdown("### 📈 기록 분포")
-
-            graph_col1, graph_col2, graph_col3 = st.columns(3)
-
+            graph_col1, graph_col2 = st.columns(2)
             with graph_col1:
-                st.markdown("#### 교사의 온도 기록 유형")
-                if not temp_filtered.empty and "diary_type" in temp_filtered.columns:
-                    temp_counts = temp_filtered["diary_type"].dropna()
-                    temp_counts = temp_counts[temp_counts != ""]
-                    if not temp_counts.empty:
-                        draw_category_chart(temp_counts.value_counts(), "교사의 온도 기록 유형")
-                    else:
-                        st.caption("교사의 온도 기록이 없습니다.")
+                session_df = all_frames["놀이 세션"]
+                if not session_df.empty and "record_type" in session_df.columns:
+                    draw_category_chart(session_df["record_type"].fillna("미분류").value_counts(), "기록 유형 분포")
                 else:
-                    st.caption("교사의 온도 기록이 없습니다.")
-
+                    st.caption("표시할 놀이 세션이 없습니다.")
             with graph_col2:
-                st.markdown("#### 알림장 기록 성향")
-                if not diary_filtered.empty and "teacher_tone" in diary_filtered.columns:
-                    tone_counts = diary_filtered["teacher_tone"].dropna()
-                    tone_counts = tone_counts[tone_counts != ""]
-                    if not tone_counts.empty:
-                        draw_category_chart(tone_counts.value_counts(), "알림장 기록 성향")
-                    else:
-                        st.caption("알림장 기록이 없습니다.")
+                generated_df = all_frames["생성 문장"]
+                if not generated_df.empty and "output_type" in generated_df.columns:
+                    draw_category_chart(generated_df["output_type"].fillna("미분류").value_counts(), "생성 문장 유형")
                 else:
-                    st.caption("알림장 기록이 없습니다.")
+                    st.caption("표시할 생성 문장이 없습니다.")
 
-            with graph_col3:
-                st.markdown("#### 기록 요정 생성 유형")
-
-                if not phrase_filtered.empty and "record_type" in phrase_filtered.columns:
-                    phrase_counts = phrase_filtered["record_type"].dropna()
-                    phrase_counts = phrase_counts[phrase_counts != ""]
-
-                    if not phrase_counts.empty:
-                        draw_category_chart(
-                            phrase_counts.value_counts(),
-                            "기록 요정 생성 유형"
-                        )
-
-                else:
-                    st.caption("상황별 문구 생성 기록이 없습니다.")
-            
-            st.divider()
-
-            admin_menu = st.selectbox(
-                "조회할 데이터 선택",
-                ["회원 관리", "알림장 생성 기록", "기록 요정 생성 기록", "교사의 온도 기록"],
-                key="admin_data_select"
-            )
-
-            table_map = {
-                "회원 관리": "subscribers",
-                "알림장 생성 기록": "diary_logs",
-                "기록 요정 생성 기록": "phrase_logs",
-                "교사의 온도 기록": "teacher_temperature_logs"
+            admin_menu = st.selectbox("조회할 데이터 선택", list(table_options.keys()), key="admin_data_select")
+            table_name, file_name = table_options[admin_menu]
+            df = all_frames[admin_menu].copy()
+            rename_map = {
+                "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
+                "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
+                "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
+                "play_name": "놀이명", "play_goal": "놀이 목표", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
+                "record_type": "기록 유형", "play_subcategories": "놀이 세부 구분", "teacher_supports": "교사의 지원", "ai_summary": "사진 1차 분석",
+                "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
+                "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
+                "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
             }
+            display_df = df.rename(columns=rename_map)
+            if "삭제 여부" in display_df.columns:
+                display_df = display_df.drop(columns=["삭제 여부"])
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
+            st.download_button("CSV 다운로드", display_df.to_csv(index=False).encode("utf-8-sig"), file_name=file_name, mime="text/csv", key="admin_csv_download")
 
-            file_map = {
-                "회원 관리": "members.csv",
-                "알림장 생성 기록": "diary_logs.csv",
-                "기록 요정 생성 기록": "phrase_logs.csv",
-                "교사의 온도 기록": "teacher_temperature_logs.csv"
-            }
-
-            table_name = table_map[admin_menu]
-            file_name = file_map[admin_menu]
-
-            df = load_table(table_name)
-            df = filter_by_period(df, dashboard_period)
-
-            column_rename = {
-                "id": "번호",
-                "created_at": "생성일시",
-                "institution_name": "기관명",
-                "institution_group": "기관 구분",
-                "institution_type": "기관 유형",
-                "institution_feature": "기관 특성",
-                "phone": "연락처",
-                "user_id": "회원 UID",
-                "platform_member_id": "회원 ID",
-                "subscriber_name": "가입자 성명",
-                "position": "직책",
-                "email": "이메일",
-                "is_active": "계정 활성",
-                "member_created_at": "회원가입일",
-                "last_login_at": "최근 로그인",
-                "privacy_agree": "개인정보 동의",
-                "mailing_agree": "메일링 동의",
-
-                "record_type": "기록 유형",
-                "play_keyword": "사진 속 놀이 키워드 입력",
-                "age_group": "연령 선택",
-                "curriculum_area": "표준보육과정·누리과정 영역 선택",
-                "development_area": "발달 영역 선택",
-                "child_action": "사진 속 아이들의 모습 선택",
-                "generated_text": "생성 문구",
-
-                "teacher_tone": "교사 전달 말투",
-                "daily_scope": "하루일과 전달 범위",
-                "original_text": "원문",
-                "summary": "요약 결과",
-                "generated_message": "생성된 알림장",
-
-                "diary_type": "기록 유형",
-                "memory": "기억",
-                "emotion": "감정",
-                "temperature": "교사 온도",
-                "average_temp": "평균 마음온도",
-                "temp_message": "온도 해석",
-                "result_text": "생성 결과",
-                "expires_at": "자동 삭제 예정일",
-                "created_at_dt": "조회용 날짜",
-                "deleted": "삭제 여부",
-            }
-
-            display_df = df.rename(columns=column_rename)
-
-            if "조회용 날짜" in display_df.columns:
-                display_df = display_df.drop(columns=["조회용 날짜"])
-
-
-
-            st.markdown("### 📁 데이터 조회 및 다운로드")
-
-            # 표시용 표에서는 삭제 여부 컬럼을 제거하고, 관리자 선택 삭제용 체크박스를 별도로 제공합니다.
-            table_display_df = display_df.copy()
-            if "삭제 여부" in table_display_df.columns:
-                table_display_df = table_display_df.drop(columns=["삭제 여부"])
-
-            selected_delete_ids = []
-            current_view_ids = []
-
-            if table_display_df.empty:
-                st.caption("표시할 데이터가 없습니다.")
-            elif "번호" not in table_display_df.columns:
-                st.dataframe(table_display_df, use_container_width=True)
-            else:
-                current_view_ids = (
-                    table_display_df["번호"]
-                    .dropna()
-                    .astype(int)
-                    .tolist()
-                )
-
-                delete_select_key = f"delete_select_all_{table_name}_{dashboard_period}_{admin_menu}"
-                delete_editor_version_key = f"delete_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
-
-                if delete_select_key not in st.session_state:
-                    st.session_state[delete_select_key] = False
-                if delete_editor_version_key not in st.session_state:
-                    st.session_state[delete_editor_version_key] = 0
-
-                select_col1, select_col2, select_col3 = st.columns([1, 1, 4])
-                with select_col1:
-                    if st.button(
-                        "현재 목록 전체 선택",
-                        key=f"delete_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        use_container_width=True,
-                    ):
-                        st.session_state[delete_select_key] = True
-                        st.session_state[delete_editor_version_key] += 1
+            if not df.empty and "id" in df.columns:
+                st.divider()
+                delete_ids = st.multiselect("숨김 처리 또는 영구 삭제할 번호", df["id"].dropna().astype(int).tolist(), key=f"admin_delete_ids_{table_name}")
+                dcol1, dcol2 = st.columns(2)
+                with dcol1:
+                    if st.button("선택 기록 숨김 처리", key=f"admin_soft_delete_{table_name}", disabled=not delete_ids):
+                        for record_id in delete_ids:
+                            soft_delete_record(table_name, record_id)
+                        st.success(f"{len(delete_ids)}건을 숨김 처리했습니다.")
                         st.rerun()
-                with select_col2:
-                    if st.button(
-                        "전체 선택 취소",
-                        key=f"delete_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        use_container_width=True,
-                    ):
-                        st.session_state[delete_select_key] = False
-                        st.session_state[delete_editor_version_key] += 1
-                        st.rerun()
-                with select_col3:
-                    st.caption("현재 표에 보이는 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
-
-                editable_df = table_display_df.copy()
-                editable_df.insert(0, "삭제 선택", bool(st.session_state[delete_select_key]))
-
-                disabled_columns = [col for col in editable_df.columns if col != "삭제 선택"]
-                edited_df = st.data_editor(
-                    editable_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=disabled_columns,
-                    key=f"delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[delete_editor_version_key]}",
-                    column_config={
-                        "삭제 선택": st.column_config.CheckboxColumn(
-                            "삭제 선택",
-                            help="목록에서 숨김 처리할 기록을 선택하세요.",
-                            default=False,
-                        )
-                    },
-                )
-
-                selected_delete_ids = (
-                    edited_df.loc[edited_df["삭제 선택"] == True, "번호"]
-                    .dropna()
-                    .astype(int)
-                    .tolist()
-                )
-
-            csv = table_display_df.to_csv(index=False).encode("utf-8-sig")
-
-            st.download_button(
-                label="CSV 다운로드",
-                data=csv,
-                file_name=file_name,
-                mime="text/csv",
-                key="admin_csv_download"
-            )
-
-
-            st.divider()
-            st.markdown("### 🛠️ 기록 삭제")
-            st.caption("선택한 기록은 목록에서 숨김 처리됩니다. 숨김 처리된 기록은 아래에서 복원하거나 영구 삭제할 수 있습니다.")
-
-            if table_display_df.empty:
-                st.caption("삭제할 기록이 없습니다.")
-            else:
-                delete_col1, delete_col2 = st.columns([1, 1])
-
-                with delete_col1:
-                    st.markdown("#### 선택 삭제")
-                    if selected_delete_ids:
-                        st.info(f"삭제 선택된 기록: {len(selected_delete_ids)}건")
-                    else:
-                        st.caption("위 표의 '삭제 선택'에 체크한 뒤 삭제할 수 있습니다.")
-
-                    if st.button(
-                        "선택한 기록 숨김 처리",
-                        key="soft_delete_selected_button",
-                        disabled=not bool(selected_delete_ids),
-                    ):
-                        for delete_id in selected_delete_ids:
-                            soft_delete_record(table_name, delete_id)
-                        st.success(f"선택한 기록 {len(selected_delete_ids)}건을 숨김 처리했습니다.")
+                with dcol2:
+                    confirm = st.text_input("영구 삭제하려면 '영구삭제' 입력", key=f"admin_hard_confirm_{table_name}")
+                    if st.button("선택 기록 영구 삭제", key=f"admin_hard_delete_{table_name}", disabled=(not delete_ids or confirm.strip() != "영구삭제")):
+                        for record_id in delete_ids:
+                            hard_delete_record(table_name, record_id)
+                        st.success(f"{len(delete_ids)}건을 영구 삭제했습니다.")
                         st.rerun()
 
-                with delete_col2:
-                    st.markdown("#### 현재 조회 결과 전체 삭제")
-                    st.caption(f"현재 선택한 데이터와 조회 단위에 보이는 {len(current_view_ids)}건을 한 번에 숨김 처리합니다.")
-                    bulk_confirm = st.checkbox(
-                        "현재 조회 결과 전체 삭제에 동의합니다.",
-                        key=f"bulk_delete_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-
-                    if st.button(
-                        f"현재 조회 결과 {len(current_view_ids)}건 숨김 처리",
-                        key=f"bulk_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not current_view_ids or not bulk_confirm),
-                    ):
-                        for delete_id in current_view_ids:
-                            soft_delete_record(table_name, delete_id)
-                        st.success(f"현재 조회 결과 {len(current_view_ids)}건을 숨김 처리했습니다.")
-                        st.rerun()
-
-            with st.expander("⚠️ 현재 조회 결과 영구 삭제", expanded=False):
-                st.warning("영구 삭제는 Supabase DB에서 기록을 완전히 삭제합니다. 삭제 후에는 복원할 수 없습니다.")
-                st.caption(f"대상: {admin_menu} / 조회 단위: {dashboard_period} / 현재 보이는 기록 {len(current_view_ids)}건")
-                hard_delete_text = st.text_input(
-                    "현재 조회 결과를 영구 삭제하려면 '영구삭제'를 입력하세요.",
-                    key=f"hard_delete_current_view_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                )
-                if st.button(
-                    f"현재 조회 결과 {len(current_view_ids)}건 영구 삭제",
-                    key=f"hard_delete_current_view_button_{table_name}_{dashboard_period}_{admin_menu}",
-                    disabled=(not current_view_ids or hard_delete_text.strip() != "영구삭제"),
-                ):
-                    for delete_id in current_view_ids:
-                        hard_delete_record(table_name, delete_id)
-                    st.success(f"현재 조회 결과 {len(current_view_ids)}건을 영구 삭제했습니다.")
-                    st.rerun()
-
-            with st.expander("🧹 전체 테스트 데이터 일괄 정리", expanded=False):
-                st.warning("테스트 데이터 정리 기능입니다. 숨김 처리는 복원 가능하지만, 영구 삭제는 복원할 수 없습니다.")
-
-                all_delete_targets = {
-                    "회원 관리": "subscribers",
-                    "알림장 생성 기록": "diary_logs",
-                    "기록 요정 생성 기록": "phrase_logs",
-                    "교사의 온도 기록": "teacher_temperature_logs",
-                }
-
-                active_delete_count = 0
-                permanent_delete_count = 0
-                active_ids_by_table = {}
-                all_ids_by_table = {}
-
-                for label, target_table in all_delete_targets.items():
-                    active_df = load_table(target_table)
-                    all_df = load_table(target_table, include_deleted=True)
-
-                    active_ids = []
-                    all_ids = []
-                    if not active_df.empty and "id" in active_df.columns:
-                        active_ids = active_df["id"].dropna().astype(int).tolist()
-                    if not all_df.empty and "id" in all_df.columns:
-                        all_ids = all_df["id"].dropna().astype(int).tolist()
-
-                    active_ids_by_table[target_table] = active_ids
-                    all_ids_by_table[target_table] = all_ids
-                    active_delete_count += len(active_ids)
-                    permanent_delete_count += len(all_ids)
-                    st.caption(f"- {label}: 현재 목록 {len(active_ids)}건 / 전체 DB {len(all_ids)}건")
-
-                soft_col, hard_col = st.columns([1, 1])
-
-                with soft_col:
-                    st.markdown("#### 전체 숨김 처리")
-                    all_delete_text = st.text_input(
-                        "전체 테스트 데이터를 숨김 처리하려면 '전체삭제'를 입력하세요.",
-                        key="all_test_data_delete_confirm_text",
-                    )
-
-                    if st.button(
-                        f"전체 테스트 데이터 {active_delete_count}건 숨김 처리",
-                        key="all_test_data_soft_delete_button",
-                        disabled=(active_delete_count == 0 or all_delete_text.strip() != "전체삭제"),
-                    ):
-                        for target_table, target_ids in active_ids_by_table.items():
-                            for delete_id in target_ids:
-                                soft_delete_record(target_table, delete_id)
-                        st.success(f"전체 테스트 데이터 {active_delete_count}건을 숨김 처리했습니다.")
-                        st.rerun()
-
-                with hard_col:
-                    st.markdown("#### 전체 영구 삭제")
-                    all_hard_delete_text = st.text_input(
-                        "DB의 전체 테스트 데이터를 영구 삭제하려면 '전체영구삭제'를 입력하세요.",
-                        key="all_test_data_hard_delete_confirm_text",
-                    )
-
-                    if st.button(
-                        f"전체 테스트 데이터 {permanent_delete_count}건 영구 삭제",
-                        key="all_test_data_hard_delete_button",
-                        disabled=(permanent_delete_count == 0 or all_hard_delete_text.strip() != "전체영구삭제"),
-                    ):
-                        for target_table, target_ids in all_ids_by_table.items():
-                            for delete_id in target_ids:
-                                hard_delete_record(target_table, delete_id)
-                        st.success(f"전체 테스트 데이터 {permanent_delete_count}건을 영구 삭제했습니다.")
-                        st.rerun()
-
-            st.divider()
-            st.markdown("### ♻️ 삭제 기록 복원 및 영구삭제")
-            st.caption("숨김 처리된 기록을 여러 개 선택해 한 번에 복원하거나, DB에서 영구 삭제할 수 있습니다.")
-
-            deleted_df = load_table(table_name, include_deleted=True)
-
-            if "deleted" in deleted_df.columns:
-                deleted_mask = deleted_df["deleted"].astype(str).str.lower().isin(["true", "1", "yes"])
-                deleted_df = deleted_df[deleted_mask]
-
-            if deleted_df.empty:
-                st.caption("복원 또는 영구 삭제할 기록이 없습니다.")
-            else:
-                deleted_display_df = deleted_df.rename(columns=column_rename)
-
-                if "조회용 날짜" in deleted_display_df.columns:
-                    deleted_display_df = deleted_display_df.drop(columns=["조회용 날짜"])
-                if "삭제 여부" in deleted_display_df.columns:
-                    deleted_display_df = deleted_display_df.drop(columns=["삭제 여부"])
-
-                selected_restore_ids = []
-                deleted_view_ids = []
-
-                if "번호" not in deleted_display_df.columns:
-                    st.dataframe(deleted_display_df, use_container_width=True)
-                else:
-                    deleted_view_ids = (
-                        deleted_display_df["번호"]
-                        .dropna()
-                        .astype(int)
-                        .tolist()
-                    )
-
-                    restore_select_key = f"restore_select_all_{table_name}_{dashboard_period}_{admin_menu}"
-                    restore_editor_version_key = f"restore_editor_version_{table_name}_{dashboard_period}_{admin_menu}"
-
-                    if restore_select_key not in st.session_state:
-                        st.session_state[restore_select_key] = False
-                    if restore_editor_version_key not in st.session_state:
-                        st.session_state[restore_editor_version_key] = 0
-
-                    restore_select_col1, restore_select_col2, restore_select_col3 = st.columns([1, 1, 4])
-                    with restore_select_col1:
-                        if st.button(
-                            "삭제 기록 전체 선택",
-                            key=f"restore_select_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                            use_container_width=True,
-                        ):
-                            st.session_state[restore_select_key] = True
-                            st.session_state[restore_editor_version_key] += 1
-                            st.rerun()
-                    with restore_select_col2:
-                        if st.button(
-                            "전체 선택 취소",
-                            key=f"restore_clear_all_button_{table_name}_{dashboard_period}_{admin_menu}",
-                            use_container_width=True,
-                        ):
-                            st.session_state[restore_select_key] = False
-                            st.session_state[restore_editor_version_key] += 1
-                            st.rerun()
-                    with restore_select_col3:
-                        st.caption("숨김 처리된 기록을 한 번에 선택하거나 선택을 해제할 수 있습니다.")
-
-                    deleted_editable_df = deleted_display_df.copy()
-                    deleted_editable_df.insert(0, "선택", bool(st.session_state[restore_select_key]))
-
-                    disabled_deleted_columns = [col for col in deleted_editable_df.columns if col != "선택"]
-                    edited_deleted_df = st.data_editor(
-                        deleted_editable_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        disabled=disabled_deleted_columns,
-                        key=f"restore_delete_editor_{table_name}_{dashboard_period}_{admin_menu}_{st.session_state[restore_editor_version_key]}",
-                        column_config={
-                            "선택": st.column_config.CheckboxColumn(
-                                "선택",
-                                help="복원하거나 영구 삭제할 기록을 선택하세요.",
-                                default=False,
-                            )
-                        },
-                    )
-
-                    selected_restore_ids = (
-                        edited_deleted_df.loc[edited_deleted_df["선택"] == True, "번호"]
-                        .dropna()
-                        .astype(int)
-                        .tolist()
-                    )
-
-                restore_col, permanent_col = st.columns([1, 1])
-
-                with restore_col:
-                    st.markdown("#### 선택 기록 복원")
-                    if selected_restore_ids:
-                        st.info(f"선택된 삭제 기록: {len(selected_restore_ids)}건")
-                    else:
-                        st.caption("위 표에서 복원할 기록을 선택해 주세요.")
-
-                    if st.button(
-                        "선택한 기록 복원",
-                        key=f"restore_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=not bool(selected_restore_ids),
-                    ):
-                        for restore_id in selected_restore_ids:
-                            restore_record(table_name, restore_id)
-                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 복원했습니다.")
-                        st.rerun()
-
-                    restore_all_confirm = st.checkbox(
-                        f"{admin_menu}의 삭제 기록 전체 복원에 동의합니다.",
-                        key=f"restore_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        f"삭제 기록 {len(deleted_view_ids)}건 전체 복원",
-                        key=f"restore_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not deleted_view_ids or not restore_all_confirm),
-                    ):
-                        for restore_id in deleted_view_ids:
-                            restore_record(table_name, restore_id)
-                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 복원했습니다.")
-                        st.rerun()
-
-                with permanent_col:
-                    st.markdown("#### 선택 기록 영구 삭제")
-                    st.warning("영구 삭제한 기록은 복원할 수 없습니다.")
-                    permanent_text = st.text_input(
-                        "선택한 삭제 기록을 영구 삭제하려면 '영구삭제'를 입력하세요.",
-                        key=f"permanent_selected_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        "선택한 기록 영구 삭제",
-                        key=f"permanent_selected_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not selected_restore_ids or permanent_text.strip() != "영구삭제"),
-                    ):
-                        for delete_id in selected_restore_ids:
-                            hard_delete_record(table_name, delete_id)
-                        st.success(f"선택한 기록 {len(selected_restore_ids)}건을 영구 삭제했습니다.")
-                        st.rerun()
-
-                    permanent_all_text = st.text_input(
-                        f"{admin_menu}의 삭제 기록 전체를 영구 삭제하려면 '삭제기록영구삭제'를 입력하세요.",
-                        key=f"permanent_all_deleted_confirm_{table_name}_{dashboard_period}_{admin_menu}",
-                    )
-                    if st.button(
-                        f"삭제 기록 {len(deleted_view_ids)}건 전체 영구 삭제",
-                        key=f"permanent_all_deleted_button_{table_name}_{dashboard_period}_{admin_menu}",
-                        disabled=(not deleted_view_ids or permanent_all_text.strip() != "삭제기록영구삭제"),
-                    ):
-                        for delete_id in deleted_view_ids:
-                            hard_delete_record(table_name, delete_id)
-                        st.success(f"삭제 기록 {len(deleted_view_ids)}건을 전체 영구 삭제했습니다.")
-                        st.rerun()
