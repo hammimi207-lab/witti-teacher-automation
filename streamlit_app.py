@@ -1579,12 +1579,43 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
     return _parse_photo_draft_json(raw_text)
 
 
+# Supabase Storage object key에는 원본 한글 파일명·공백·특수문자를 넣지 않습니다.
+# 원본 파일명은 photo_records.original_file_name 컬럼에만 보관하고,
+# Storage에는 UUID 기반의 영문 파일명만 사용합니다.
+_STORAGE_EXTENSION_BY_MIME = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+_ALLOWED_STORAGE_SUFFIXES = set(_STORAGE_EXTENSION_BY_MIME.values()) | {".jpeg"}
+
+
 def _safe_storage_filename(file_name: str) -> str:
+    """임시 선별 폴더에 쓸 ASCII 안전 파일명을 만듭니다."""
     raw_name = Path(str(file_name or "photo")).name
     stem = Path(raw_name).stem
     suffix = Path(raw_name).suffix.lower()
-    clean_stem = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", stem).strip("._") or "photo"
-    return f"{clean_stem[:80]}{suffix}"
+
+    # 로컬 임시 파일도 한글·공백·특수문자 없이 생성합니다.
+    clean_stem = re.sub(r"[^0-9A-Za-z_-]+", "_", stem).strip("_") or "photo"
+    if suffix not in _ALLOWED_STORAGE_SUFFIXES:
+        suffix = ".jpg"
+    return f"{clean_stem[:40]}{suffix}"
+
+
+def _make_play_photo_storage_path(user_id: str, mime_type: str, now_utc: datetime | None = None) -> str:
+    """Private Storage용 UUID 기반 object key를 만듭니다.
+
+    사용자 원본 파일명은 이 경로에 포함하지 않습니다. 이렇게 해야 한글·공백·특수문자
+    때문에 Supabase Storage가 InvalidKey를 반환하는 문제를 막을 수 있습니다.
+    """
+    now_utc = now_utc or datetime.now(timezone.utc)
+    safe_user_id = re.sub(r"[^0-9A-Za-z_-]+", "", str(user_id or "")).strip("_-") or "member"
+    suffix = _STORAGE_EXTENSION_BY_MIME.get(str(mime_type or "").lower(), ".jpg")
+    return (
+        f"{safe_user_id}/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/"
+        f"{uuid.uuid4().hex}{suffix}"
+    )
 
 
 def select_recommended_play_photos(uploaded_files, recommended_count: int) -> tuple[list, dict[str, float | None]]:
@@ -1695,13 +1726,22 @@ def store_play_photos(
         for uploaded_file in uploaded_files:
             file_bytes, mime_type = _uploaded_file_bytes_and_mime(uploaded_file)
             now_utc = datetime.now(timezone.utc)
-            safe_name = _safe_storage_filename(getattr(uploaded_file, "name", "photo"))
-            file_path = f"{user_id}/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/{uuid.uuid4().hex}_{safe_name}"
-            supabase.storage.from_(PLAY_PHOTO_BUCKET).upload(
-                file_path,
-                file_bytes,
-                file_options={"content-type": mime_type, "upsert": "false"},
-            )
+            # Storage 경로는 UUID + 확장자만 사용합니다.
+            # 원본 한글 파일명은 DB 메타데이터(original_file_name)에만 저장합니다.
+            file_path = _make_play_photo_storage_path(user_id, mime_type, now_utc)
+            try:
+                supabase.storage.from_(PLAY_PHOTO_BUCKET).upload(
+                    file_path,
+                    file_bytes,
+                    file_options={"content-type": mime_type, "upsert": "false"},
+                )
+            except Exception as storage_exc:
+                original_name = str(getattr(uploaded_file, "name", "") or "사진 파일")
+                raise RuntimeError(
+                    f"'{original_name}' 사진을 비공개 저장소에 저장하지 못했습니다. "
+                    f"Storage 경로: {file_path}. 상세 오류: {storage_exc}"
+                ) from storage_exc
+
             uploaded_paths.append(file_path)
             score = quality_scores.get(str(getattr(uploaded_file, "name", "")))
             payload = {
@@ -1709,7 +1749,9 @@ def store_play_photos(
                 "session_id": session_id,
                 "storage_bucket": PLAY_PHOTO_BUCKET,
                 "file_path": file_path,
-                "original_file_name": str(getattr(uploaded_file, "name", "") or safe_name),
+                "original_file_name": str(
+                    getattr(uploaded_file, "name", "") or f"play_photo{_STORAGE_EXTENSION_BY_MIME.get(mime_type, '.jpg')}"
+                ),
                 "mime_type": mime_type,
                 "size_bytes": len(file_bytes),
                 "child_alias": child_alias.strip(),
