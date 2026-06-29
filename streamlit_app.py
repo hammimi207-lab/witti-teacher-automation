@@ -3416,24 +3416,30 @@ def build_restructured_diary(
     return age_sanitize(text, age)
 
 
-# 0~2세 보육과정 영역별 설명. 기존 6영역 UI와 호환되도록 기본생활/신체운동·건강 명칭을 유지합니다.
+# 0~2세 보육과정 영역별 설명. 기존 6영역 UI와 호환되도록 기본생활/신체운동 명칭을 유지합니다.
 CURRICULUM_RECORD_BY_AGE = {
     "0세": {
-        "신체운동·건강": "편안한 일과와 감각·신체 움직임을 통해 건강한 생활의 기초를 경험하는 과정과 연결됩니다.", 
+        "기본생활": "도움을 받아 편안한 일과를 경험하고, 먹기·쉬기·배변 등 기본생활의 리듬을 알아가는 과정과 연결됩니다.",
+        "신체운동": "감각 자극에 반응하고, 몸을 움직이며 신체를 탐색하는 경험과 연결됩니다.",
+        "신체운동·건강": "편안한 일과와 감각·신체 움직임을 통해 건강한 생활의 기초를 경험하는 과정과 연결됩니다.",
         "의사소통": "표정, 몸짓, 울음, 옹알이와 말소리로 의사를 나타내고 주변 소리에 관심을 갖는 경험과 연결됩니다.",
         "사회관계": "교사와 친숙한 사람에게 안정감을 느끼고, 또래가 있는 공간에 관심을 보이는 경험과 연결됩니다.",
         "예술경험": "소리, 리듬, 색, 촉감에 감각적으로 반응하며 아름다움을 느끼는 경험과 연결됩니다.",
         "자연탐구": "보고 듣고 만지는 감각 경험을 통해 주변 사물과 자연에 관심을 갖는 과정과 연결됩니다.",
     },
     "1세": {
-        "신체운동·건강": "도움을 받으며 일과에 익숙해지고, 먹기·씻기·쉬기·배변 의사를 조금씩 나타내는 과정과 연결됩니다.", 
+        "기본생활": "도움을 받으며 일과에 익숙해지고, 먹기·씻기·쉬기·배변 의사를 조금씩 나타내는 과정과 연결됩니다.",
+        "신체운동": "감각으로 주변을 탐색하고, 대소근육을 사용해 기본 움직임을 시도하는 경험과 연결됩니다.",
+        "신체운동·건강": "일상생활의 안정감과 신체 움직임을 바탕으로 건강하고 안전한 생활을 경험하는 과정과 연결됩니다.",
         "의사소통": "표정, 몸짓, 말소리, 간단한 말로 관심과 요구를 나타내는 경험과 연결됩니다.",
         "사회관계": "친숙한 사람과 안정적인 관계를 맺고, 또래의 행동에 관심을 보이는 경험과 연결됩니다.",
         "예술경험": "소리와 리듬, 미술 재료의 촉감, 모방 행동을 즐기는 경험과 연결됩니다.",
         "자연탐구": "친숙한 사물과 자연을 감각으로 반복해서 탐색하는 경험과 연결됩니다.",
     },
     "2세": {
-        "신체운동·건강": "감각과 신체를 인식하고, 대소근육을 조절하며 신체활동을 즐기는 경험과 연결됩니다.",
+        "기본생활": "자신의 몸과 일과에 관심을 가지고, 건강하고 안전한 생활습관의 기초를 형성하는 과정과 연결됩니다.",
+        "신체운동": "감각과 신체를 인식하고, 대소근육을 조절하며 신체활동을 즐기는 경험과 연결됩니다.",
+        "신체운동·건강": "몸의 움직임과 일상생활 습관을 함께 경험하며 건강하고 안전한 생활의 기초를 다지는 과정과 연결됩니다.",
         "의사소통": "표정, 몸짓, 단어, 짧은 말로 요구와 느낌을 나타내고 말놀이와 이야기에 관심을 갖는 경험과 연결됩니다.",
         "사회관계": "나와 다른 사람을 구별하고, 또래 곁에서 또는 함께 놀이하며 다른 사람의 감정과 행동에 반응하는 경험과 연결됩니다.",
         "예술경험": "노래, 리듬, 움직임, 미술 재료를 활용해 자신의 느낌을 표현해 보는 경험과 연결됩니다.",
@@ -4001,7 +4007,7 @@ DEVELOPMENT_RECORD_NOTE = DEVELOPMENT_RECORD_NOTE_BY_AGE["2세"]
 
 
 # 0~2세 표준보육과정 / 3~5세 누리과정 UI 영역
-STANDARD_AREAS = ["신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"]
+STANDARD_AREAS = ["기본생활", "신체운동", "의사소통", "사회관계", "예술경험", "자연탐구"]
 NURI_AREAS = ["신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"]
 
 # 3~5세용 일반 문구. 0~2세는 위의 연령별 딕셔너리를 우선 사용합니다.
@@ -5548,8 +5554,9 @@ with tab7:
     render_menu_card(
         "🔐 관리자 모드",
         "회원, 놀이 기록 세션, 보관 사진과 생성 문장을 조회하고 CSV로 내려받을 수 있습니다.",
-        ["회원 관리", "놀이 세션", "사진 기록", "생성 문장", "CSV"]
+        ["회원 관리", "놀이 세션", "사진 기록", "생성 문장", "숨김 기록 복구", "CSV"]
     )
+
     with st.expander("관리자 메뉴 열기", expanded=False):
         admin_id = st.text_input("관리자 아이디", key="admin_id_input")
         admin_pw = st.text_input("관리자 비밀번호", type="password", key="admin_pw_input")
@@ -5573,7 +5580,13 @@ with tab7:
                 "생성 문장": ("generated_texts", "generated_texts.csv"),
                 "이전 기록 요정 기록": ("phrase_logs", "phrase_logs.csv"),
             }
-            all_frames = {label: filter_by_period(load_table(table), period) for label, (table, _) in table_options.items()}
+
+            # 대시보드와 일반 목록은 숨김 처리되지 않은 활성 기록만 표시합니다.
+            all_frames = {
+                label: filter_by_period(load_table(table), period)
+                for label, (table, _) in table_options.items()
+            }
+
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("회원 수", f"{len(all_frames['회원 관리'])}명")
             col2.metric("놀이 세션", f"{len(all_frames['놀이 세션'])}건")
@@ -5598,6 +5611,7 @@ with tab7:
             admin_menu = st.selectbox("조회할 데이터 선택", list(table_options.keys()), key="admin_data_select")
             table_name, file_name = table_options[admin_menu]
             df = all_frames[admin_menu].copy()
+
             rename_map = {
                 "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
                 "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
@@ -5608,15 +5622,29 @@ with tab7:
                 "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
                 "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
             }
+
+            st.markdown("### 현재 활성 기록")
             display_df = df.rename(columns=rename_map)
             if "삭제 여부" in display_df.columns:
                 display_df = display_df.drop(columns=["삭제 여부"])
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
-            st.download_button("CSV 다운로드", display_df.to_csv(index=False).encode("utf-8-sig"), file_name=file_name, mime="text/csv", key="admin_csv_download")
+            st.download_button(
+                "CSV 다운로드",
+                display_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=file_name,
+                mime="text/csv",
+                key="admin_csv_download",
+            )
 
             if not df.empty and "id" in df.columns:
                 st.divider()
-                delete_ids = st.multiselect("숨김 처리 또는 영구 삭제할 번호", df["id"].dropna().astype(int).tolist(), key=f"admin_delete_ids_{table_name}")
+                st.markdown("### 🛠️ 활성 기록 숨김·영구 삭제")
+                st.caption("숨김 처리는 DB에서 지우지 않고 목록에서만 감춥니다. 아래 ‘숨김 기록 복구’에서 다시 활성화할 수 있습니다.")
+                delete_ids = st.multiselect(
+                    "숨김 처리 또는 영구 삭제할 번호",
+                    df["id"].dropna().astype(int).tolist(),
+                    key=f"admin_delete_ids_{table_name}",
+                )
                 dcol1, dcol2 = st.columns(2)
                 with dcol1:
                     if st.button("선택 기록 숨김 처리", key=f"admin_soft_delete_{table_name}", disabled=not delete_ids):
@@ -5626,9 +5654,86 @@ with tab7:
                         st.rerun()
                 with dcol2:
                     confirm = st.text_input("영구 삭제하려면 '영구삭제' 입력", key=f"admin_hard_confirm_{table_name}")
-                    if st.button("선택 기록 영구 삭제", key=f"admin_hard_delete_{table_name}", disabled=(not delete_ids or confirm.strip() != "영구삭제")):
+                    if st.button(
+                        "선택 기록 영구 삭제",
+                        key=f"admin_hard_delete_{table_name}",
+                        disabled=(not delete_ids or confirm.strip() != "영구삭제"),
+                    ):
                         for record_id in delete_ids:
                             hard_delete_record(table_name, record_id)
                         st.success(f"{len(delete_ids)}건을 영구 삭제했습니다.")
                         st.rerun()
+
+            # ---------------------------------------------------------
+            # 숨김 기록 복구: 이전 코드에 있었지만 1차 보수 과정에서 UI가 누락된 기능을 복원합니다.
+            # - load_table(..., include_deleted=True)로 DB의 숨김 기록까지 다시 불러옵니다.
+            # - subscribers를 복구할 때는 restore_record()가 is_active도 함께 True로 변경합니다.
+            # ---------------------------------------------------------
+            st.divider()
+            st.markdown("### ♻️ 숨김 기록 복구")
+            st.caption("숨김 처리된 기록은 아직 DB에 남아 있습니다. 선택한 기록을 다시 활성 목록으로 되돌릴 수 있습니다.")
+
+            hidden_scope = st.radio(
+                "숨김 기록 조회 범위",
+                ["전체", "현재 조회 단위"],
+                horizontal=True,
+                key=f"admin_restore_scope_{table_name}",
+            )
+
+            hidden_all_df = load_table(table_name, include_deleted=True)
+            if not hidden_all_df.empty and "deleted" in hidden_all_df.columns:
+                hidden_mask = hidden_all_df["deleted"].apply(
+                    lambda value: str(value).strip().lower() in {"true", "1", "yes", "y"}
+                )
+                hidden_df = hidden_all_df.loc[hidden_mask].copy()
+            else:
+                hidden_df = pd.DataFrame()
+
+            if hidden_scope == "현재 조회 단위":
+                hidden_df = filter_by_period(hidden_df, period)
+
+            if hidden_df.empty:
+                st.info("현재 조건에서 복구할 숨김 기록이 없습니다.")
+            else:
+                hidden_display_df = hidden_df.rename(columns=rename_map)
+                if "삭제 여부" in hidden_display_df.columns:
+                    hidden_display_df = hidden_display_df.drop(columns=["삭제 여부"])
+
+                st.dataframe(hidden_display_df, use_container_width=True, hide_index=True, height=320)
+                hidden_ids = hidden_df["id"].dropna().astype(int).tolist() if "id" in hidden_df.columns else []
+                restore_ids = st.multiselect(
+                    "복구할 숨김 기록 번호",
+                    hidden_ids,
+                    key=f"admin_restore_ids_{table_name}_{hidden_scope}",
+                )
+
+                rcol1, rcol2 = st.columns(2)
+                with rcol1:
+                    if st.button(
+                        "선택한 숨김 기록 복구",
+                        key=f"admin_restore_selected_{table_name}_{hidden_scope}",
+                        disabled=not restore_ids,
+                    ):
+                        for record_id in restore_ids:
+                            restore_record(table_name, record_id)
+                        st.success(f"선택한 숨김 기록 {len(restore_ids)}건을 다시 활성화했습니다.")
+                        st.rerun()
+
+                with rcol2:
+                    restore_all_confirm = st.checkbox(
+                        "현재 표시된 숨김 기록 전체를 복구합니다.",
+                        key=f"admin_restore_all_confirm_{table_name}_{hidden_scope}",
+                    )
+                    if st.button(
+                        f"표시된 숨김 기록 {len(hidden_ids)}건 전체 복구",
+                        key=f"admin_restore_all_{table_name}_{hidden_scope}",
+                        disabled=(not hidden_ids or not restore_all_confirm),
+                    ):
+                        for record_id in hidden_ids:
+                            restore_record(table_name, record_id)
+                        st.success(f"표시된 숨김 기록 {len(hidden_ids)}건을 다시 활성화했습니다.")
+                        st.rerun()
+
+                if table_name == "subscribers":
+                    st.caption("회원 관리에서 복구하면 해당 회원의 활성 상태도 함께 복구되어 다시 로그인할 수 있습니다.")
 
