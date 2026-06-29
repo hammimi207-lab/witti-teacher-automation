@@ -1540,7 +1540,7 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
 
 [교사 입력]
 - 놀이명: {play_name or '미입력'}
-- 놀이 목표: {play_goal or '미입력'}
+- 놀이를 통한 배움의 가치: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
 - 선택 교육과정 영역: {curriculum}
@@ -1783,7 +1783,7 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
 
 [놀이 정보]
 - 놀이명: {play_name}
-- 놀이 목표: {play_goal or '미입력'}
+- 놀이를 통한 배움의 가치: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
 - 교육과정 영역(복수): {curriculum}
@@ -2016,7 +2016,7 @@ def render_member_information_page():
             display = _format_kst_datetime_column(sessions_df)
             cols = [c for c in ["작성일시", "play_name", "play_goal", "age_group", "child_alias", "record_type", "curriculum_areas", "ai_summary"] if c in display.columns]
             display = display[cols].rename(columns={
-                "play_name": "놀이명", "play_goal": "놀이 목표", "age_group": "연령", "child_alias": "아이 별칭",
+                "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 가치", "age_group": "연령", "child_alias": "아이 별칭",
                 "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진 1차 분석",
             })
             st.dataframe(display, use_container_width=True, hide_index=True, height=360)
@@ -4260,7 +4260,7 @@ PRESCHOOL_CURRICULUM_RECORD_BY_AGE = {
     "5세": {
         "신체운동·건강": "몸의 움직임을 계획적으로 조절하고 규칙 있는 놀이에 참여하며 안전한 생활 태도를 확장하는 과정과 연결됩니다.",
         "의사소통": "경험을 회상해 이야기하고, 자신의 생각을 이유와 함께 설명하며 듣기·말하기·읽기·쓰기에 관심을 넓히는 경험과 연결됩니다.",
-        "사회관계": "친구와 역할과 규칙을 조율하고 공동의 놀이 목표를 만들어가며 협력하는 과정과 연결됩니다.",
+        "사회관계": "친구와 역할과 규칙을 조율하고 공동의 놀이를 통한 배움의 가치를 만들어가며 협력하는 과정과 연결됩니다.",
         "예술경험": "표현 방법을 선택하고 계획하여 자신의 생각과 느낌을 창의적으로 나타내는 경험과 연결됩니다.",
         "자연탐구": "자연과 생활 속 문제를 관찰, 비교, 예측하며 탐구하고 해결 방법을 시도하는 경험과 연결됩니다.",
     },
@@ -5024,7 +5024,7 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
     return (
         "교사의 발견 | 사진 기반 놀이 기록\n\n"
         f"놀이명: {context.get('play_name') or '-'}\n"
-        f"놀이 목표: {context.get('play_goal') or '-'}\n"
+        f"놀이를 통한 배움의 가치: {context.get('play_goal') or '-'}\n"
         f"연령: {context.get('age_group') or '-'}\n"
         f"아이 별칭: {context.get('child_alias') or '-'}\n"
         f"교육과정 영역: {curriculum_display_text(context.get('curriculum_areas'))}\n"
@@ -5047,7 +5047,7 @@ with tab2:
     else:
         st.markdown("### 1. 놀이 기본 정보")
         play_name = st.text_input("놀이명", placeholder="예: 블록으로 만든 우리 동네", key="wizard_play_name")
-        play_goal = st.text_area("놀이 목표", placeholder="예: 블록을 연결하며 공간을 구성하고 친구의 놀이를 살펴본다.", height=90, key="wizard_play_goal")
+        play_goal = st.text_area("놀이를 통한 배움의 가치", placeholder="예: 블록을 연결하며 공간을 구성하고 친구의 놀이를 살펴본다.", height=90, key="wizard_play_goal")
         info_col1, info_col2 = st.columns(2)
         with info_col1:
             age_group = st.selectbox("연령", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="wizard_age_group")
@@ -5103,7 +5103,7 @@ with tab2:
             if not play_name.strip():
                 st.warning("놀이명을 입력해 주세요.")
             elif not play_goal.strip():
-                st.warning("놀이 목표를 입력해 주세요.")
+                st.warning("놀이를 통한 배움의 가치를 입력해 주세요.")
             elif age_group == "- 선택 -":
                 st.warning("연령을 선택해 주세요.")
             elif not child_alias.strip():
@@ -5616,7 +5616,7 @@ with tab7:
                 "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
                 "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
                 "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
-                "play_name": "놀이명", "play_goal": "놀이 목표", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
+                "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 가치", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
                 "record_type": "기록 유형", "play_subcategories": "놀이 세부 구분", "teacher_supports": "교사의 지원", "ai_summary": "사진 1차 분석",
                 "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
                 "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
