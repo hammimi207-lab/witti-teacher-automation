@@ -1012,7 +1012,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-29-play-record-wizard-username-recovery-v2"
+APP_VERSION = "2026-06-30-login-password-diagnosis-v1"
 
 
 # =========================
@@ -1140,31 +1140,81 @@ def update_member_last_login(user_id: str):
         pass
 
 
+def _auth_exception_to_message(exc: Exception) -> str:
+    """Supabase 로그인 예외를 무조건 비밀번호 오류로 숨기지 않고, 설정/인증 상태를 구분합니다."""
+    code = str(getattr(exc, "code", "") or "").strip().lower()
+    message = str(getattr(exc, "message", "") or exc or "").strip()
+    status = str(getattr(exc, "status", "") or getattr(exc, "status_code", "") or "").strip()
+    raw = f"{code} {message}".lower()
+
+    if "invalid api key" in raw or "invalid_key" in raw or "invalid jwt" in raw or "jwt" in raw and "invalid" in raw:
+        return "로그인 연결 키가 올바르지 않습니다. Streamlit Secrets의 supabase.url과 anon_key(또는 publishable_key)가 같은 Supabase 프로젝트 값인지 확인해 주세요."
+    if "email not confirmed" in raw or "email_not_confirmed" in raw:
+        return "Supabase Auth에서 이메일 확인이 완료되지 않은 계정입니다. 관리자 설정에서 해당 회원의 이메일 확인 상태를 점검해 주세요."
+    if "email rate limit" in raw or "too many requests" in raw or status == "429":
+        return "로그인 요청이 잠시 제한되었습니다. 몇 분 뒤 다시 시도해 주세요."
+    if "invalid login credentials" in raw or "invalid_credentials" in raw or "invalid credentials" in raw:
+        return "아이디 또는 비밀번호가 올바르지 않습니다. 비밀번호를 다시 설정한 뒤에도 반복되면 계정 연결 상태를 확인해 주세요."
+    if "user not found" in raw or "user_not_found" in raw:
+        return "Supabase Auth 계정을 찾지 못했습니다. 회원 프로필은 있으나 로그인 계정 연결이 누락됐을 수 있습니다."
+
+    detail = code or status or "unknown"
+    return f"로그인 요청을 처리하지 못했습니다. 인증 오류 코드: {detail}"
+
+
+def _get_auth_user_by_id(user_id: str):
+    """서버 전용 클라이언트로 auth.users의 실제 계정을 확인합니다."""
+    if not user_id:
+        return None
+    try:
+        response = supabase.auth.admin.get_user_by_id(str(user_id))
+        return getattr(response, "user", None)
+    except Exception:
+        return None
+
+
 def authenticate_member(username: str, password: str) -> tuple[bool, str]:
-    """아이디로 프로필을 조회한 뒤 Supabase Auth에는 연결된 이메일·비밀번호로 로그인합니다."""
+    """아이디 → subscribers 프로필 → auth.users 이메일·비밀번호 순서로 로그인합니다."""
+    normalized_username = normalize_username(username)
+    if not normalized_username or not str(password or ""):
+        return False, "아이디와 비밀번호를 모두 입력해 주세요."
+
     auth_client = get_supabase_auth_client()
     if auth_client is None:
         return False, "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다."
 
-    profile = get_member_profile_by_username(username)
+    profile = get_member_profile_by_username(normalized_username)
     if not profile:
-        return False, "아이디 또는 비밀번호가 올바르지 않습니다."
+        return False, "등록된 아이디를 찾지 못했습니다. 아이디 찾기 기능으로 확인해 주세요."
     if bool(profile.get("deleted")) or profile.get("is_active") is False:
         return False, "현재 사용할 수 없는 계정입니다. 관리자에게 문의해 주세요."
 
     email = str(profile.get("email") or "").strip().lower()
-    if not email:
-        return False, "계정에 연결된 이메일을 찾지 못했습니다. 관리자에게 문의해 주세요."
+    profile_user_id = str(profile.get("user_id") or "").strip()
+    if not email or not profile_user_id:
+        return False, "회원 프로필에 로그인 계정 정보가 완전하게 연결되어 있지 않습니다. 관리자에게 문의해 주세요."
+
+    # 비밀번호를 확인하기 전에 public 프로필의 이메일과 실제 Supabase Auth 계정이 같은지 점검합니다.
+    auth_account = _get_auth_user_by_id(profile_user_id)
+    if auth_account is None:
+        return False, "회원 프로필은 있으나 Supabase Auth 계정을 찾지 못했습니다. 이전 회원 데이터의 연결 상태를 점검해야 합니다."
+
+    auth_email = str(getattr(auth_account, "email", "") or "").strip().lower()
+    if auth_email and auth_email != email:
+        return False, "회원 프로필 이메일과 로그인 계정 이메일이 서로 다릅니다. 비밀번호 문제가 아니라 계정 연결 정보 문제입니다."
 
     try:
         auth_response = auth_client.auth.sign_in_with_password(
-            {"email": email, "password": password}
+            {"email": email, "password": str(password)}
         )
         auth_user = getattr(auth_response, "user", None)
         if not auth_user:
-            return False, "아이디 또는 비밀번호가 올바르지 않습니다."
+            return False, "Supabase 로그인 응답에서 회원 정보를 받지 못했습니다."
 
         user_id = str(getattr(auth_user, "id", "") or "")
+        if user_id != profile_user_id:
+            return False, "로그인된 Auth 계정과 가입 정보의 회원 연결값이 다릅니다. 관리자 계정 정리가 필요합니다."
+
         set_member_session(
             user_id=user_id,
             email=str(getattr(auth_user, "email", "") or email).lower(),
@@ -1176,8 +1226,8 @@ def authenticate_member(username: str, password: str) -> tuple[bool, str]:
             st.session_state["member_refresh_token"] = str(getattr(session, "refresh_token", "") or "")
         update_member_last_login(user_id)
         return True, str(profile.get("username") or profile.get("platform_member_id") or "")
-    except Exception:
-        return False, "아이디 또는 비밀번호가 올바르지 않습니다."
+    except Exception as exc:
+        return False, _auth_exception_to_message(exc)
 
 
 def create_auth_member(email: str, password: str, username: str, member_name: str) -> str:
@@ -1332,12 +1382,15 @@ def find_member_id_by_email(email: str) -> str:
 
 
 def reset_member_password_by_email(email: str, new_password: str):
-    """본인 이메일 인증이 완료된 경우에만 서버에서 비밀번호를 새 값으로 교체합니다."""
+    """본인 이메일 인증이 완료된 경우에만 실제 auth.users 계정의 비밀번호를 교체합니다."""
     normalized_email = str(email or "").strip().lower()
+    if len(str(new_password or "")) < 8:
+        raise ValueError("새 비밀번호는 8자 이상으로 입력해 주세요.")
+
     try:
         response = (
             supabase.table("subscribers")
-            .select("user_id")
+            .select("user_id, email, username, platform_member_id")
             .eq("email", normalized_email)
             .eq("deleted", False)
             .limit(1)
@@ -1346,10 +1399,27 @@ def reset_member_password_by_email(email: str, new_password: str):
         rows = _response_data(response)
         if not rows or not rows[0].get("user_id"):
             raise ValueError("등록된 회원 정보를 찾지 못했습니다.")
-        supabase.auth.admin.update_user_by_id(
-            str(rows[0]["user_id"]),
-            {"password": new_password},
+
+        profile = rows[0]
+        profile_user_id = str(profile.get("user_id") or "").strip()
+        auth_account = _get_auth_user_by_id(profile_user_id)
+        if auth_account is None:
+            raise ValueError("Supabase Auth 계정을 찾지 못했습니다. 회원 프로필과 Auth 계정 연결이 끊어진 상태입니다.")
+
+        auth_email = str(getattr(auth_account, "email", "") or "").strip().lower()
+        if auth_email and auth_email != normalized_email:
+            raise ValueError("회원 프로필 이메일과 Supabase Auth 이메일이 다릅니다. 비밀번호를 바꾸기 전에 계정 연결을 정리해야 합니다.")
+
+        update_response = supabase.auth.admin.update_user_by_id(
+            profile_user_id,
+            {"password": str(new_password)},
         )
+        updated_user = getattr(update_response, "user", None)
+        updated_user_id = str(getattr(updated_user, "id", "") or "")
+        if updated_user_id and updated_user_id != profile_user_id:
+            raise ValueError("비밀번호 변경 응답의 회원 ID가 기존 계정과 일치하지 않습니다.")
+
+        return True
     except Exception as exc:
         raise RuntimeError(f"비밀번호를 재설정하지 못했습니다: {exc}")
 
