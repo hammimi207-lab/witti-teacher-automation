@@ -975,21 +975,32 @@ def get_supabase_service_client():
 
 
 def get_supabase_auth_client():
-    """이메일·비밀번호 로그인용 anon/publishable-key 클라이언트를 새로 만듭니다.
+    """로그인 전용 Supabase 공개 키 클라이언트를 새로 만듭니다.
 
-    로그인 세션이 다른 교사의 브라우저 세션과 섞이지 않도록 캐시하지 않습니다.
+    service_role_key는 서버 전용 작업에만 사용하고, 로그인에는 반드시 anon_key 또는
+    publishable_key를 사용합니다. 실패 원인은 세션에 짧게 보관해 로그인 화면에서만 안내합니다.
     """
+    st.session_state.pop("_auth_client_init_error", None)
+
     if create_client is None:
+        st.session_state["_auth_client_init_error"] = "supabase 패키지를 불러오지 못했습니다. requirements.txt를 확인해 주세요."
         return None
 
     try:
         config = st.secrets["supabase"]
-        url = str(config["url"])
-        auth_key = str(config.get("anon_key") or config.get("publishable_key") or "")
-        if not auth_key:
+        url = str(config["url"] or "").strip()
+        auth_key = str(config.get("anon_key") or config.get("publishable_key") or "").strip()
+
+        if not url.startswith("https://") or ".supabase.co" not in url:
+            st.session_state["_auth_client_init_error"] = "Supabase URL 형식이 올바르지 않습니다. https://프로젝트ID.supabase.co 형식인지 확인해 주세요."
             return None
+        if not auth_key:
+            st.session_state["_auth_client_init_error"] = "Supabase 공개 키(anon_key 또는 publishable_key)가 없습니다."
+            return None
+
         return create_client(url, auth_key)
-    except Exception:
+    except Exception as exc:
+        st.session_state["_auth_client_init_error"] = _safe_auth_exception_detail(exc)
         return None
 
 
@@ -1012,7 +1023,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-30-login-password-diagnosis-v1"
+APP_VERSION = "2026-06-30-login-auth-diagnostic-v2"
 
 
 # =========================
@@ -1140,26 +1151,62 @@ def update_member_last_login(user_id: str):
         pass
 
 
+def _safe_auth_exception_detail(exc: Exception) -> str:
+    """로그인 오류 원인을 확인하기 위한 짧고 비밀값 없는 진단 문자열입니다."""
+    parts = [type(exc).__name__]
+    for attr in ("code", "status", "status_code", "message", "details", "body"):
+        value = getattr(exc, attr, None)
+        if value not in (None, "", {}, []):
+            parts.append(f"{attr}={value}")
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        response_status = getattr(response, "status_code", None) or getattr(response, "status", None)
+        if response_status:
+            parts.append(f"response_status={response_status}")
+        response_text = getattr(response, "text", "")
+        if response_text:
+            parts.append(f"response={str(response_text)[:400]}")
+
+    exc_text = str(exc or "").strip()
+    if exc_text:
+        parts.append(exc_text[:500])
+
+    detail = " | ".join(dict.fromkeys(str(item) for item in parts if str(item).strip()))
+    # 세션 토큰처럼 보이는 긴 JWT가 진단창에 노출되지 않도록 마스킹합니다.
+    detail = re.sub(r"eyJ[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}", "[JWT 숨김]", detail)
+    return detail[:1000] or "상세 오류 문자열을 받지 못했습니다."
+
+
 def _auth_exception_to_message(exc: Exception) -> str:
-    """Supabase 로그인 예외를 무조건 비밀번호 오류로 숨기지 않고, 설정/인증 상태를 구분합니다."""
-    code = str(getattr(exc, "code", "") or "").strip().lower()
-    message = str(getattr(exc, "message", "") or exc or "").strip()
-    status = str(getattr(exc, "status", "") or getattr(exc, "status_code", "") or "").strip()
-    raw = f"{code} {message}".lower()
+    """Supabase 로그인 예외를 설정·네트워크·계정 상태별로 구분합니다."""
+    detail = _safe_auth_exception_detail(exc)
+    st.session_state["_last_auth_error_detail"] = detail
 
-    if "invalid api key" in raw or "invalid_key" in raw or "invalid jwt" in raw or "jwt" in raw and "invalid" in raw:
-        return "로그인 연결 키가 올바르지 않습니다. Streamlit Secrets의 supabase.url과 anon_key(또는 publishable_key)가 같은 Supabase 프로젝트 값인지 확인해 주세요."
-    if "email not confirmed" in raw or "email_not_confirmed" in raw:
-        return "Supabase Auth에서 이메일 확인이 완료되지 않은 계정입니다. 관리자 설정에서 해당 회원의 이메일 확인 상태를 점검해 주세요."
-    if "email rate limit" in raw or "too many requests" in raw or status == "429":
-        return "로그인 요청이 잠시 제한되었습니다. 몇 분 뒤 다시 시도해 주세요."
-    if "invalid login credentials" in raw or "invalid_credentials" in raw or "invalid credentials" in raw:
-        return "아이디 또는 비밀번호가 올바르지 않습니다. 비밀번호를 다시 설정한 뒤에도 반복되면 계정 연결 상태를 확인해 주세요."
-    if "user not found" in raw or "user_not_found" in raw:
+    raw = detail.lower()
+    status_match = re.search(r"(?:status|status_code|response_status)=([0-9]{3})", raw)
+    status = status_match.group(1) if status_match else ""
+
+    if any(token in raw for token in ["invalid api key", "invalid_key", "apikey", "invalid jwt", "jwt malformed", "jwt is malformed", "401 unauthorized"]):
+        return "로그인 연결 키가 올바르지 않거나 서로 다른 프로젝트 키가 섞여 있습니다. Streamlit Secrets의 supabase.url, anon_key(또는 publishable_key), service_role_key가 같은 Supabase 프로젝트 값인지 확인해 주세요."
+    if any(token in raw for token in ["email not confirmed", "email_not_confirmed"]):
+        return "Supabase Auth에서 이메일 확인이 완료되지 않은 계정입니다. Auth 사용자 정보에서 이메일 확인 상태를 점검해 주세요."
+    if any(token in raw for token in ["email rate limit", "too many requests", "rate limit", "429"]):
+        return "로그인 요청이 잠시 제한되었습니다. 5~10분 뒤 다시 시도해 주세요."
+    if any(token in raw for token in ["invalid login credentials", "invalid_credentials", "invalid credentials"]):
+        return "아이디 또는 비밀번호가 올바르지 않습니다. 비밀번호를 재설정한 뒤 다시 로그인해 주세요."
+    if any(token in raw for token in ["user not found", "user_not_found"]):
         return "Supabase Auth 계정을 찾지 못했습니다. 회원 프로필은 있으나 로그인 계정 연결이 누락됐을 수 있습니다."
+    if any(token in raw for token in ["connecterror", "connect timeout", "read timeout", "timed out", "network", "name or service not known", "temporary failure", "ssl", "proxyerror"]):
+        return "Supabase 인증 서버에 연결하지 못했습니다. Streamlit Cloud 재부팅 후 다시 시도하고, 계속되면 Supabase 프로젝트 URL·네트워크 상태를 확인해 주세요."
+    if status in {"500", "502", "503", "504"} or any(token in raw for token in ["internal server error", "server error", "unexpected_failure", "database error"]):
+        return "Supabase 인증 서버에서 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. 계속되면 Supabase Auth 설정을 점검해야 합니다."
+    if status == "401":
+        return "로그인 인증이 거부되었습니다. 공개 키와 프로젝트 URL이 서로 맞는지 먼저 확인해 주세요."
+    if status == "422":
+        return "로그인 요청 형식 또는 Auth 설정을 확인해야 합니다. 아래 상세 정보를 함께 확인해 주세요."
 
-    detail = code or status or "unknown"
-    return f"로그인 요청을 처리하지 못했습니다. 인증 오류 코드: {detail}"
+    return "로그인 요청은 Supabase까지 전달됐지만, 원인을 자동 분류하지 못했습니다. 아래 ‘오류 확인용 상세 정보’를 복사해 보내 주세요."
 
 
 def _get_auth_user_by_id(user_id: str):
@@ -1181,7 +1228,9 @@ def authenticate_member(username: str, password: str) -> tuple[bool, str]:
 
     auth_client = get_supabase_auth_client()
     if auth_client is None:
-        return False, "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다."
+        detail = str(st.session_state.get("_auth_client_init_error") or "Supabase 공개 키(anon_key 또는 publishable_key)가 설정되지 않았습니다.")
+        st.session_state["_last_auth_error_detail"] = detail
+        return False, detail
 
     profile = get_member_profile_by_username(normalized_username)
     if not profile:
@@ -2982,6 +3031,11 @@ with tab1:
                         st.rerun()
                     else:
                         st.error(result)
+                        auth_detail = str(st.session_state.get("_last_auth_error_detail") or "").strip()
+                        if auth_detail:
+                            with st.expander("오류 확인용 상세 정보", expanded=True):
+                                st.code(auth_detail, language="text")
+                                st.caption("이 내용에는 비밀번호·서비스 키·사진 파일은 표시되지 않습니다. 화면을 캡처해 보내면 원인을 정확히 분리할 수 있습니다.")
 
     with join_tab:
         st.markdown("### 1. 기관 기본 정보")
