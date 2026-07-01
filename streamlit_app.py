@@ -1045,7 +1045,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-popup-image-only-notice-editor-runtime-fix"
+APP_VERSION = "2026-07-02-popup-close-only-checkbox-today-dismiss"
 
 
 # =========================
@@ -3138,10 +3138,6 @@ def render_active_popup_if_needed():
                 return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || '');
             }
 
-            function sessionKey(popup) {
-                return 'witti_platform_popup_dismissed_session_' + revisionKey(popup);
-            }
-
             function kstDateKey() {
                 try {
                     const parts = new Intl.DateTimeFormat('en-US', {
@@ -3164,21 +3160,13 @@ def render_active_popup_if_needed():
             }
 
             function wasDismissed(popup) {
+                // '오늘 하루 다시 열지 않기'에 체크한 경우에만 날짜 기준으로 숨깁니다.
+                // X 버튼만 누른 경우에는 저장소에 아무 값도 남기지 않으므로,
+                // 다음 새로고침·페이지 이동·재방문 시 팝업이 다시 표시됩니다.
                 try {
-                    return (
-                        win.sessionStorage.getItem(sessionKey(popup)) === '1' ||
-                        win.localStorage.getItem(todayKey(popup)) === '1'
-                    );
+                    return win.localStorage.getItem(todayKey(popup)) === '1';
                 } catch (error) {
                     return false;
-                }
-            }
-
-            function markSessionDismissed(popup) {
-                try {
-                    win.sessionStorage.setItem(sessionKey(popup), '1');
-                } catch (error) {
-                    // 브라우저 저장소를 사용할 수 없는 환경에서는 현재 화면에서만 닫습니다.
                 }
             }
 
@@ -3186,9 +3174,8 @@ def render_active_popup_if_needed():
                 try {
                     win.localStorage.setItem(todayKey(popup), '1');
                 } catch (error) {
-                    // localStorage를 사용할 수 없을 때도 같은 탭에서는 다시 열리지 않도록 처리합니다.
+                    // 브라우저 저장소를 사용할 수 없는 환경에서는 현재 화면만 닫힙니다.
                 }
-                markSessionDismissed(popup);
             }
 
             function ensureStyle() {
@@ -3343,10 +3330,10 @@ def render_active_popup_if_needed():
             closeButton.setAttribute('aria-label', '팝업 닫기');
             closeButton.textContent = '×';
             closeButton.addEventListener('click', function () {
+                // X는 현재 보이는 팝업만 닫습니다.
+                // 체크박스를 선택했을 때에만 한국 시간 기준 오늘 하루 동안 다시 표시하지 않습니다.
                 if (dismissCheckbox.checked) {
                     markTodayDismissed(popup);
-                } else {
-                    markSessionDismissed(popup);
                 }
                 root.remove();
             });
