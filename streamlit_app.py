@@ -1064,7 +1064,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-play-record-process-output-v1"
+APP_VERSION = "2026-07-02-popup-link-persistence-native-anchor-v1"
 
 
 # =========================
@@ -3119,10 +3119,17 @@ def _normalize_popup_position(value: str | None) -> str:
 
 
 def _validate_popup_link_url(value: str | None) -> tuple[bool, str]:
-    """팝업 링크는 외부 이동이 가능한 http/https 주소만 저장합니다."""
-    url = str(value or "").strip()
+    """팝업 링크는 외부 이동이 가능한 http/https 주소만 저장합니다.
+
+    복사·붙여넣기 과정에서 함께 들어오는 공백·제로폭 문자·HTML 엔티티를 정리해
+    저장값과 실제 클릭 주소가 달라지는 문제를 예방합니다.
+    """
+    url = html.unescape(str(value or ""))
+    url = url.replace("\u200b", "").replace("\ufeff", "").strip()
     if not url:
         return True, ""
+    if any(ch.isspace() for ch in url):
+        return False, "링크 주소에는 줄바꿈이나 공백을 넣을 수 없습니다. 주소만 다시 붙여넣어 주세요."
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return False, "링크 주소는 https:// 또는 http://로 시작하는 완전한 주소로 입력해 주세요."
@@ -3381,17 +3388,6 @@ def render_active_popup_if_needed():
                 }
             }
 
-            function openPopupLink(url) {
-                const safeUrl = safeHttpUrl(url);
-                if (!safeUrl) return;
-                // 이미지 클릭은 부모 Streamlit 화면에서 직접 처리합니다.
-                // 일부 모바일·인앱 브라우저에서 <a target="_blank">가 무시되는 문제를 보완합니다.
-                const opened = win.open(safeUrl, '_blank', 'noopener,noreferrer');
-                if (!opened) {
-                    win.location.assign(safeUrl);
-                }
-            }
-
             function revisionKey(popup) {
                 return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || '');
             }
@@ -3566,10 +3562,13 @@ def render_active_popup_if_needed():
                 imageLink.rel = 'noopener noreferrer';
                 imageLink.setAttribute('aria-label', '팝업 이미지 링크 열기');
                 imageLink.setAttribute('title', '이미지를 클릭하면 연결된 페이지가 열립니다.');
+                // 링크는 JavaScript로 가로채지 않고 브라우저의 기본 <a> 동작을 사용합니다.
+                // 이렇게 해야 모바일·인앱 브라우저에서도 사용자 클릭으로 인식되어
+                // 새 창 또는 해당 브라우저의 링크 화면으로 안정적으로 이동합니다.
                 imageLink.addEventListener('click', function (event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openPopupLink(linkUrl);
+                    if (!safeHttpUrl(linkUrl)) {
+                        event.preventDefault();
+                    }
                 });
                 imageLink.appendChild(image);
                 root.appendChild(imageLink);
@@ -3804,9 +3803,17 @@ def render_admin_popup_manager():
             label += " [숨김]"
         options[label] = row
 
+    # 저장 직후에는 방금 편집한 팝업을 다시 불러와 링크·이미지를 바로 확인할 수 있게 합니다.
+    pending_popup_select = st.session_state.pop("_popup_editor_select_after_save", None)
+    if pending_popup_select in options:
+        st.session_state["popup_editor_select"] = pending_popup_select
+
     selected_label = st.selectbox("작성·편집할 팝업", list(options.keys()), key="popup_editor_select")
     existing = options[selected_label] or {}
     record_id = existing.get("id")
+    # 기존 링크는 편집 화면의 위젯 상태가 비어 있더라도 보존합니다.
+    # 삭제는 아래의 전용 체크박스를 선택했을 때만 허용합니다.
+    existing_link_url = str(existing.get("link_url") or "").strip()
     token = f"popup_{record_id or 'new'}"
     existing_position = _normalize_popup_position(existing.get("popup_position"))
     position_labels = list(POPUP_POSITION_OPTIONS.keys())
@@ -3875,11 +3882,17 @@ def render_admin_popup_manager():
         )
         link_url = st.text_input(
             "이미지 클릭 연결 링크 (선택)",
-            value=str(existing.get("link_url") or ""),
+            value=existing_link_url,
             max_chars=1000,
             key=f"{token}_link_url",
             placeholder="https://witti.kr/...",
-            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 새 창으로 이동합니다.",
+            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 연결된 페이지가 열립니다. 링크를 지우려면 아래 체크박스를 사용해 주세요.",
+        )
+        remove_existing_link = st.checkbox(
+            "현재 연결 링크를 삭제합니다.",
+            value=False,
+            disabled=not bool(existing_link_url),
+            key=f"{token}_remove_link",
         )
         popup_position_label = st.selectbox(
             "팝업 표시 위치",
@@ -3892,7 +3905,16 @@ def render_admin_popup_manager():
         submitted = st.form_submit_button("팝업 저장", use_container_width=True)
 
     if submitted:
-        valid_link, normalized_link_or_message = _validate_popup_link_url(link_url)
+        # 기존 링크가 있는 편집 화면에서 위젯값이 빈 값으로 돌아가도 링크가 사라지지 않도록 합니다.
+        # 실제 삭제는 '현재 연결 링크를 삭제합니다'를 체크했을 때만 수행합니다.
+        if remove_existing_link:
+            effective_link_url = ""
+        elif str(link_url or "").strip():
+            effective_link_url = str(link_url or "").strip()
+        else:
+            effective_link_url = existing_link_url
+
+        valid_link, normalized_link_or_message = _validate_popup_link_url(effective_link_url)
         has_existing_image = bool(existing.get("image_path"))
         will_have_image = bool(popup_image is not None or (has_existing_image and not remove_existing_image))
         if not title.strip():
@@ -3938,11 +3960,33 @@ def render_admin_popup_manager():
                 if not record_id:
                     payload["created_by"] = "admin"
 
-                _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                saved_popup = _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                saved_popup_id = saved_popup.get("id") if isinstance(saved_popup, dict) else record_id
+
+                # 저장 직후 DB 값을 다시 읽어 링크 보존 여부를 확인합니다.
+                # 일부 이전 코드·브라우저 위젯 상태가 빈 값을 넘기며 링크를 지우는 문제를 이중으로 막습니다.
+                if saved_popup_id:
+                    verified_rows = _response_data(
+                        supabase.table(PLATFORM_POPUP_TABLE)
+                        .select("id, link_url")
+                        .eq("id", int(saved_popup_id))
+                        .limit(1)
+                        .execute()
+                    )
+                    if verified_rows:
+                        saved_link_url = str(verified_rows[0].get("link_url") or "").strip()
+                        if saved_link_url != normalized_link_or_message:
+                            supabase.table(PLATFORM_POPUP_TABLE).update(
+                                {"link_url": normalized_link_or_message}
+                            ).eq("id", int(saved_popup_id)).execute()
+
+                    # 저장 뒤에도 같은 팝업을 계속 편집할 수 있도록, 다음 렌더링에서 선택할 항목을 예약합니다.
+                    st.session_state["_popup_editor_select_after_save"] = f"#{saved_popup_id} · {title.strip()[:60]}"
+
                 if old_path and (uploaded_image_meta or remove_existing_image):
                     delete_platform_popup_image_by_values(old_bucket, old_path)
                 st.session_state.pop("dismissed_platform_popup_ids", None)
-                st.success("이미지 전용 방문 팝업을 저장했습니다.")
+                st.success("이미지 전용 방문 팝업을 저장했습니다. 연결 링크도 함께 저장되었습니다." if normalized_link_or_message else "이미지 전용 방문 팝업을 저장했습니다.")
                 st.rerun()
             except Exception as exc:
                 if uploaded_image_meta:
