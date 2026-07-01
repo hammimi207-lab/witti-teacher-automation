@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# 교사의 발견_현장 업무 자동화 파일럿 서비스
+# 공지사항 편집 영역 확대 · 첨부파일(최대 5개) 기능 추가
+# 놀이 기록 자동화 플랫폼
 # 실행: streamlit run streamlit_app.py
 
 import base64
@@ -40,7 +41,7 @@ except Exception:
 
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="교사의 발견 ｜ 업무 자동화 시스템", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="놀이 기록 자동화", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 
@@ -1060,11 +1061,11 @@ TABLE_NAMES = {
 
 
 WITTI_SITE_URL = "https://witti.kr/"
-WITTI_SITE_LABEL = "교사의 발견 플랫폼"
+WITTI_SITE_LABEL = "놀이 기록 자동화"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
-WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
-WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-popup-link-persistence-native-anchor-v1"
+WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
+WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+APP_VERSION = "2026-07-02-diary-components-platform-rename-v1"
 
 
 # =========================
@@ -1747,6 +1748,12 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
         _as_text_list(context.get("teacher_supports")),
         context.get("teacher_support_notes"),
     )
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    support_input_text = (
+        f"선택한 교사의 지원과 구체 지원 메모:\n{support_notes}"
+        if output_type == "놀이 이야기"
+        else "보육일지는 교사의 지원을 별도 선택하지 않습니다."
+    )
 
     prompt = f"""
 당신은 한국 어린이집·유치원 교사의 사진 기반 놀이 기록을 돕는 보조자입니다.
@@ -1758,10 +1765,9 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
 - 아이 별칭: {child_alias or '미입력'}
 - 선택 교육과정 영역: {curriculum}
 - 만들 기록: {output_type}
-- 선택한 놀이 세부 구분과 실제 장면 메모:
+- 선택한 {component_label}과 실제 장면 메모:
 {detail_notes}
-- 선택한 교사의 지원과 구체 지원 메모:
-{support_notes}
+- {support_input_text}
 
 [사진과 놀이명 일치 점검]
 - 사진을 먼저 사실대로 읽고, 그다음 입력한 놀이명의 핵심 자료·행동·공간과 실제 사진 장면이 충분히 맞는지 점검하세요.
@@ -2143,7 +2149,7 @@ CURRICULUM_CORE_GUIDES_BY_AGE = {
 
 RECORD_TYPE_CORE_GUIDANCE = {
     "놀이 이야기": "사진과 교사의 관찰을 바탕으로 놀이가 관심에서 시작되어 탐색·표현·관계·확장으로 이어지는 흐름을 읽고, 교사의 지원과 다음 놀이를 연결해 기록합니다.",
-    "일지": "하루의 놀이 맥락 안에서 관찰된 사실, 교육과정 연계, 영유아의 배움과 교사의 지원을 근거 중심으로 정리하는 기록입니다.",
+    "일지": "하루 중 실제로 있었던 일상생활·놀이·활동 장면을 선택해, 영유아가 무엇을 했는지와 그 안에서 드러난 배움을 차례대로 정리하는 기록입니다.",
     "알림장": "가정과 공유할 수 있도록 관찰된 사실과 교사의 지원을 따뜻하고 분명한 문장으로 전달하는 기록입니다.",
 }
 
@@ -2165,6 +2171,51 @@ PLAY_DETAIL_CORE_GUIDANCE = {
 }
 
 
+
+# 보육일지에서는 놀이의 단계가 아니라 하루의 실제 장면을 기준으로 기록합니다.
+# 0~2세는 2024 개정 표준보육과정의 일상·놀이 중심 관점,
+# 3~5세는 2019 개정 누리과정의 유아·놀이 중심 관점을 반영한 안내 문장입니다.
+DIARY_COMPONENT_OPTIONS = ["일상생활", "놀이", "활동"]
+
+DIARY_COMPONENT_CORE_GUIDANCE = {
+    "영아": {
+        "일상생활": "일과 속에서 먹기·쉬기·씻기·배변·정리처럼 반복되는 생활을 경험하며, 몸짓·표정·말소리·짧은 말로 자신의 요구를 나타내고 편안한 생활 리듬을 만들어 가는 과정입니다.",
+        "놀이": "관심 있는 사람·사물·자료에 스스로 다가가 보고, 만지고, 움직이고, 되풀이하며 감각적 특성과 변화를 알아가는 과정입니다.",
+        "활동": "교사가 마련한 동화·음악·미술·신체·감각 활동에 참여하며, 보고 듣고 움직이고 표현하는 경험을 넓혀가는 과정입니다.",
+    },
+    "유아": {
+        "일상생활": "일과 속에서 건강·안전·자조 행동을 경험하고, 자신과 다른 사람을 존중하며 공동생활에 필요한 약속과 생활 태도를 익혀가는 과정입니다.",
+        "놀이": "자신의 흥미에 따라 자료와 공간을 선택하고, 탐색·표현·구성·또래와의 상호작용을 통해 놀이의 방법과 의미를 확장하는 과정입니다.",
+        "활동": "동화·음악·미술·신체·자연 탐구 등 다양한 활동에 참여하며, 자신의 생각과 느낌을 표현하고 배움의 방법을 넓혀가는 과정입니다.",
+    },
+}
+
+DIARY_COMPONENT_NOTE_PLACEHOLDERS = {
+    "일상생활": "예: 점심시간에 스스로 숟가락을 잡고 반찬을 살펴본 뒤, 더 먹고 싶은 음식을 짧은 말과 몸짓으로 표현했습니다.",
+    "놀이": "예: 블록을 길게 이어 붙이고 친구가 만든 공간과 연결하며 놀이를 이어갔습니다.",
+    "활동": "예: 자연물을 만져 본 뒤 종이 위에 놓아 보고, 완성한 모습을 친구에게 보여 주었습니다.",
+}
+
+
+def diary_component_guidance_text(age_group: str, selected_components: list[str] | None) -> str:
+    subject_group = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    guide = DIARY_COMPONENT_CORE_GUIDANCE[subject_group]
+    rows = []
+    for item in selected_components or []:
+        if item in guide:
+            rows.append(f"- {item}: {guide[item]}")
+    return "\n".join(rows) if rows else "미선택"
+
+
+def render_diary_component_guidance(age_group: str, selected_components: list[str]):
+    if not selected_components:
+        return
+    framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+    st.markdown(f"**{framework} 관점의 보육일지 세부 구성 안내**")
+    for line in diary_component_guidance_text(age_group, selected_components).split("\n"):
+        st.caption(line)
+
+
 def curriculum_framework_label(age_group: str) -> str:
     return "표준보육과정" if normalize_age(age_group) in ["0세", "1세", "2세"] else "누리과정"
 
@@ -2184,10 +2235,23 @@ def play_detail_guidance_text(age_group: str, selected_details: list[str] | None
 
 
 def render_record_type_guidance(record_type: str, age_group: str):
+    if record_type == "일지":
+        framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+        st.info(
+            "**보육일지는 하루의 실제 장면을 차례대로 남기는 기록입니다.**\n\n"
+            "아래에서 **일상생활 · 놀이 · 활동** 중 기록할 장면을 고른 뒤, "
+            "각 장면에서 영유아가 무엇을 했는지 교사가 구체적으로 적어 주세요.\n\n"
+            f"선택한 {framework} 영역은 이후 **교육과정 연계**와 **영유아 관찰 및 평가**에 반영됩니다."
+        )
+        return
+
     if record_type in RECORD_TYPE_CORE_GUIDANCE:
         framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
-        st.info(f"**기록 유형 핵심 안내**  {RECORD_TYPE_CORE_GUIDANCE[record_type]}\n\n{framework}의 놀이 중심·관찰 중심 원칙에 맞춰 사실과 교사의 판단을 분리해 기록합니다.")
-
+        st.info(
+            f"**기록 유형 핵심 안내**\n\n"
+            f"{RECORD_TYPE_CORE_GUIDANCE[record_type]}\n\n"
+            f"{framework}의 놀이 중심·관찰 중심 원칙에 맞춰 사실과 교사의 판단을 구분해 기록합니다."
+        )
 
 def render_play_detail_guidance(age_group: str, selected_details: list[str]):
     if not selected_details:
@@ -2240,7 +2304,7 @@ def _structured_record_plain_text(output: dict) -> str:
     links = output.get("curriculum_links") or []
     link_text = "\n".join([f"- {item.get('area')}: {item.get('description')}" for item in links if isinstance(item, dict)]) or "- 선택한 교육과정 영역이 없습니다."
     chunks = [
-        f"[사진 속 놀이 내용]\n{str(output.get('photo_play_content') or '').strip()}",
+        f"[{('사진 속 놀이 내용' if str(output.get('output_type') or '') == '놀이 이야기' else '사진 속 일상·놀이·활동 장면')}]\n{str(output.get('photo_play_content') or '').strip()}",
         f"[교사가 관찰한 놀이 상황]\n{str(output.get('teacher_observed_situation') or '').strip()}",
         f"[{framework}]\n{link_text}",
         f"[{observation_label}]\n{str(output.get('observation_evaluation') or '').strip()}",
@@ -2277,13 +2341,24 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     framework = curriculum_framework_label(age_group)
     framework_title = curriculum_framework_short_label(age_group)
     child_label = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_guidance = (
+        diary_component_guidance_text(age_group, play_subcategories)
+        if output_type == "일지"
+        else play_detail_guidance_text(age_group, play_subcategories)
+    )
+    support_input_block = (
+        f"- 교사의 지원: {supports}\n- 교사의 지원별 구체 내용:\n{support_notes}"
+        if output_type == "놀이 이야기"
+        else "- 보육일지는 별도의 '교사의 지원' 선택값을 입력하지 않습니다. 교사가 관찰한 놀이 상황과 사진 1차 분석에 실제로 적힌 지원 내용만 기록에 반영하세요."
+    )
 
     if output_type in ["놀이 이야기", "일지"]:
         record_label = _record_label(output_type)
         record_style = (
             "놀이의 관심·탐색·표현·관계·교사 지원 흐름이 자연스럽게 이어지도록 6~9문장으로 작성하세요."
             if output_type == "놀이 이야기"
-            else "보육일지 문체로, 관찰 사실과 교사의 지원 및 배움 읽기가 분명히 드러나도록 6~9문장으로 작성하세요. '했음/보였음/지원하였음'처럼 공식 기록에 적합한 종결을 사용하세요."
+            else "보육일지 문체로, 선택한 일상생활·놀이·활동의 실제 장면과 그 안에서 드러난 배움이 분명히 나타나도록 6~9문장으로 작성하세요. '했음/보였음/지원하였음'처럼 공식 기록에 적합한 종결을 사용하세요."
         )
         output_schema = """{
   \"curriculum_links\": [
@@ -2304,14 +2379,12 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
 - {framework} 선택 영역: {curriculum}
 - 사진 속 놀이 내용: {photo_play_content}
 - 교사가 관찰한 놀이 상황(필수): {teacher_observed_situation}
-- 놀이 세부 구분: {detail_tags}
-- 놀이 세부 구분별 구체 장면:
+- {component_label}: {detail_tags}
+- {component_label}별 구체 장면:
 {detail_notes}
-- 교사의 지원: {supports}
-- 교사의 지원별 구체 내용:
-{support_notes}
-- 놀이 세부 구분의 {framework} 관점 핵심 설명:
-{play_detail_guidance_text(age_group, play_subcategories)}
+{support_input_block}
+- {component_label}의 {framework} 관점 핵심 설명:
+{component_guidance}
 - 교사가 수정한 사진 1차 분석 결과:
 {edited_draft.strip()}
 
@@ -2322,6 +2395,8 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
 - 3~5세는 ‘유아’의 흥미, 선택, 탐색, 표현, 또래와의 상호작용, 놀이 확장의 언어를 사용하세요.
 - observation_evaluation은 평가적 낙인이나 단정 없이, {child_label}의 관심·탐색·표현·관계·배움의 변화를 {framework} 관점에서 정리하세요.
 - {record_label}은 {record_style}
+- 기록 유형이 일지라면, 선택한 보육일지 세부 구성(일상생활·놀이·활동)과 교사가 적은 실제 장면을 중심으로 작성하고, 선택하지 않은 구성은 임의로 추가하지 마세요.
+- 기록 유형이 일지라면, 별도의 교사 지원 선택값이 없으므로 사진 1차 분석이나 교사 관찰에 실제로 적힌 지원 내용만 자연스럽게 반영하세요.
 - 다음 놀이 지원 계획은 AI가 새로 만들거나 바꾸지 않습니다. 별도 입력값이 있을 때 화면에서 원문 그대로 보여 줄 것입니다.
 - 아래 JSON 객체만 반환하세요.
 
@@ -2345,10 +2420,16 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
                 f"선택한 {framework} 영역의 경험이 사진과 교사 관찰 속에서 함께 드러났습니다."
             )
         if not integrated_record:
-            integrated_record = (
-                f"{edited_draft.strip()} {teacher_observed_situation} "
-                f"교사는 {supports if supports != '미선택' else '영유아의 반응을 살피는 지원'}을 통해 놀이가 이어질 수 있도록 도왔습니다."
-            ).strip()
+            if output_type == "일지":
+                integrated_record = (
+                    f"{edited_draft.strip()} {teacher_observed_situation} "
+                    f"선택한 일상생활·놀이·활동 장면을 바탕으로 {child_label}의 반응과 배움을 기록하였음."
+                ).strip()
+            else:
+                integrated_record = (
+                    f"{edited_draft.strip()} {teacher_observed_situation} "
+                    f"교사는 {supports if supports != '미선택' else '영유아의 반응을 살피는 지원'}을 통해 놀이가 이어질 수 있도록 도왔습니다."
+                ).strip()
         result = {
             "output_type": output_type,
             "photo_play_content": photo_play_content,
@@ -4267,8 +4348,8 @@ def render_menu_card(title: str, description: str, chips: list[str] | None = Non
 st.markdown(f"""
 <!-- APP_VERSION: {APP_VERSION} -->
 <div class="app-hero">
-    <div class="app-eyebrow">🌿 교사의 발견</div>
-    <h1>현장 업무 자동화 파일럿 서비스</h1>
+    <div class="app-eyebrow">🌿 놀이 기록 자동화</div>
+    <h1>놀이 기록 자동화</h1>
     <p>사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
     <div class="hero-links">
         <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
@@ -4287,6 +4368,23 @@ st.markdown(f"""
 NOTICE_IMAGE_BUCKET = "platform-notice-images"
 NOTICE_IMAGE_SIGNED_URL_TTL_SECONDS = 60 * 60
 MAX_NOTICE_IMAGE_BYTES = 10 * 1024 * 1024
+
+# 공지사항 첨부파일은 본문 이미지와 분리된 private Storage 버킷에 저장합니다.
+# 한 공지당 최대 5개, 파일 1개당 최대 20MB로 제한합니다.
+NOTICE_ATTACHMENT_BUCKET = "platform-notice-attachments"
+NOTICE_ATTACHMENT_SIGNED_URL_TTL_SECONDS = 60 * 60
+MAX_NOTICE_ATTACHMENT_COUNT = 5
+MAX_NOTICE_ATTACHMENT_BYTES = 20 * 1024 * 1024
+NOTICE_ATTACHMENT_MIME_BY_EXTENSION = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".hwp": "application/x-hwp",
+    ".hwpx": "application/vnd.hancom.hwpx",
+}
+NOTICE_ATTACHMENT_ALLOWED_TYPES = ["jpg", "jpeg", "png", "webp", "pdf", "hwp", "hwpx"]
 NOTICE_TEXT_STYLE_OPTIONS = ["노멀", "헤딩 1", "헤딩 2", "헤딩 3", "헤딩 4", "헤딩 5"]
 NOTICE_TEXT_STYLE_TAGS = {"노멀": "p", "헤딩 1": "h1", "헤딩 2": "h2", "헤딩 3": "h3", "헤딩 4": "h4", "헤딩 5": "h5"}
 NOTICE_TEXT_COLOR_OPTIONS = {"기본색": "", "남색": "#172B4D", "파랑": "#1D4ED8", "초록": "#188B55", "주황": "#B54708", "빨강": "#B42318", "보라": "#6941C6", "회색": "#475467"}
@@ -4306,6 +4404,19 @@ st.markdown(
     .notice-media-card { background:#FFFFFF; border:1px solid #E1EAF3; border-radius:14px; padding:12px; margin:10px 0; }
     .notice-media-card-title { color:#174F80; font-size:13px; font-weight:900; margin-bottom:7px; }
     .notice-inline-tip { color:#667085; font-size:12.5px; line-height:1.55; margin-top:5px; }
+    .notice-preview-frame {
+        max-height:360px; overflow-y:auto; background:#FFFFFF; border:1px solid #E1EAF3;
+        border-radius:14px; padding:16px 18px; margin-top:6px;
+    }
+    .notice-attachments { margin:18px 0 4px; padding:14px; background:#F8FBFF; border:1px solid #DCEBFF; border-radius:14px; }
+    .notice-attachments-title { color:#174F80; font-size:14px; font-weight:900; margin-bottom:8px; }
+    .notice-attachment-link {
+        display:flex; align-items:center; gap:8px; color:#174F80 !important; background:#FFFFFF;
+        border:1px solid #DCE8F5; border-radius:10px; padding:10px 12px; margin-top:8px;
+        text-decoration:none !important; font-size:14px; font-weight:700;
+    }
+    .notice-attachment-link:hover { background:#F1F8FF; border-color:#A9CFF5; }
+    .notice-attachment-meta { color:#667085; font-size:12px; font-weight:500; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -4385,6 +4496,100 @@ def create_platform_notice_signed_url(image_bucket: str | None, image_path: str 
         return ""
 
 
+
+def _notice_attachment_extension(uploaded_file) -> str:
+    suffix = Path(str(getattr(uploaded_file, "name", "") or "")).suffix.lower()
+    if suffix not in NOTICE_ATTACHMENT_MIME_BY_EXTENSION:
+        raise ValueError("첨부파일은 JPG, PNG, WEBP, PDF, HWP, HWPX 형식만 업로드할 수 있습니다.")
+    return suffix
+
+
+def _make_notice_attachment_storage_path(uploaded_file, now_utc: datetime | None = None) -> str:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    suffix = _notice_attachment_extension(uploaded_file)
+    return f"attachments/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/{uuid.uuid4().hex}{suffix}"
+
+
+def _get_notice_attachment_bytes_and_mime(uploaded_file) -> tuple[bytes, str, str]:
+    if uploaded_file is None:
+        raise ValueError("첨부할 파일을 선택해 주세요.")
+    file_bytes = uploaded_file.getvalue()
+    if len(file_bytes) > MAX_NOTICE_ATTACHMENT_BYTES:
+        raise ValueError(f"'{uploaded_file.name}' 파일이 20MB를 초과합니다.")
+    suffix = _notice_attachment_extension(uploaded_file)
+    mime_type = NOTICE_ATTACHMENT_MIME_BY_EXTENSION[suffix]
+    return file_bytes, mime_type, suffix
+
+
+def upload_platform_notice_attachment(uploaded_file) -> dict:
+    file_bytes, mime_type, suffix = _get_notice_attachment_bytes_and_mime(uploaded_file)
+    file_path = _make_notice_attachment_storage_path(uploaded_file)
+    supabase.storage.from_(NOTICE_ATTACHMENT_BUCKET).upload(
+        file_path,
+        file_bytes,
+        file_options={"content-type": mime_type, "upsert": "false"},
+    )
+    return {
+        "attachment_bucket": NOTICE_ATTACHMENT_BUCKET,
+        "attachment_path": file_path,
+        "attachment_original_file_name": str(getattr(uploaded_file, "name", "") or f"attachment{suffix}"),
+        "attachment_mime_type": mime_type,
+        "attachment_size_bytes": len(file_bytes),
+    }
+
+
+def delete_platform_notice_attachment_by_values(bucket_name: str | None, attachment_path: str | None):
+    path = str(attachment_path or "").strip()
+    if not path:
+        return
+    try:
+        supabase.storage.from_(str(bucket_name or NOTICE_ATTACHMENT_BUCKET)).remove([path])
+    except Exception:
+        pass
+
+
+def create_platform_notice_attachment_signed_url(attachment_bucket: str | None, attachment_path: str | None) -> str:
+    path = str(attachment_path or "").strip()
+    if not path:
+        return ""
+    try:
+        response = supabase.storage.from_(str(attachment_bucket or NOTICE_ATTACHMENT_BUCKET)).create_signed_url(
+            path,
+            NOTICE_ATTACHMENT_SIGNED_URL_TTL_SECONDS,
+        )
+        if isinstance(response, dict):
+            return str(response.get("signedURL") or response.get("signedUrl") or response.get("signed_url") or "")
+        return str(
+            getattr(response, "signedURL", "")
+            or getattr(response, "signedUrl", "")
+            or getattr(response, "signed_url", "")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _attachment_icon(mime_type: str, file_name: str = "") -> str:
+    suffix = Path(str(file_name or "")).suffix.lower()
+    mime = str(mime_type or "").lower()
+    if mime.startswith("image/") or suffix in {".jpg", ".jpeg", ".png", ".webp"}:
+        return "🖼️"
+    if mime == "application/pdf" or suffix == ".pdf":
+        return "📄"
+    return "📝"
+
+
+def _format_attachment_size(value) -> str:
+    try:
+        size = int(value or 0)
+    except Exception:
+        size = 0
+    if size <= 0:
+        return ""
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f}MB"
+    return f"{max(1, size // 1024)}KB"
+
 def _new_notice_text_block(text: str = "") -> dict:
     # 기존 공지 호환용으로만 유지합니다.
     return {
@@ -4426,12 +4631,13 @@ def _new_notice_image_block() -> dict:
     }
 
 
-def _new_notice_document(body: str = "", assets: list[dict] | None = None) -> dict:
+def _new_notice_document(body: str = "", assets: list[dict] | None = None, attachments: list[dict] | None = None) -> dict:
     return {
         "block_id": uuid.uuid4().hex,
         "type": NOTICE_DOCUMENT_TYPE,
         "body": str(body or ""),
         "assets": list(assets or []),
+        "attachments": list(attachments or []),
     }
 
 
@@ -4456,7 +4662,9 @@ def _normalize_notice_block(raw_block) -> dict:
     if block.get("type") == NOTICE_DOCUMENT_TYPE:
         block["body"] = str(block.get("body") or "")
         assets = block.get("assets")
+        attachments = block.get("attachments")
         block["assets"] = [dict(item) for item in assets if isinstance(item, dict)] if isinstance(assets, list) else []
+        block["attachments"] = [dict(item) for item in attachments if isinstance(item, dict)] if isinstance(attachments, list) else []
     if block.get("text_style") not in NOTICE_TEXT_STYLE_OPTIONS:
         block["text_style"] = "노멀"
     if block.get("text_color") not in NOTICE_TEXT_COLOR_OPTIONS:
@@ -4491,6 +4699,29 @@ def _normalize_notice_asset(asset: dict, index: int = 0) -> dict:
         normalized["_uploaded_file"] = source.get("_uploaded_file")
     return normalized
 
+
+
+def _normalize_notice_attachment(attachment: dict, index: int = 0) -> dict:
+    source = dict(attachment or {})
+    attachment_id = str(source.get("attachment_id") or f"file_{index + 1}_{uuid.uuid4().hex[:6]}")
+    normalized = {
+        "attachment_id": attachment_id,
+        "attachment_bucket": str(source.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET),
+        "attachment_path": str(source.get("attachment_path") or ""),
+        "attachment_original_file_name": str(source.get("attachment_original_file_name") or ""),
+        "attachment_mime_type": str(source.get("attachment_mime_type") or ""),
+        "attachment_size_bytes": source.get("attachment_size_bytes"),
+        "remove_attachment": bool(source.get("remove_attachment") or False),
+    }
+    if source.get("_uploaded_file") is not None:
+        normalized["_uploaded_file"] = source.get("_uploaded_file")
+    return normalized
+
+
+def _new_document_attachment(document: dict) -> dict:
+    existing = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    serial = len(existing) + 1
+    return _normalize_notice_attachment({"attachment_id": f"file_{serial}_{uuid.uuid4().hex[:6]}"}, serial)
 
 def _legacy_blocks_to_document(blocks: list[dict]) -> dict:
     parts: list[str] = []
@@ -4830,10 +5061,42 @@ def build_notice_blocks_html(blocks: list[dict]) -> str:
     return _build_notice_document_html(document.get("body"), document.get("assets") or [])
 
 
+def _build_notice_attachments_html(blocks: list[dict]) -> str:
+    document = _get_notice_document(blocks)
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    rendered: list[str] = []
+    for index, raw_attachment in enumerate(attachments):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        signed_url = create_platform_notice_attachment_signed_url(
+            attachment.get("attachment_bucket"),
+            attachment.get("attachment_path"),
+        )
+        if not signed_url:
+            continue
+        file_name = str(attachment.get("attachment_original_file_name") or "첨부파일")
+        file_name_html = html.escape(file_name)
+        icon = _attachment_icon(str(attachment.get("attachment_mime_type") or ""), file_name)
+        size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+        meta_html = f"<span class='notice-attachment-meta'>{html.escape(size_text)}</span>" if size_text else ""
+        rendered.append(
+            f"<a class='notice-attachment-link' href='{html.escape(signed_url, quote=True)}' "
+            f"data-witti-external-url='{html.escape(signed_url, quote=True)}' "
+            "target='_blank' rel='noopener noreferrer' download>"
+            f"<span>{icon}</span><span>{file_name_html} {meta_html}</span></a>"
+        )
+    if not rendered:
+        return ""
+    return "<div class='notice-attachments'><div class='notice-attachments-title'>첨부파일</div>" + "".join(rendered) + "</div>"
+
+
 def render_notice_blocks(blocks: list[dict]):
     rendered = build_notice_blocks_html(blocks)
-    if rendered:
-        st.markdown(f"<div class='notice-rich-content'>{rendered}</div>", unsafe_allow_html=True)
+    attachment_html = _build_notice_attachments_html(blocks)
+    combined = f"{rendered}{attachment_html}"
+    if combined:
+        st.markdown(f"<div class='notice-rich-content'>{combined}</div>", unsafe_allow_html=True)
     else:
         st.caption("등록된 공지 내용이 없습니다.")
 
@@ -4969,6 +5232,84 @@ def _render_document_asset_manager(token: str, document: dict):
         document["assets"] = active_assets
 
 
+
+def _render_document_attachment_manager(token: str, document: dict):
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    active_attachments = [
+        _normalize_notice_attachment(item, index)
+        for index, item in enumerate(attachments)
+        if not bool((item or {}).get("remove_attachment"))
+    ]
+
+    st.markdown("#### 첨부파일")
+    st.caption("공지마다 최대 5개까지 업로드할 수 있습니다. JPG·PNG·WEBP 이미지, PDF, 한글(HWP·HWPX) 파일을 지원하며 파일 1개당 최대 20MB입니다.")
+
+    remaining = max(0, MAX_NOTICE_ATTACHMENT_COUNT - len(active_attachments))
+    if remaining <= 0:
+        st.info("첨부파일은 최대 5개까지 등록할 수 있습니다. 기존 파일을 삭제하면 새 파일을 추가할 수 있습니다.")
+    else:
+        selected_files = st.file_uploader(
+            f"첨부파일 선택 · 남은 수 {remaining}개",
+            type=NOTICE_ATTACHMENT_ALLOWED_TYPES,
+            accept_multiple_files=True,
+            key=f"{token}_attachment_upload",
+            help="이미지, PDF, 한글(HWP·HWPX) 파일을 최대 5개까지 선택할 수 있습니다.",
+        )
+        if st.button("첨부파일 목록에 추가", key=f"{token}_attachment_add", use_container_width=True):
+            selected_files = list(selected_files or [])
+            if not selected_files:
+                st.warning("추가할 첨부파일을 먼저 선택해 주세요.")
+            elif len(selected_files) > remaining:
+                st.warning(f"현재 공지에는 {remaining}개만 더 추가할 수 있습니다.")
+            else:
+                validated: list[dict] = []
+                try:
+                    for uploaded_file in selected_files:
+                        file_bytes, mime_type, _ = _get_notice_attachment_bytes_and_mime(uploaded_file)
+                        attachment = _new_document_attachment(document)
+                        attachment.update({
+                            "attachment_original_file_name": str(getattr(uploaded_file, "name", "") or "첨부파일"),
+                            "attachment_mime_type": mime_type,
+                            "attachment_size_bytes": len(file_bytes),
+                            "_uploaded_file": uploaded_file,
+                        })
+                        validated.append(attachment)
+                    document.setdefault("attachments", []).extend(validated)
+                    st.rerun()
+                except Exception as exc:
+                    st.warning(str(exc))
+
+    if not attachments:
+        return
+
+    with st.expander(f"등록할 첨부파일 관리 · {len(active_attachments)}개", expanded=True):
+        kept: list[dict] = []
+        for index, raw_attachment in enumerate(list(attachments)):
+            attachment = _normalize_notice_attachment(raw_attachment, index)
+            attachment_id = attachment["attachment_id"]
+            file_name = attachment.get("attachment_original_file_name") or "첨부파일"
+            icon = _attachment_icon(attachment.get("attachment_mime_type") or "", file_name)
+            size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+            state_text = "저장 전 파일" if attachment.get("_uploaded_file") is not None else "저장된 파일"
+            with st.container(border=True):
+                left, right = st.columns([5, 1.7])
+                with left:
+                    st.markdown(f"**{icon} {file_name}**")
+                    st.caption(" · ".join([item for item in [state_text, size_text] if item]))
+                    signed = create_platform_notice_attachment_signed_url(
+                        attachment.get("attachment_bucket"), attachment.get("attachment_path")
+                    )
+                    if signed:
+                        st.link_button("첨부파일 열기", signed, use_container_width=False)
+                with right:
+                    attachment["remove_attachment"] = st.checkbox(
+                        "삭제", value=bool(attachment.get("remove_attachment") or False),
+                        key=f"{token}_{attachment_id}_remove_attachment"
+                    )
+                if not attachment.get("remove_attachment"):
+                    kept.append(attachment)
+        document["attachments"] = kept
+
 def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
     # 함수명은 기존 관리자 호출과의 호환을 위해 유지합니다.
     document = _initialize_notice_editor(token, existing)
@@ -4976,23 +5317,28 @@ def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
     if body_key not in st.session_state:
         st.session_state[body_key] = str(document.get("body") or "")
     st.markdown("#### 공지 본문 편집")
+    st.caption("본문 작성 영역을 넓히고, 미리보기는 접어서 확인할 수 있도록 조정했습니다.")
     _render_document_toolbar(token, document)
     document["body"] = st.text_area(
         "본문",
         key=body_key,
-        height=440,
+        height=680,
         max_chars=8000,
         placeholder="공지 내용을 입력해 주세요.\n\n제목은 # 제목처럼, 나눔 줄은 ---처럼 본문 안에서 바로 쓸 수 있습니다.",
     )
     _render_document_asset_manager(token, document)
-    st.markdown("#### 미리보기")
-    render_notice_blocks([document])
+    _render_document_attachment_manager(token, document)
+    with st.expander("미리보기 열기", expanded=False):
+        st.caption("저장 전 게시 화면을 확인할 수 있습니다. 긴 공지도 편집 영역을 가리지 않도록 높이를 제한했습니다.")
+        with st.container(height=360, border=True):
+            render_notice_blocks([document])
     return [document]
 
 
 def _clean_notice_blocks_for_storage(blocks: list[dict]) -> list[dict]:
     document = _get_notice_document(blocks)
     clean_assets: list[dict] = []
+    clean_attachments: list[dict] = []
     for index, raw_asset in enumerate(document.get("assets") or []):
         asset = _normalize_notice_asset(raw_asset, index)
         if asset.get("remove_image"):
@@ -5006,11 +5352,25 @@ def _clean_notice_blocks_for_storage(blocks: list[dict]) -> list[dict]:
                 "image_mime_type", "image_size_bytes", "image_alt_text", "image_caption", "image_link_url",
             ]
         })
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        if not str(attachment.get("attachment_path") or "").strip():
+            continue
+        clean_attachments.append({
+            key: attachment.get(key)
+            for key in [
+                "attachment_id", "attachment_bucket", "attachment_path", "attachment_original_file_name",
+                "attachment_mime_type", "attachment_size_bytes",
+            ]
+        })
     return [{
         "block_id": str(document.get("block_id") or uuid.uuid4().hex),
         "type": NOTICE_DOCUMENT_TYPE,
         "body": str(document.get("body") or ""),
         "assets": clean_assets,
+        "attachments": clean_attachments,
     }]
 
 
@@ -5025,11 +5385,25 @@ def _notice_image_refs(blocks: list[dict]) -> set[tuple[str, str]]:
     return refs
 
 
-def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
+
+def _notice_attachment_refs(blocks: list[dict]) -> set[tuple[str, str]]:
+    document = _get_notice_document(blocks)
+    refs: set[tuple[str, str]] = set()
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        path = str(attachment.get("attachment_path") or "").strip()
+        if path and not attachment.get("remove_attachment"):
+            refs.add((str(attachment.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET), path))
+    return refs
+
+def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     document = _get_notice_document(blocks)
     body = str(document.get("body") or "")
     prepared_assets: list[dict] = []
-    uploaded_metas: list[dict] = []
+    prepared_attachments: list[dict] = []
+    uploaded_image_metas: list[dict] = []
+    uploaded_attachment_metas: list[dict] = []
+
     for index, raw_asset in enumerate(document.get("assets") or []):
         asset = _normalize_notice_asset(raw_asset, index)
         if asset.get("remove_image"):
@@ -5037,7 +5411,7 @@ def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], lis
         new_upload = raw_asset.get("_uploaded_file") if isinstance(raw_asset, dict) else None
         if new_upload is not None:
             meta = upload_platform_notice_image(new_upload)
-            uploaded_metas.append(meta)
+            uploaded_image_metas.append(meta)
             asset.update(meta)
         valid, normalized = _validate_popup_link_url(str(asset.get("image_link_url") or ""))
         if not valid:
@@ -5048,8 +5422,25 @@ def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], lis
         if marker not in body:
             continue
         prepared_assets.append(asset)
-    prepared_document = _new_notice_document(body, prepared_assets)
-    return _clean_notice_blocks_for_storage([prepared_document]), uploaded_metas
+
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        new_upload = raw_attachment.get("_uploaded_file") if isinstance(raw_attachment, dict) else None
+        if new_upload is not None:
+            meta = upload_platform_notice_attachment(new_upload)
+            uploaded_attachment_metas.append(meta)
+            attachment.update(meta)
+        if not str(attachment.get("attachment_path") or "").strip():
+            continue
+        prepared_attachments.append(attachment)
+
+    if len(prepared_attachments) > MAX_NOTICE_ATTACHMENT_COUNT:
+        raise ValueError(f"공지사항 첨부파일은 최대 {MAX_NOTICE_ATTACHMENT_COUNT}개까지 등록할 수 있습니다.")
+
+    prepared_document = _new_notice_document(body, prepared_assets, prepared_attachments)
+    return _clean_notice_blocks_for_storage([prepared_document]), uploaded_image_metas, uploaded_attachment_metas
 
 
 def _clear_notice_editor_state(token: str):
@@ -5057,13 +5448,24 @@ def _clear_notice_editor_state(token: str):
     body_key = f"{token}_document_body"
     st.session_state.pop(body_key, None)
     for key in list(st.session_state.keys()):
-        if key.startswith(f"{token}_quick_") or key.startswith(f"{token}_callout_") or key.startswith(f"{token}_image_"):
+        if (
+            key.startswith(f"{token}_quick_")
+            or key.startswith(f"{token}_callout_")
+            or key.startswith(f"{token}_image_")
+            or key.startswith(f"{token}_attachment_")
+        ):
             st.session_state.pop(key, None)
     for raw_asset in document.get("assets", []) if isinstance(document, dict) else []:
         asset_id = str(raw_asset.get("asset_id") or "") if isinstance(raw_asset, dict) else ""
         if asset_id:
             for key in list(st.session_state.keys()):
                 if key.startswith(f"{token}_{asset_id}_"):
+                    st.session_state.pop(key, None)
+    for raw_attachment in document.get("attachments", []) if isinstance(document, dict) else []:
+        attachment_id = str(raw_attachment.get("attachment_id") or "") if isinstance(raw_attachment, dict) else ""
+        if attachment_id:
+            for key in list(st.session_state.keys()):
+                if key.startswith(f"{token}_{attachment_id}_"):
                     st.session_state.pop(key, None)
 
 
@@ -5277,11 +5679,19 @@ def render_admin_notice_manager():
         else:
             old_blocks = _notice_blocks_from_record(existing)
             uploaded_metas: list[dict] = []
+            uploaded_attachment_metas: list[dict] = []
             try:
-                prepared_blocks, uploaded_metas = _prepare_notice_blocks_for_save(blocks)
+                prepared_blocks, uploaded_metas, uploaded_attachment_metas = _prepare_notice_blocks_for_save(blocks)
                 plain_content = _notice_plain_text_from_blocks(prepared_blocks)
-                if not plain_content:
-                    raise ValueError("공지 본문 또는 이미지를 하나 이상 입력해 주세요.")
+                prepared_document = _get_notice_document(prepared_blocks)
+                attachment_names = [
+                    str(_normalize_notice_attachment(item, index).get("attachment_original_file_name") or "첨부파일")
+                    for index, item in enumerate(prepared_document.get("attachments") or [])
+                ]
+                if not plain_content and not attachment_names:
+                    raise ValueError("공지 본문, 이미지 또는 첨부파일을 하나 이상 입력해 주세요.")
+                if not plain_content and attachment_names:
+                    plain_content = "첨부파일: " + ", ".join(attachment_names)
                 if len(plain_content) > 5000:
                     raise ValueError("공지 본문의 텍스트 길이가 5,000자를 초과했습니다. 내용을 줄여 주세요.")
 
@@ -5308,6 +5718,8 @@ def render_admin_notice_manager():
                 saved = _save_platform_content(PLATFORM_NOTICE_TABLE, record_id, payload)
                 for bucket_name, path in _notice_image_refs(old_blocks) - _notice_image_refs(prepared_blocks):
                     delete_platform_notice_image_by_values(bucket_name, path)
+                for bucket_name, path in _notice_attachment_refs(old_blocks) - _notice_attachment_refs(prepared_blocks):
+                    delete_platform_notice_attachment_by_values(bucket_name, path)
                 _reset_notice_form_state(record_id)
 
                 # 새 공지는 저장 직후 방금 만든 공지를 바로 편집 상태로 유지합니다.
@@ -5323,6 +5735,8 @@ def render_admin_notice_manager():
             except Exception as exc:
                 for meta in uploaded_metas:
                     delete_platform_notice_image_by_values(meta.get("image_bucket"), meta.get("image_path"))
+                for meta in uploaded_attachment_metas:
+                    delete_platform_notice_attachment_by_values(meta.get("attachment_bucket"), meta.get("attachment_path"))
                 st.error("공지사항을 저장하지 못했습니다.")
                 st.caption(str(exc))
 
@@ -5379,15 +5793,60 @@ def hard_delete_record(table_name, record_id):
             .execute()
         )
         if rows:
-            for bucket_name, path in _notice_image_refs(_notice_blocks_from_record(rows[0])):
+            notice_blocks = _notice_blocks_from_record(rows[0])
+            for bucket_name, path in _notice_image_refs(notice_blocks):
                 delete_platform_notice_image_by_values(bucket_name, path)
+            for bucket_name, path in _notice_attachment_refs(notice_blocks):
+                delete_platform_notice_attachment_by_values(bucket_name, path)
     except Exception:
         pass
     supabase.table(PLATFORM_NOTICE_TABLE).delete().eq("id", int(record_id)).execute()
 
 
+def install_notice_editor_copy_guard():
+    """공지 본문 입력 중 Ctrl/Cmd+C가 앱 전역 단축키로 해석되지 않게 합니다.
+
+    기본 복사 동작은 막지 않고 이벤트 전파만 차단하므로 Windows Ctrl+C와 Mac Cmd+C 모두
+    텍스트 영역에서 정상 복사됩니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MARKER = '__wittiNoticeEditorCopyGuardInstalled';
+            if (win[MARKER]) return;
+            win[MARKER] = true;
+
+            function isEditableTarget(target) {
+                if (!target) return false;
+                const tag = String(target.tagName || '').toLowerCase();
+                return tag === 'textarea' || tag === 'input' || target.isContentEditable === true;
+            }
+
+            function guardCopy(event) {
+                const key = String(event.key || '').toLowerCase();
+                if (!(event.ctrlKey || event.metaKey) || key !== 'c') return;
+                if (!isEditableTarget(doc.activeElement)) return;
+                // preventDefault()는 호출하지 않습니다. 브라우저의 복사 기능은 그대로 유지합니다.
+                event.stopImmediatePropagation();
+                event.stopPropagation();
+            }
+
+            win.addEventListener('keydown', guardCopy, true);
+            win.addEventListener('keyup', guardCopy, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 # 첫 화면의 고정 공지와 방문 팝업은 관리자에서 작성·게시합니다.
 # 공지 본문 링크는 Streamlit 및 모바일 인앱 브라우저에서도 직접 열리도록 한 번 등록합니다.
+install_notice_editor_copy_guard()
 install_notice_link_click_handler()
 render_active_notice_banner()
 render_active_popup_if_needed()
@@ -5442,7 +5901,7 @@ def send_verification_email(to_email, code):
     sender_email = st.secrets["email"]["sender"]
     app_password = st.secrets["email"]["password"]
 
-    subject = "[교사의 발견] 이메일 인증번호 안내"
+    subject = "[놀이 기록 자동화] 이메일 인증번호 안내"
 
     body = f"""
 <html>
@@ -5463,7 +5922,7 @@ def send_verification_email(to_email, code):
 ">
 
     <div style="font-size:28px; font-weight:700; margin-bottom:12px; color:#1f2c4f;">
-        🌿 교사의 발견
+        🌿 놀이 기록 자동화
     </div>
 
     <div style="font-size:20px; font-weight:600; margin-bottom:24px;">
@@ -5472,7 +5931,7 @@ def send_verification_email(to_email, code):
 
     <div style="font-size:16px; line-height:1.8; margin-bottom:28px;">
         안녕하세요.<br>
-        교사의 발견 이메일 인증번호를 안내드립니다.<br><br>
+        놀이 기록 자동화 이메일 인증번호를 안내드립니다.<br><br>
         아래 인증번호를 입력해 인증을 완료해 주세요.
     </div>
 
@@ -5636,7 +6095,7 @@ with tab1:
 
         st.markdown("### 6. 제공 정보 동의 및 제출")
         privacy_agree = st.checkbox("개인정보 수집 및 이용에 동의합니다. 입력한 정보는 서비스 제공, 문의 응대, 자료 안내 및 개선 목적으로만 활용됩니다.", key="join_privacy_agree")
-        mailing_agree = st.checkbox("메일링 수신에 동의합니다. 교사의 발견 콘텐츠와 자료, 소식 안내를 이메일로 받아보겠습니다.", key="join_mailing_agree")
+        mailing_agree = st.checkbox("메일링 수신에 동의합니다. 놀이 기록 자동화 콘텐츠와 자료, 소식 안내를 이메일로 받아보겠습니다.", key="join_mailing_agree")
         if st.button("회원가입 완료", key="join_submit"):
             valid_username, username_result = validate_username(member_username)
             if get_supabase_auth_client() is None:
@@ -7680,6 +8139,7 @@ def reset_tab2_inputs_once():
         "photo_child_action_custom",
         "wizard_parent_type",
         "wizard_play_goal",
+        "wizard_diary_components",
         "wizard_teacher_observed_situation",
         "wizard_next_play_support_plan",
     ]
@@ -7716,22 +8176,32 @@ def _note_widget_key(prefix: str, option: str) -> str:
 
 
 def render_selected_note_inputs(selected: list[str], note_kind: str) -> dict[str, str]:
-    """선택된 놀이 세부 구분·교사 지원마다 구체 설명을 받습니다.
+    """선택된 구성마다 교사가 실제 장면 또는 구체 지원을 적도록 합니다.
 
-    놀이 이야기와 일지에서는 선택한 모든 항목의 설명이 필수입니다.
-    필수 검증은 사진 분석 버튼을 누를 때 한 번 더 수행합니다.
+    놀이 이야기: 놀이 세부 구분과 교사의 지원별 메모가 필수입니다.
+    보육일지: 일상생활·놀이·활동별 실제 장면 메모가 필수입니다.
     """
     notes: dict[str, str] = {}
     if not selected:
         return notes
 
-    is_play_detail = note_kind == "play_detail"
-    title = "선택한 놀이 세부 구분별 실제 장면" if is_play_detail else "선택한 교사 지원별 구체 지원 내용"
-    st.caption(f"{title}은 **필수 입력**입니다. 사진과 관찰에 근거한 표현일수록 최종 문장이 정확해집니다.")
+    if note_kind == "play_detail":
+        title = "선택한 놀이 세부 구분별 실제 장면"
+        placeholders = PLAY_DETAIL_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_play_detail_note"
+        label_suffix = "장면 설명 (필수)"
+    elif note_kind == "diary_component":
+        title = "선택한 보육일지 세부 구성별 실제 장면"
+        placeholders = DIARY_COMPONENT_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_diary_component_note"
+        label_suffix = "세부 설명 (필수)"
+    else:
+        title = "선택한 교사 지원별 구체 지원 내용"
+        placeholders = TEACHER_SUPPORT_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_teacher_support_note"
+        label_suffix = "구체 지원 (필수)"
 
-    placeholders = PLAY_DETAIL_NOTE_PLACEHOLDERS if is_play_detail else TEACHER_SUPPORT_NOTE_PLACEHOLDERS
-    key_prefix = "wizard_play_detail_note" if is_play_detail else "wizard_teacher_support_note"
-    label_suffix = "장면 설명 (필수)" if is_play_detail else "구체 지원 (필수)"
+    st.caption(f"{title}은 **필수 입력**입니다. 사진과 실제 관찰에 근거해 적을수록 최종 기록이 정확해집니다.")
 
     for option in selected:
         st.markdown(f"**{option}**")
@@ -7748,7 +8218,8 @@ def render_selected_note_inputs(selected: list[str], note_kind: str) -> dict[str
 def render_final_play_output(output: dict):
     output_type = str(output.get("output_type") or "")
     if output_type in ["놀이 이야기", "일지"]:
-        st.markdown("#### 사진 속 놀이 내용")
+        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
+        st.markdown(f"#### {photo_section_title}")
         render_result_card(str(output.get("photo_play_content") or ""), "result-card-gray")
 
         st.markdown("#### 교사가 관찰한 놀이 상황")
@@ -7779,9 +8250,10 @@ def render_final_play_output(output: dict):
         st.markdown(f"#### {output_type} 예시 {index}")
         render_result_card(str(example), "result-card-gray")
 
-
 def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
-    play_details = _selection_notes_display(
+    output_type = str(context.get("output_type") or "")
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_details = _selection_notes_display(
         _as_text_list(context.get("play_subcategories")),
         context.get("play_subcategory_notes"),
     )
@@ -7791,15 +8263,18 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
     )
     analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
     base = (
-        "교사의 발견 | 사진 기반 놀이 기록\n\n"
+        "놀이 기록 자동화 | 사진 기반 기록\n\n"
         f"놀이명: {context.get('play_name') or '-'}\n"
         f"연령: {context.get('age_group') or '-'}\n"
         f"아이 별칭: {context.get('child_alias') or '-'}\n"
         f"교육과정 영역: {curriculum_display_text(context.get('curriculum_areas'))}\n"
-        f"기록 유형: {context.get('output_type') or '-'}\n"
+        f"기록 유형: {output_type or '-'}\n"
         f"보호자 유형: {context.get('parent_type') or '-'}\n\n"
-        f"[놀이 세부 구분과 실제 장면]\n{play_details}\n\n"
-        f"[교사의 지원과 구체 지원]\n{support_details}\n\n"
+        f"[{component_label}과 실제 장면]\n{component_details}\n\n"
+    )
+    if output_type == "놀이 이야기":
+        base += f"[교사의 지원과 구체 지원]\n{support_details}\n\n"
+    base += (
         f"[사진-놀이명 점검]\n"
         f"상태: {analysis.get('photo_match_status') or '-'}\n"
         f"사유: {analysis.get('photo_match_reason') or '-'}\n\n"
@@ -7867,9 +8342,8 @@ with tab2:
             )
             st.caption("일반형은 따뜻하고 자연스럽게, 예민형·공격형은 사실과 지원을 더 중립적으로, 불안형은 차분한 안내 중심으로 문장을 생성합니다.")
 
-        if record_type in ["놀이 이야기", "일지"]:
-            heading = "놀이 이야기 세부 구성" if record_type == "놀이 이야기" else "보육일지 세부 구성"
-            st.markdown(f"#### {heading}")
+        if record_type == "놀이 이야기":
+            st.markdown("#### 놀이 이야기 세부 구성")
             play_subcategories = st.multiselect(
                 "놀이 세부 구분 (복수 선택)",
                 PLAY_STORY_DETAIL_OPTIONS,
@@ -7887,6 +8361,22 @@ with tab2:
             )
             teacher_support_notes = render_selected_note_inputs(teacher_supports, "teacher_support")
             st.caption("선택한 놀이 세부 구분과 교사의 지원은 각각 구체 설명을 입력해야 합니다. 입력 내용은 교육과정 연계, 관찰 및 평가, 종합 기록에 반영됩니다.")
+
+        elif record_type == "일지":
+            st.markdown("#### 보육일지 세부 구성")
+            play_subcategories = st.multiselect(
+                "기록할 장면 선택 (복수 선택)",
+                DIARY_COMPONENT_OPTIONS,
+                key="wizard_diary_components",
+                placeholder="선택해 주세요.",
+                help="하루 기록에 실제로 포함할 일상생활·놀이·활동 장면만 선택해 주세요.",
+            )
+            render_diary_component_guidance(age_group, play_subcategories)
+            play_subcategory_notes = render_selected_note_inputs(play_subcategories, "diary_component")
+            # 보육일지는 별도의 교사 지원 선택값을 두지 않습니다.
+            teacher_supports = []
+            teacher_support_notes = {}
+            st.caption("선택한 일상생활·놀이·활동 장면마다 실제로 관찰한 내용을 입력해 주세요. 입력 내용은 교육과정 연계, 영유아 관찰 및 평가, 보육일지 기록 예시에 반영됩니다.")
 
         st.markdown("### 2. 사진 등록 및 자동 추천")
         uploaded_play_photos = st.file_uploader(
@@ -7917,13 +8407,16 @@ with tab2:
                 st.warning("놀이 기록 유형을 선택해 주세요.")
             elif record_type == "알림장" and parent_type == "- 선택 -":
                 st.warning("알림장에 적용할 보호자 유형을 선택해 주세요.")
-            elif record_type in ["놀이 이야기", "일지"] and not play_subcategories:
+            elif record_type == "놀이 이야기" and not play_subcategories:
                 st.warning("놀이 세부 구분을 한 개 이상 선택해 주세요.")
-            elif record_type in ["놀이 이야기", "일지"] and not teacher_supports:
+            elif record_type == "일지" and not play_subcategories:
+                st.warning("보육일지 세부 구성에서 일상생활·놀이·활동 중 한 개 이상 선택해 주세요.")
+            elif record_type == "놀이 이야기" and not teacher_supports:
                 st.warning("교사의 지원을 한 개 이상 선택해 주세요.")
             elif missing_detail_notes:
-                st.warning("선택한 놀이 세부 구분의 실제 장면 설명을 모두 입력해 주세요: " + ", ".join(missing_detail_notes))
-            elif missing_support_notes:
+                detail_label = "보육일지 세부 구성" if record_type == "일지" else "놀이 세부 구분"
+                st.warning(f"선택한 {detail_label}의 실제 장면 설명을 모두 입력해 주세요: " + ", ".join(missing_detail_notes))
+            elif record_type == "놀이 이야기" and missing_support_notes:
                 st.warning("선택한 교사의 지원의 구체 지원 내용을 모두 입력해 주세요: " + ", ".join(missing_support_notes))
             elif not uploaded_play_photos:
                 st.warning("놀이 사진을 한 장 이상 등록해 주세요.")
