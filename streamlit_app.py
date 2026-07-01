@@ -931,6 +931,18 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
     color: #1D4ED8 !important;
 }
 
+/* 공지 본문에 붙여넣은 외부 링크 */
+.notice-rich-content .notice-inline-link {
+    color: #0B63B6 !important;
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+}
+.notice-rich-content .notice-inline-link:hover {
+    color: #063B75 !important;
+}
+
 
 
 /* 공지사항 블록 편집기 · 공개 보기 */
@@ -1045,7 +1057,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-popup-close-only-checkbox-today-dismiss"
+APP_VERSION = "2026-07-02-notice-and-popup-link-fix-v1"
 
 
 # =========================
@@ -3134,6 +3146,17 @@ def render_active_popup_if_needed():
                 }
             }
 
+            function openPopupLink(url) {
+                const safeUrl = safeHttpUrl(url);
+                if (!safeUrl) return;
+                // 이미지 클릭은 부모 Streamlit 화면에서 직접 처리합니다.
+                // 일부 모바일·인앱 브라우저에서 <a target="_blank">가 무시되는 문제를 보완합니다.
+                const opened = win.open(safeUrl, '_blank', 'noopener,noreferrer');
+                if (!opened) {
+                    win.location.assign(safeUrl);
+                }
+            }
+
             function revisionKey(popup) {
                 return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || '');
             }
@@ -3221,7 +3244,7 @@ def render_active_popup_if_needed():
                         box-shadow: 0 3px 10px rgba(15,23,42,0.12);
                         z-index: 3;
                     }
-                    #${ROOT_ID} .witti-popup-image-link { display: block; text-decoration: none; }
+                    #${ROOT_ID} .witti-popup-image-link { display: block; text-decoration: none; cursor: pointer; pointer-events: auto; }
                     #${ROOT_ID} .witti-popup-image {
                         display: block;
                         width: 100%;
@@ -3307,6 +3330,12 @@ def render_active_popup_if_needed():
                 imageLink.target = '_blank';
                 imageLink.rel = 'noopener noreferrer';
                 imageLink.setAttribute('aria-label', '팝업 이미지 링크 열기');
+                imageLink.setAttribute('title', '이미지를 클릭하면 연결된 페이지가 열립니다.');
+                imageLink.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openPopupLink(linkUrl);
+                });
                 imageLink.appendChild(image);
                 root.appendChild(imageLink);
             } else {
@@ -4308,12 +4337,62 @@ def _render_notice_image_html(asset: dict) -> str:
     return f"<figure class='notice-rich-image-wrap'>{image_html}{caption_html}</figure>"
 
 
+NOTICE_MARKDOWN_OR_URL_PATTERN = re.compile(
+    r"\[([^\]\n]{1,240})\]\((https?://[^\s)<>\"']+)\)|(?P<url>https?://[^\s<>\"'`]+)",
+    re.IGNORECASE,
+)
+NOTICE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}›»”’"
+
+
+def _render_notice_text_with_links(text: str) -> str:
+    """공지 본문의 안전한 링크 렌더러입니다.
+
+    - 붙여넣은 https:// / http:// 주소를 바로 클릭 가능한 링크로 바꿉니다.
+    - [표시 문구](https://주소) 형식도 지원합니다.
+    - 본문은 HTML 이스케이프를 유지해 스크립트 삽입을 막습니다.
+    """
+    source = str(text or "")
+    if not source:
+        return ""
+
+    parts: list[str] = []
+    cursor = 0
+    for match in NOTICE_MARKDOWN_OR_URL_PATTERN.finditer(source):
+        parts.append(html.escape(source[cursor:match.start()]))
+        label = match.group(1) if match.group(1) is not None else ""
+        raw_url = match.group(2) if match.group(2) is not None else match.group("url")
+        raw_url = str(raw_url or "")
+
+        # 문장 끝 마침표·괄호는 링크 밖에 남깁니다.
+        trailing = ""
+        if match.group(1) is None:
+            while raw_url and raw_url[-1] in NOTICE_URL_TRAILING_PUNCTUATION:
+                trailing = raw_url[-1] + trailing
+                raw_url = raw_url[:-1]
+
+        valid, normalized_url = _validate_popup_link_url(raw_url)
+        if valid and normalized_url:
+            visible_label = str(label or raw_url)
+            href = html.escape(normalized_url, quote=True)
+            parts.append(
+                f"<a class='notice-inline-link' href='{href}' target='_blank' rel='noopener noreferrer'>"
+                f"{html.escape(visible_label)}</a>"
+            )
+            if trailing:
+                parts.append(html.escape(trailing))
+        else:
+            parts.append(html.escape(match.group(0)))
+        cursor = match.end()
+
+    parts.append(html.escape(source[cursor:]))
+    return "".join(parts).replace("\n", "<br>")
+
+
 def _render_plain_notice_paragraph(lines: list[str]) -> str:
     text = "\n".join(lines).strip()
     if not text:
         return ""
-    escaped = html.escape(text).replace("\n", "<br>")
-    return f"<p>{escaped}</p>"
+    return f"<p>{_render_notice_text_with_links(text)}</p>"
 
 
 def _build_notice_document_html(body: str, assets: list[dict]) -> str:
@@ -4344,7 +4423,7 @@ def _build_notice_document_html(body: str, assets: list[dict]) -> str:
             while index < len(lines) and lines[index].strip() != ":::":
                 body_lines.append(lines[index])
                 index += 1
-            body_html = html.escape("\n".join(body_lines).strip()).replace("\n", "<br>")
+            body_html = _render_notice_text_with_links("\n".join(body_lines).strip())
             html_parts.append(
                 f"<div class='notice-callout {style}'><div class='notice-callout-title'>{html.escape(title)}</div><div class='notice-callout-body'>{body_html}</div></div>"
             )
@@ -4365,7 +4444,7 @@ def _build_notice_document_html(body: str, assets: list[dict]) -> str:
             while index < len(lines) and lines[index].strip() != ":::":
                 body_lines.append(lines[index])
                 index += 1
-            body_html = html.escape("\n".join(body_lines).strip()).replace("\n", "<br>")
+            body_html = _render_notice_text_with_links("\n".join(body_lines).strip())
             if body_html:
                 tag = NOTICE_TEXT_STYLE_TAGS[style_label]
                 styles = []
