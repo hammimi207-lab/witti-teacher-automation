@@ -932,14 +932,22 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 }
 
 /* 공지 본문에 붙여넣은 외부 링크 */
-.notice-rich-content .notice-inline-link {
+.notice-rich-content .notice-inline-link,
+.notice-rich-content a[href^="http://"],
+.notice-rich-content a[href^="https://"] {
     color: #0B63B6 !important;
     font-weight: 800;
-    text-decoration: underline;
+    text-decoration: underline !important;
     text-underline-offset: 2px;
     overflow-wrap: anywhere;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 3;
 }
-.notice-rich-content .notice-inline-link:hover {
+.notice-rich-content .notice-inline-link:hover,
+.notice-rich-content a[href^="http://"]:hover,
+.notice-rich-content a[href^="https://"]:hover {
     color: #063B75 !important;
 }
 
@@ -4569,11 +4577,13 @@ NOTICE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}›»”’"
 
 
 def _render_notice_text_with_links(text: str) -> str:
-    """공지 본문의 안전한 링크 렌더러입니다.
+    """공지 본문 속 URL을 안전한 실제 링크로 변환합니다.
 
-    - 붙여넣은 https:// / http:// 주소를 바로 클릭 가능한 링크로 바꿉니다.
-    - [표시 문구](https://주소) 형식도 지원합니다.
-    - 본문은 HTML 이스케이프를 유지해 스크립트 삽입을 막습니다.
+    - https:// 또는 http:// 주소를 자동 링크로 변환
+    - [표시 문구](https://주소) 형식 지원
+    - HTML은 이스케이프해 스크립트 삽입을 차단
+    - data-witti-external-url 속성을 함께 넣어 Streamlit/인앱 브라우저에서도
+      별도 클릭 처리기가 URL을 확실히 열 수 있게 함
     """
     source = str(text or "")
     if not source:
@@ -4587,7 +4597,7 @@ def _render_notice_text_with_links(text: str) -> str:
         raw_url = match.group(2) if match.group(2) is not None else match.group("url")
         raw_url = str(raw_url or "")
 
-        # 문장 끝 마침표·괄호는 링크 밖에 남깁니다.
+        # 문장 끝 마침표·괄호는 링크 바깥에 남깁니다.
         trailing = ""
         if match.group(1) is None:
             while raw_url and raw_url[-1] in NOTICE_URL_TRAILING_PUNCTUATION:
@@ -4599,7 +4609,9 @@ def _render_notice_text_with_links(text: str) -> str:
             visible_label = str(label or raw_url)
             href = html.escape(normalized_url, quote=True)
             parts.append(
-                f"<a class='notice-inline-link' href='{href}' target='_blank' rel='noopener noreferrer'>"
+                "<a class='notice-inline-link' "
+                f"href='{href}' data-witti-external-url='{href}' "
+                "target='_blank' rel='noopener noreferrer'>"
                 f"{html.escape(visible_label)}</a>"
             )
             if trailing:
@@ -4610,6 +4622,69 @@ def _render_notice_text_with_links(text: str) -> str:
 
     parts.append(html.escape(source[cursor:]))
     return "".join(parts).replace("\n", "<br>")
+
+
+def install_notice_link_click_handler():
+    """공지 링크가 Streamlit·모바일 인앱 브라우저에서도 직접 열리도록 보강합니다.
+
+    표준 <a> 링크를 우선 사용하되, Streamlit expander 또는 일부 인앱 브라우저가
+    클릭을 가로채는 경우를 대비해 부모 문서에 이벤트 위임 처리기를 한 번 등록합니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MARKER = '__wittiNoticeExternalLinkHandlerInstalled';
+            if (win[MARKER]) return;
+            win[MARKER] = true;
+
+            function normalizeHttpUrl(value) {
+                try {
+                    const url = new URL(String(value || '').trim());
+                    return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
+                } catch (error) {
+                    return '';
+                }
+            }
+
+            doc.addEventListener('click', function (event) {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                const anchor = target.closest('a.notice-inline-link, .notice-rich-content a[href]');
+                if (!anchor) return;
+
+                const url = normalizeHttpUrl(
+                    anchor.getAttribute('data-witti-external-url') || anchor.getAttribute('href') || ''
+                );
+                if (!url) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                let opened = null;
+                try {
+                    opened = win.open(url, '_blank', 'noopener,noreferrer');
+                } catch (error) {
+                    opened = null;
+                }
+
+                // 인앱 브라우저에서 새 창 열기가 막히면 현재 창에서라도 링크로 이동합니다.
+                if (!opened) {
+                    try {
+                        win.location.assign(url);
+                    } catch (error) {
+                        win.location.href = url;
+                    }
+                }
+            }, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def _render_plain_notice_paragraph(lines: list[str]) -> str:
@@ -5268,6 +5343,8 @@ def hard_delete_record(table_name, record_id):
 
 
 # 첫 화면의 고정 공지와 방문 팝업은 관리자에서 작성·게시합니다.
+# 공지 본문 링크는 Streamlit 및 모바일 인앱 브라우저에서도 직접 열리도록 한 번 등록합니다.
+install_notice_link_click_handler()
 render_active_notice_banner()
 render_active_popup_if_needed()
 
