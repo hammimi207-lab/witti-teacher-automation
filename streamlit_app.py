@@ -1045,7 +1045,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-popup-image-only-today-dismiss-v4"
+APP_VERSION = "2026-07-02-popup-image-only-notice-editor-runtime-fix"
 
 
 # =========================
@@ -3363,6 +3363,7 @@ def render_active_popup_if_needed():
     )
 
 
+
 def render_public_notice_page():
     render_menu_card(
         "📢 공지사항",
@@ -3454,6 +3455,1240 @@ def _render_schedule_inputs(prefix: str, existing: dict) -> tuple[bool, str | No
         st.warning("종료 시점은 시작 시점보다 빠를 수 없습니다.")
         return True, "INVALID", "INVALID"
     return True, start_iso, end_iso
+
+
+def render_admin_notice_manager():
+    st.markdown("### 📢 공지사항 관리")
+    st.caption("공지사항은 공지 탭에서 보이며, 상단 고정 공지는 첫 화면에도 간단히 표시됩니다.")
+    rows = _load_platform_rows(PLATFORM_NOTICE_TABLE)
+    options = {"새 공지 작성": None}
+    for row in rows:
+        label = f"#{row.get('id')} · {str(row.get('title') or '제목 없음')[:60]}"
+        if _as_bool(row.get("deleted")):
+            label += " [숨김]"
+        options[label] = row
+
+    selected_label = st.selectbox("작성·편집할 공지", list(options.keys()), key="notice_editor_select")
+    existing = options[selected_label] or {}
+    record_id = existing.get("id")
+    token = f"notice_{record_id or 'new'}"
+
+    with st.form(f"notice_editor_form_{token}"):
+        title = st.text_input("공지 제목", value=str(existing.get("title") or ""), max_chars=120, key=f"{token}_title")
+        content = st.text_area("공지 내용", value=str(existing.get("content") or ""), height=220, max_chars=5000, key=f"{token}_content")
+        form_col1, form_col2 = st.columns(2)
+        with form_col1:
+            notice_level = st.selectbox(
+                "공지 구분", ["일반", "중요", "점검"],
+                index=["일반", "중요", "점검"].index(str(existing.get("notice_level") or "일반")) if str(existing.get("notice_level") or "일반") in ["일반", "중요", "점검"] else 0,
+                key=f"{token}_level",
+            )
+            is_pinned = st.checkbox("첫 화면 상단에 고정 표시", value=_as_bool(existing.get("is_pinned")), key=f"{token}_pinned")
+        with form_col2:
+            is_active = st.checkbox("바로 게시", value=_as_bool(existing.get("is_active"), True), key=f"{token}_active")
+            if existing.get("updated_at"):
+                st.caption(f"최근 수정: {_format_kst_display(existing.get('updated_at'))}")
+        _, start_at, end_at = _render_schedule_inputs(token, existing)
+        submitted = st.form_submit_button("공지사항 저장", use_container_width=True)
+
+    if submitted:
+        if not title.strip() or not content.strip():
+            st.warning("공지 제목과 내용을 모두 입력해 주세요.")
+        elif start_at == "INVALID":
+            st.warning("게시 기간을 다시 확인해 주세요.")
+        else:
+            payload = {
+                "title": title.strip(), "content": content.strip(), "notice_level": notice_level,
+                "is_pinned": is_pinned, "is_active": is_active,
+                "display_start_at": start_at, "display_end_at": end_at,
+            }
+            if not record_id:
+                payload["created_by"] = "admin"
+                if is_active:
+                    payload["published_at"] = _utc_now_iso()
+            elif is_active and not existing.get("published_at"):
+                payload["published_at"] = _utc_now_iso()
+            try:
+                _save_platform_content(PLATFORM_NOTICE_TABLE, record_id, payload)
+                st.success("공지사항을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error("공지사항을 저장하지 못했습니다. 먼저 공지·팝업 SQL을 실행했는지 확인해 주세요.")
+                st.caption(str(exc))
+
+    st.divider()
+    st.markdown("#### 게시·보관 목록")
+    if not rows:
+        st.caption("작성된 공지사항이 없습니다.")
+    else:
+        st.dataframe(_admin_content_display_df(rows, "notice"), use_container_width=True, hide_index=True, height=300)
+        active_rows = [row for row in rows if not _as_bool(row.get("deleted"))]
+        hidden_rows = [row for row in rows if _as_bool(row.get("deleted"))]
+        manage_col1, manage_col2 = st.columns(2)
+        with manage_col1:
+            hide_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in active_rows}
+            selected_hide = st.selectbox("숨김 처리할 공지", ["선택해 주세요."] + list(hide_options.keys()), key="notice_hide_select")
+            if st.button("선택 공지 숨김 처리", key="notice_soft_delete", disabled=selected_hide == "선택해 주세요."):
+                soft_delete_record(PLATFORM_NOTICE_TABLE, hide_options[selected_hide])
+                st.success("공지사항을 숨김 처리했습니다.")
+                st.rerun()
+        with manage_col2:
+            restore_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in hidden_rows}
+            selected_restore = st.selectbox("복구할 숨김 공지", ["선택해 주세요."] + list(restore_options.keys()), key="notice_restore_select")
+            if st.button("선택 공지 복구", key="notice_restore", disabled=selected_restore == "선택해 주세요."):
+                restore_record(PLATFORM_NOTICE_TABLE, restore_options[selected_restore])
+                st.success("공지사항을 다시 게시 목록으로 복구했습니다.")
+                st.rerun()
+
+
+def render_admin_popup_manager():
+    """이미지 전용 방문 팝업을 작성·수정·게시하는 관리자 화면입니다."""
+    st.markdown("### 🪟 방문 팝업 관리")
+    st.caption("방문자 화면에는 업로드한 이미지와 닫기·‘오늘 하루 다시 열지 않기’만 표시됩니다. 제목과 메모는 관리자 관리용이며 방문자에게 노출되지 않습니다.")
+
+    rows = _load_platform_rows(PLATFORM_POPUP_TABLE)
+    options = {"새 이미지 팝업 작성": None}
+    for row in rows:
+        label = f"#{row.get('id')} · {str(row.get('title') or '제목 없음')[:60]}"
+        if _as_bool(row.get("deleted")):
+            label += " [숨김]"
+        options[label] = row
+
+    selected_label = st.selectbox("작성·편집할 팝업", list(options.keys()), key="popup_editor_select")
+    existing = options[selected_label] or {}
+    record_id = existing.get("id")
+    token = f"popup_{record_id or 'new'}"
+    existing_position = _normalize_popup_position(existing.get("popup_position"))
+    position_labels = list(POPUP_POSITION_OPTIONS.keys())
+    position_index = position_labels.index(POPUP_POSITION_LABELS.get(existing_position, "정중앙"))
+    existing_image_url = create_platform_popup_signed_url(existing) if existing.get("image_path") else ""
+
+    if existing_image_url:
+        st.markdown("#### 현재 등록 이미지")
+        preview_col1, preview_col2 = st.columns([1, 1])
+        with preview_col1:
+            st.image(existing_image_url, caption=str(existing.get("image_original_file_name") or "팝업 이미지"), use_container_width=True)
+        with preview_col2:
+            st.caption(f"표시 위치: {POPUP_POSITION_LABELS.get(existing_position, '정중앙')}")
+            if existing.get("link_url"):
+                st.caption("방문자가 이미지를 클릭하면 아래 링크가 새 창으로 열립니다.")
+                st.code(str(existing.get("link_url")), language=None)
+            else:
+                st.caption("연결 링크가 없으면 이미지는 안내용으로만 표시됩니다.")
+
+    with st.form(f"popup_editor_form_{token}"):
+        title = st.text_input(
+            "관리용 팝업 제목",
+            value=str(existing.get("title") or ""),
+            max_chars=120,
+            key=f"{token}_title",
+            help="방문자 화면에는 표시되지 않습니다. 관리자 목록에서 팝업을 구분하기 위한 제목입니다.",
+        )
+        form_col1, form_col2, form_col3 = st.columns(3)
+        with form_col1:
+            popup_level = st.selectbox(
+                "관리 구분", ["일반", "중요", "점검"],
+                index=["일반", "중요", "점검"].index(str(existing.get("popup_level") or "일반")) if str(existing.get("popup_level") or "일반") in ["일반", "중요", "점검"] else 0,
+                key=f"{token}_level",
+            )
+        with form_col2:
+            audience_label = st.selectbox(
+                "표시 대상", ["모든 방문자", "로그인 회원만"],
+                index=1 if str(existing.get("audience") or "all") == "member" else 0,
+                key=f"{token}_audience",
+            )
+        with form_col3:
+            priority = st.number_input("우선순위", min_value=0, max_value=1000, value=int(existing.get("priority") or 0), step=1, key=f"{token}_priority")
+            is_active = st.checkbox("바로 표시", value=_as_bool(existing.get("is_active"), True), key=f"{token}_active")
+
+        st.markdown("#### 팝업 이미지와 연결 링크")
+        st.caption("팝업은 이미지 전용으로 표시됩니다. 새 팝업은 이미지를 반드시 등록해야 합니다.")
+        popup_image = st.file_uploader(
+            "팝업 이미지 업로드",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=False,
+            key=f"{token}_image_upload",
+            help="권장: 가로 800~1200px, JPG·PNG·WEBP, 10MB 이하",
+        )
+        remove_existing_image = st.checkbox(
+            "현재 등록된 팝업 이미지를 삭제합니다.",
+            value=False,
+            disabled=not bool(existing.get("image_path")),
+            key=f"{token}_remove_image",
+        )
+        image_alt_text = st.text_input(
+            "이미지 대체 설명 (선택)",
+            value=str(existing.get("image_alt_text") or ""),
+            max_chars=200,
+            key=f"{token}_image_alt",
+            help="이미지가 보이지 않을 때 사용되는 짧은 설명입니다.",
+        )
+        link_url = st.text_input(
+            "이미지 클릭 연결 링크 (선택)",
+            value=str(existing.get("link_url") or ""),
+            max_chars=1000,
+            key=f"{token}_link_url",
+            placeholder="https://witti.kr/...",
+            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 새 창으로 이동합니다.",
+        )
+        popup_position_label = st.selectbox(
+            "팝업 표시 위치",
+            position_labels,
+            index=position_index,
+            key=f"{token}_position",
+            help="모바일에서는 화면을 가리지 않도록 하단 중앙 형태로 자동 조정됩니다.",
+        )
+        _, start_at, end_at = _render_schedule_inputs(token, existing)
+        submitted = st.form_submit_button("팝업 저장", use_container_width=True)
+
+    if submitted:
+        valid_link, normalized_link_or_message = _validate_popup_link_url(link_url)
+        has_existing_image = bool(existing.get("image_path"))
+        will_have_image = bool(popup_image is not None or (has_existing_image and not remove_existing_image))
+        if not title.strip():
+            st.warning("관리용 팝업 제목을 입력해 주세요.")
+        elif not will_have_image:
+            st.warning("이미지 전용 팝업은 팝업 이미지를 반드시 등록해야 합니다.")
+        elif not valid_link:
+            st.warning(normalized_link_or_message)
+        elif start_at == "INVALID":
+            st.warning("표시 기간을 다시 확인해 주세요.")
+        else:
+            uploaded_image_meta = None
+            old_bucket = str(existing.get("image_bucket") or POPUP_IMAGE_BUCKET)
+            old_path = str(existing.get("image_path") or "")
+            try:
+                if popup_image is not None:
+                    uploaded_image_meta = upload_platform_popup_image(popup_image)
+                internal_content = str(existing.get("content") or "이미지형 팝업").strip() or "이미지형 팝업"
+                payload = {
+                    "title": title.strip(),
+                    "content": internal_content,
+                    "popup_level": popup_level,
+                    "audience": "member" if audience_label == "로그인 회원만" else "all",
+                    "priority": int(priority),
+                    "is_active": is_active,
+                    "display_start_at": start_at,
+                    "display_end_at": end_at,
+                    "popup_position": POPUP_POSITION_OPTIONS[popup_position_label],
+                    "link_url": normalized_link_or_message,
+                    "link_label": "이미지 열기",
+                    "image_alt_text": image_alt_text.strip(),
+                }
+                if uploaded_image_meta:
+                    payload.update(uploaded_image_meta)
+                elif remove_existing_image:
+                    payload.update({
+                        "image_bucket": None,
+                        "image_path": None,
+                        "image_original_file_name": None,
+                        "image_mime_type": None,
+                        "image_size_bytes": None,
+                    })
+                if not record_id:
+                    payload["created_by"] = "admin"
+
+                _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                if old_path and (uploaded_image_meta or remove_existing_image):
+                    delete_platform_popup_image_by_values(old_bucket, old_path)
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("이미지 전용 방문 팝업을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                if uploaded_image_meta:
+                    delete_platform_popup_image_by_values(uploaded_image_meta.get("image_bucket"), uploaded_image_meta.get("image_path"))
+                st.error("팝업을 저장하지 못했습니다. 이미지형 팝업 확장 SQL과 Storage 버킷 설정을 확인해 주세요.")
+                st.caption(str(exc))
+
+    st.divider()
+    st.markdown("#### 표시·보관 목록")
+    if not rows:
+        st.caption("작성된 팝업이 없습니다.")
+    else:
+        st.dataframe(_admin_content_display_df(rows, "popup"), use_container_width=True, hide_index=True, height=300)
+        active_rows = [row for row in rows if not _as_bool(row.get("deleted"))]
+        hidden_rows = [row for row in rows if _as_bool(row.get("deleted"))]
+        manage_col1, manage_col2 = st.columns(2)
+        with manage_col1:
+            hide_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in active_rows}
+            selected_hide = st.selectbox("숨김 처리할 팝업", ["선택해 주세요."] + list(hide_options.keys()), key="popup_hide_select")
+            if st.button("선택 팝업 숨김 처리", key="popup_soft_delete", disabled=selected_hide == "선택해 주세요."):
+                soft_delete_record(PLATFORM_POPUP_TABLE, hide_options[selected_hide])
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("팝업을 숨김 처리했습니다.")
+                st.rerun()
+        with manage_col2:
+            restore_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in hidden_rows}
+            selected_restore = st.selectbox("복구할 숨김 팝업", ["선택해 주세요."] + list(restore_options.keys()), key="popup_restore_select")
+            if st.button("선택 팝업 복구", key="popup_restore", disabled=selected_restore == "선택해 주세요."):
+                restore_record(PLATFORM_POPUP_TABLE, restore_options[selected_restore])
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("팝업을 다시 표시 목록으로 복구했습니다.")
+                st.rerun()
+
+
+def save_subscriber(data):
+    """소통 탭에서 입력받은 회원·기관 정보를 Supabase public profile 테이블에 저장합니다."""
+    payload = {
+        "user_id": data.get("회원 UID", ""),
+        "platform_member_id": data.get("회원 ID", ""),
+        "username": data.get("아이디", data.get("회원 ID", "")),
+        "display_name": data.get("가입자 성명", ""),
+        "role": "teacher",
+        "institution_name": data.get("기관명", ""),
+        "institution_group": data.get("기관 구분", ""),
+        "institution_type": data.get("기관 유형", ""),
+        "institution_feature": data.get("기관 특성", ""),
+        "phone": data.get("기관 연락처", ""),
+        "subscriber_name": data.get("가입자 성명", ""),
+        "position": data.get("직책", ""),
+        "email": data.get("이메일", ""),
+        "privacy_agree": str(data.get("개인정보 동의", False)),
+        "mailing_agree": str(data.get("메일링 수신 동의", False)),
+        "is_active": True,
+        "member_created_at": _utc_now_iso(),
+        "last_login_at": _utc_now_iso(),
+        "deleted": False,
+    }
+    supabase.table("subscribers").insert(payload).execute()
+
+
+def save_diary_log(record_type, teacher_tone, daily_scope, original_text, summary, generated_message):
+    """알림장 기록은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
+    private_meta = private_log_metadata()
+    if not private_meta:
+        return False
+
+    payload = {
+        "record_type": record_type,
+        "teacher_tone": teacher_tone,
+        "daily_scope": daily_scope,
+        "original_text": original_text,
+        "summary": summary,
+        "generated_message": generated_message,
+        "deleted": False,
+        **private_meta,
+    }
+    supabase.table("diary_logs").insert(payload).execute()
+    return True
+
+
+def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, development_area, child_action, generated_text):
+    """기록 요정의 문구·사진 분석 초안은 로그인한 회원의 개인 기록으로만 1년 저장합니다."""
+    private_meta = private_log_metadata()
+    if not private_meta:
+        return False
+
+    payload = {
+        "record_type": record_type,
+        "play_keyword": play_keyword,
+        "age_group": age_group,
+        "curriculum_area": curriculum_area,
+        "development_area": development_area,
+        "child_action": child_action,
+        "generated_text": generated_text,
+        "deleted": False,
+        **private_meta,
+    }
+    supabase.table("phrase_logs").insert(payload).execute()
+    return True
+
+
+
+def load_table(table_name, include_deleted=False):
+    """관리자 페이지에서 Supabase 테이블을 DataFrame으로 불러옵니다."""
+    try:
+        query = supabase.table(table_name).select("*").order("id", desc=True)
+        if not include_deleted:
+            query = query.eq("deleted", False)
+        response = query.execute()
+        return pd.DataFrame(_response_data(response))
+    except Exception:
+        try:
+            response = supabase.table(table_name).select("*").order("id", desc=True).execute()
+            return pd.DataFrame(_response_data(response))
+        except Exception as e:
+            st.warning(f"{table_name} 데이터를 불러오지 못했습니다: {e}")
+            return pd.DataFrame()
+
+
+def soft_delete_record(table_name, record_id):
+    payload = {"deleted": True}
+    if table_name == "subscribers":
+        payload["is_active"] = False
+    supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
+
+
+def restore_record(table_name, record_id):
+    payload = {"deleted": False}
+    if table_name == "subscribers":
+        payload["is_active"] = True
+    supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
+
+
+def delete_photos_for_session(session_id: str):
+    if not session_id:
+        return
+    try:
+        response = supabase.table("photo_records").select("id, storage_bucket, file_path").eq("session_id", session_id).execute()
+        rows = _response_data(response)
+    except Exception:
+        rows = []
+    buckets: dict[str, list[str]] = {}
+    for row in rows:
+        bucket = str(row.get("storage_bucket") or PLAY_PHOTO_BUCKET)
+        path = str(row.get("file_path") or "")
+        if path:
+            buckets.setdefault(bucket, []).append(path)
+    for bucket, paths in buckets.items():
+        try:
+            supabase.storage.from_(bucket).remove(paths)
+        except Exception:
+            pass
+    try:
+        supabase.table("photo_records").delete().eq("session_id", session_id).execute()
+    except Exception:
+        pass
+
+
+def hard_delete_record(table_name, record_id):
+    """관리자 영구 삭제 시 Auth·Storage까지 함께 정리합니다."""
+    if table_name == "subscribers":
+        user_id = ""
+        try:
+            rows = _response_data(supabase.table("subscribers").select("user_id").eq("id", int(record_id)).limit(1).execute())
+            user_id = str(rows[0].get("user_id") or "") if rows else ""
+        except Exception:
+            pass
+        if user_id:
+            delete_all_member_photos(user_id)
+            delete_auth_member(user_id)
+    elif table_name == "photo_records":
+        try:
+            rows = _response_data(supabase.table("photo_records").select("storage_bucket, file_path").eq("id", int(record_id)).limit(1).execute())
+            if rows and rows[0].get("file_path"):
+                supabase.storage.from_(str(rows[0].get("storage_bucket") or PLAY_PHOTO_BUCKET)).remove([str(rows[0]["file_path"])])
+        except Exception:
+            pass
+    elif table_name == "play_sessions":
+        try:
+            rows = _response_data(supabase.table("play_sessions").select("session_id").eq("id", int(record_id)).limit(1).execute())
+            if rows:
+                delete_photos_for_session(str(rows[0].get("session_id") or ""))
+        except Exception:
+            pass
+    elif table_name == PLATFORM_POPUP_TABLE:
+        try:
+            rows = _response_data(
+                supabase.table(PLATFORM_POPUP_TABLE)
+                .select("image_bucket, image_path")
+                .eq("id", int(record_id))
+                .limit(1)
+                .execute()
+            )
+            if rows:
+                delete_platform_popup_image_by_values(rows[0].get("image_bucket"), rows[0].get("image_path"))
+        except Exception:
+            pass
+    supabase.table(table_name).delete().eq("id", int(record_id)).execute()
+
+
+def draw_category_chart(series: pd.Series, title: str):
+    if series.empty:
+        st.caption("표시할 데이터가 없습니다.")
+        return
+
+    chart_df = series.reset_index()
+    chart_df.columns = ["범주", "건수"]
+
+    if alt is not None:
+        chart = alt.Chart(chart_df).mark_arc(innerRadius=45).encode(
+            theta=alt.Theta(field="건수", type="quantitative"),
+            color=alt.Color(
+                field="범주",
+                type="nominal",
+                legend=alt.Legend(title=None, labelColor="#172B4D")
+            ),
+            tooltip=["범주", "건수"],
+        ).properties(
+            height=260,
+            title=title,
+            background="#FFFFFF"
+        ).configure_view(
+            fill="#FFFFFF",
+            strokeWidth=0
+        ).configure_title(
+            color="#172B4D",
+            fontSize=16,
+            fontWeight=700
+        ).configure_legend(
+            labelColor="#172B4D"
+        )
+        st.altair_chart(chart, use_container_width=True, theme=None)
+    else:
+        st.bar_chart(chart_df.set_index("범주"))
+
+
+def filter_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    if df.empty or "created_at" not in df.columns:
+        return df
+
+    df = df.copy()
+    df["created_at_dt"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
+    df = df.dropna(subset=["created_at_dt"])
+
+    now_kr = pd.Timestamp.now(tz="Asia/Seoul")
+    created_kr = df["created_at_dt"].dt.tz_convert("Asia/Seoul")
+
+    if period == "오늘":
+        return df[created_kr.dt.date == now_kr.date()]
+
+    if period == "최근 7일":
+        start_date_utc = (now_kr - pd.Timedelta(days=7)).tz_convert("UTC")
+        return df[df["created_at_dt"] >= start_date_utc]
+
+    if period == "이번 달":
+        return df[
+            (created_kr.dt.year == now_kr.year)
+            & (created_kr.dt.month == now_kr.month)
+        ]
+
+    return df
+
+
+def render_menu_card(title: str, description: str, chips: list[str] | None = None):
+    chips = chips or []
+    chip_html = "".join([f"<span class='info-chip'>{chip}</span>" for chip in chips])
+    st.markdown(
+        f"""
+        <div class="menu-card">
+            <div class="menu-card-title">{title}</div>
+            <div class="menu-card-desc">{description}</div>
+            <div>{chip_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+st.markdown(f"""
+<!-- APP_VERSION: {APP_VERSION} -->
+<div class="app-hero">
+    <div class="app-eyebrow">🌿 교사의 발견</div>
+    <h1>현장 업무 자동화 파일럿 서비스</h1>
+    <p>사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
+    <div class="hero-links">
+        <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
+        <span class="hero-link">✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong></span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+
+# =========================
+# 공지사항 단일 문서 편집기
+# =========================
+# 작성 화면은 하나의 본문 문서로 유지합니다.
+# 나눔 줄·강조박스·이미지는 문서 안에 삽입 표식으로 넣고, 공개 화면에서는 읽기 쉬운 카드/이미지로 렌더링합니다.
+# 기존 blocks-v1 공지는 열 때 새 단일 문서 형식으로 자동 변환됩니다.
+NOTICE_IMAGE_BUCKET = "platform-notice-images"
+NOTICE_IMAGE_SIGNED_URL_TTL_SECONDS = 60 * 60
+MAX_NOTICE_IMAGE_BYTES = 10 * 1024 * 1024
+NOTICE_TEXT_STYLE_OPTIONS = ["노멀", "헤딩 1", "헤딩 2", "헤딩 3", "헤딩 4", "헤딩 5"]
+NOTICE_TEXT_STYLE_TAGS = {"노멀": "p", "헤딩 1": "h1", "헤딩 2": "h2", "헤딩 3": "h3", "헤딩 4": "h4", "헤딩 5": "h5"}
+NOTICE_TEXT_COLOR_OPTIONS = {"기본색": "", "남색": "#172B4D", "파랑": "#1D4ED8", "초록": "#188B55", "주황": "#B54708", "빨강": "#B42318", "보라": "#6941C6", "회색": "#475467"}
+NOTICE_HIGHLIGHT_OPTIONS = {"없음": "", "노랑": "#FFF3B0", "하늘": "#DFF4FF", "연두": "#DCFCE7", "분홍": "#FFE4E6", "보라": "#EEE5FF"}
+NOTICE_CALLOUT_OPTIONS = {"안내(파랑)": "info", "성공·완료(초록)": "success", "유의(노랑)": "warning", "중요·긴급(분홍)": "danger"}
+NOTICE_CALLOUT_LABELS = {value: label for label, value in NOTICE_CALLOUT_OPTIONS.items()}
+NOTICE_DOCUMENT_TYPE = "document-v2"
+
+st.markdown(
+    """
+    <style>
+    .notice-doc-toolbar-note {
+        color:#667085; font-size:13px; line-height:1.65; margin:4px 0 12px;
+        padding:10px 12px; background:#F8FBFF; border:1px solid #DCEBFF; border-radius:12px;
+    }
+    .notice-doc-toolbar-note code { color:#174F80; background:#EAF4FF; border-radius:5px; padding:1px 5px; }
+    .notice-media-card { background:#FFFFFF; border:1px solid #E1EAF3; border-radius:14px; padding:12px; margin:10px 0; }
+    .notice-media-card-title { color:#174F80; font-size:13px; font-weight:900; margin-bottom:7px; }
+    .notice-inline-tip { color:#667085; font-size:12.5px; line-height:1.55; margin-top:5px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def _notice_image_extension(mime_type: str) -> str:
+    return {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(str(mime_type or "").lower(), ".jpg")
+
+
+def _make_notice_image_storage_path(mime_type: str, now_utc: datetime | None = None) -> str:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    return f"notices/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/{uuid.uuid4().hex}{_notice_image_extension(mime_type)}"
+
+
+def _get_notice_image_bytes_and_mime(uploaded_file) -> tuple[bytes, str]:
+    if uploaded_file is None:
+        raise ValueError("공지 이미지를 선택해 주세요.")
+    image_bytes = uploaded_file.getvalue()
+    if len(image_bytes) > MAX_NOTICE_IMAGE_BYTES:
+        raise ValueError(f"'{uploaded_file.name}' 파일이 10MB를 초과합니다.")
+    mime_type = str(getattr(uploaded_file, "type", "") or "").lower()
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if mime_type not in allowed_types:
+        suffix = Path(str(getattr(uploaded_file, "name", ""))).suffix.lower()
+        mime_type = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(suffix, "")
+    if mime_type not in allowed_types:
+        raise ValueError("공지 이미지는 JPG, PNG, WEBP 형식만 업로드할 수 있습니다.")
+    return image_bytes, mime_type
+
+
+def upload_platform_notice_image(uploaded_file) -> dict:
+    image_bytes, mime_type = _get_notice_image_bytes_and_mime(uploaded_file)
+    file_path = _make_notice_image_storage_path(mime_type)
+    supabase.storage.from_(NOTICE_IMAGE_BUCKET).upload(
+        file_path,
+        image_bytes,
+        file_options={"content-type": mime_type, "upsert": "false"},
+    )
+    return {
+        "image_bucket": NOTICE_IMAGE_BUCKET,
+        "image_path": file_path,
+        "image_original_file_name": str(getattr(uploaded_file, "name", "") or "notice-image"),
+        "image_mime_type": mime_type,
+        "image_size_bytes": len(image_bytes),
+    }
+
+
+def delete_platform_notice_image_by_values(bucket_name: str | None, image_path: str | None):
+    path = str(image_path or "").strip()
+    if not path:
+        return
+    try:
+        supabase.storage.from_(str(bucket_name or NOTICE_IMAGE_BUCKET)).remove([path])
+    except Exception:
+        pass
+
+
+def create_platform_notice_signed_url(image_bucket: str | None, image_path: str | None) -> str:
+    path = str(image_path or "").strip()
+    if not path:
+        return ""
+    try:
+        response = supabase.storage.from_(str(image_bucket or NOTICE_IMAGE_BUCKET)).create_signed_url(
+            path,
+            NOTICE_IMAGE_SIGNED_URL_TTL_SECONDS,
+        )
+        if isinstance(response, dict):
+            return str(response.get("signedURL") or response.get("signedUrl") or response.get("signed_url") or "")
+        return str(
+            getattr(response, "signedURL", "")
+            or getattr(response, "signedUrl", "")
+            or getattr(response, "signed_url", "")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _new_notice_text_block(text: str = "") -> dict:
+    # 기존 공지 호환용으로만 유지합니다.
+    return {
+        "block_id": uuid.uuid4().hex,
+        "type": "text",
+        "text": str(text or ""),
+        "text_style": "노멀",
+        "text_color": "기본색",
+        "highlight_color": "없음",
+    }
+
+
+def _new_notice_callout_block() -> dict:
+    return {
+        "block_id": uuid.uuid4().hex,
+        "type": "callout",
+        "callout_style": "info",
+        "callout_title": "알아두세요",
+        "text": "",
+    }
+
+
+def _new_notice_divider_block() -> dict:
+    return {"block_id": uuid.uuid4().hex, "type": "divider"}
+
+
+def _new_notice_image_block() -> dict:
+    return {
+        "block_id": uuid.uuid4().hex,
+        "type": "image",
+        "image_bucket": "",
+        "image_path": "",
+        "image_original_file_name": "",
+        "image_mime_type": "",
+        "image_size_bytes": None,
+        "image_alt_text": "",
+        "image_caption": "",
+        "image_link_url": "",
+    }
+
+
+def _new_notice_document(body: str = "", assets: list[dict] | None = None) -> dict:
+    return {
+        "block_id": uuid.uuid4().hex,
+        "type": NOTICE_DOCUMENT_TYPE,
+        "body": str(body or ""),
+        "assets": list(assets or []),
+    }
+
+
+def _normalize_notice_block(raw_block) -> dict:
+    if not isinstance(raw_block, dict):
+        return _new_notice_text_block(str(raw_block or ""))
+    kind = str(raw_block.get("type") or "text")
+    if kind == NOTICE_DOCUMENT_TYPE:
+        block = _new_notice_document()
+    elif kind == "divider":
+        block = _new_notice_divider_block()
+    elif kind == "callout":
+        block = _new_notice_callout_block()
+    elif kind == "image":
+        block = _new_notice_image_block()
+    else:
+        block = _new_notice_text_block()
+    block.update({key: value for key, value in raw_block.items() if key != "_uploaded_file"})
+    block["block_id"] = str(block.get("block_id") or uuid.uuid4().hex)
+    if block.get("type") not in {NOTICE_DOCUMENT_TYPE, "text", "divider", "callout", "image"}:
+        block["type"] = "text"
+    if block.get("type") == NOTICE_DOCUMENT_TYPE:
+        block["body"] = str(block.get("body") or "")
+        assets = block.get("assets")
+        block["assets"] = [dict(item) for item in assets if isinstance(item, dict)] if isinstance(assets, list) else []
+    if block.get("text_style") not in NOTICE_TEXT_STYLE_OPTIONS:
+        block["text_style"] = "노멀"
+    if block.get("text_color") not in NOTICE_TEXT_COLOR_OPTIONS:
+        block["text_color"] = "기본색"
+    if block.get("highlight_color") not in NOTICE_HIGHLIGHT_OPTIONS:
+        block["highlight_color"] = "없음"
+    if block.get("callout_style") not in NOTICE_CALLOUT_LABELS:
+        block["callout_style"] = "info"
+    return block
+
+
+def _notice_asset_marker(asset_id: str) -> str:
+    return f"[[이미지:{asset_id}]]"
+
+
+def _normalize_notice_asset(asset: dict, index: int = 0) -> dict:
+    source = dict(asset or {})
+    asset_id = str(source.get("asset_id") or f"img_{index + 1}_{uuid.uuid4().hex[:6]}")
+    normalized = {
+        "asset_id": asset_id,
+        "image_bucket": str(source.get("image_bucket") or NOTICE_IMAGE_BUCKET),
+        "image_path": str(source.get("image_path") or ""),
+        "image_original_file_name": str(source.get("image_original_file_name") or ""),
+        "image_mime_type": str(source.get("image_mime_type") or ""),
+        "image_size_bytes": source.get("image_size_bytes"),
+        "image_alt_text": str(source.get("image_alt_text") or ""),
+        "image_caption": str(source.get("image_caption") or ""),
+        "image_link_url": str(source.get("image_link_url") or ""),
+        "remove_image": bool(source.get("remove_image") or False),
+    }
+    if source.get("_uploaded_file") is not None:
+        normalized["_uploaded_file"] = source.get("_uploaded_file")
+    return normalized
+
+
+def _legacy_blocks_to_document(blocks: list[dict]) -> dict:
+    parts: list[str] = []
+    assets: list[dict] = []
+    for index, raw_block in enumerate(blocks or []):
+        block = _normalize_notice_block(raw_block)
+        kind = str(block.get("type") or "text")
+        if kind == NOTICE_DOCUMENT_TYPE:
+            return block
+        if kind == "divider":
+            parts.append("---")
+            continue
+        if kind == "callout":
+            style = str(block.get("callout_style") or "info")
+            title = str(block.get("callout_title") or "알아두세요").replace("|", " ").strip()
+            body = str(block.get("text") or "").strip()
+            parts.append(f":::callout|{style}|{title}\n{body}\n:::")
+            continue
+        if kind == "image":
+            asset = _normalize_notice_asset({
+                "asset_id": f"img_{len(assets) + 1}_{uuid.uuid4().hex[:6]}",
+                "image_bucket": block.get("image_bucket"),
+                "image_path": block.get("image_path"),
+                "image_original_file_name": block.get("image_original_file_name"),
+                "image_mime_type": block.get("image_mime_type"),
+                "image_size_bytes": block.get("image_size_bytes"),
+                "image_alt_text": block.get("image_alt_text"),
+                "image_caption": block.get("image_caption"),
+                "image_link_url": block.get("image_link_url"),
+            }, len(assets))
+            assets.append(asset)
+            parts.append(_notice_asset_marker(asset["asset_id"]))
+            continue
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+        style = str(block.get("text_style") or "노멀")
+        color = str(block.get("text_color") or "기본색")
+        highlight = str(block.get("highlight_color") or "없음")
+        if style != "노멀" or color != "기본색" or highlight != "없음":
+            parts.append(f":::style|{style}|{color}|{highlight}\n{text}\n:::")
+        else:
+            parts.append(text)
+    return _new_notice_document("\n\n".join(parts).strip(), assets)
+
+
+def _notice_blocks_from_record(record: dict | None) -> list[dict]:
+    record = record or {}
+    raw_blocks = record.get("content_blocks")
+    if isinstance(raw_blocks, str):
+        try:
+            raw_blocks = json.loads(raw_blocks)
+        except Exception:
+            raw_blocks = None
+    if isinstance(raw_blocks, dict) and str(raw_blocks.get("type") or "") == NOTICE_DOCUMENT_TYPE:
+        return [_normalize_notice_block(raw_blocks)]
+    if isinstance(raw_blocks, list) and raw_blocks:
+        normalized = [_normalize_notice_block(item) for item in raw_blocks]
+        if len(normalized) == 1 and normalized[0].get("type") == NOTICE_DOCUMENT_TYPE:
+            return normalized
+        return [_legacy_blocks_to_document(normalized)]
+    legacy = str(record.get("content") or "").strip()
+    return [_new_notice_document(legacy)]
+
+
+def _get_notice_document(blocks: list[dict]) -> dict:
+    normalized = [_normalize_notice_block(item) for item in (blocks or [])]
+    if normalized and normalized[0].get("type") == NOTICE_DOCUMENT_TYPE:
+        return normalized[0]
+    return _legacy_blocks_to_document(normalized)
+
+
+def _strip_notice_markup_to_plain_text(body: str, assets: list[dict] | None = None) -> str:
+    text = str(body or "")
+    text = re.sub(r"\[\[이미지:[^\]]+\]\]", "공지 이미지", text)
+    text = re.sub(r"^:::callout\|[^\n]*\n", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^:::style\|[^\n]*\n", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^:::$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^#{1,5}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^---$", "", text, flags=re.MULTILINE)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _notice_block_plain_text(block: dict) -> str:
+    block = _normalize_notice_block(block)
+    if block.get("type") == NOTICE_DOCUMENT_TYPE:
+        return _strip_notice_markup_to_plain_text(block.get("body"), block.get("assets"))
+    kind = str(block.get("type") or "text")
+    if kind == "divider":
+        return ""
+    if kind == "image":
+        return str(block.get("image_caption") or block.get("image_alt_text") or "공지 이미지").strip()
+    if kind == "callout":
+        return "\n".join([str(block.get("callout_title") or "").strip(), str(block.get("text") or "").strip()]).strip()
+    return str(block.get("text") or "").strip()
+
+
+def _notice_plain_text_from_blocks(blocks: list[dict]) -> str:
+    return "\n\n".join([value for value in (_notice_block_plain_text(block) for block in blocks) if value]).strip()
+
+
+def _safe_notice_link(url: str | None) -> str:
+    valid, normalized = _validate_popup_link_url(url)
+    return normalized if valid else ""
+
+
+def _render_notice_image_html(asset: dict) -> str:
+    asset = _normalize_notice_asset(asset)
+    signed_url = create_platform_notice_signed_url(asset.get("image_bucket"), asset.get("image_path"))
+    if not signed_url:
+        return ""
+    image_url = html.escape(signed_url, quote=True)
+    alt = html.escape(str(asset.get("image_alt_text") or asset.get("image_original_file_name") or "공지 이미지"), quote=True)
+    image_html = f"<img class='notice-rich-image' src='{image_url}' alt='{alt}'>"
+    link = _safe_notice_link(str(asset.get("image_link_url") or ""))
+    if link:
+        image_html = f"<a href='{html.escape(link, quote=True)}' target='_blank' rel='noopener noreferrer'>{image_html}</a>"
+    caption = html.escape(str(asset.get("image_caption") or "")).replace("\n", "<br>")
+    caption_html = f"<figcaption class='notice-rich-image-caption'>{caption}</figcaption>" if caption else ""
+    return f"<figure class='notice-rich-image-wrap'>{image_html}{caption_html}</figure>"
+
+
+def _render_plain_notice_paragraph(lines: list[str]) -> str:
+    text = "\n".join(lines).strip()
+    if not text:
+        return ""
+    escaped = html.escape(text).replace("\n", "<br>")
+    return f"<p>{escaped}</p>"
+
+
+def _build_notice_document_html(body: str, assets: list[dict]) -> str:
+    asset_map = {str(asset.get("asset_id")): _normalize_notice_asset(asset, index) for index, asset in enumerate(assets or [])}
+    lines = str(body or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    html_parts: list[str] = []
+    plain_lines: list[str] = []
+
+    def flush_plain():
+        rendered = _render_plain_notice_paragraph(plain_lines)
+        if rendered:
+            html_parts.append(rendered)
+        plain_lines.clear()
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if stripped.startswith(":::callout|"):
+            flush_plain()
+            header = stripped.split("|", 2)
+            style = header[1].strip() if len(header) > 1 else "info"
+            if style not in NOTICE_CALLOUT_LABELS:
+                style = "info"
+            title = header[2].strip() if len(header) > 2 else "알아두세요"
+            index += 1
+            body_lines: list[str] = []
+            while index < len(lines) and lines[index].strip() != ":::":
+                body_lines.append(lines[index])
+                index += 1
+            body_html = html.escape("\n".join(body_lines).strip()).replace("\n", "<br>")
+            html_parts.append(
+                f"<div class='notice-callout {style}'><div class='notice-callout-title'>{html.escape(title)}</div><div class='notice-callout-body'>{body_html}</div></div>"
+            )
+        elif stripped.startswith(":::style|"):
+            flush_plain()
+            header = stripped.split("|", 3)
+            style_label = header[1].strip() if len(header) > 1 else "노멀"
+            color_label = header[2].strip() if len(header) > 2 else "기본색"
+            highlight_label = header[3].strip() if len(header) > 3 else "없음"
+            if style_label not in NOTICE_TEXT_STYLE_OPTIONS:
+                style_label = "노멀"
+            if color_label not in NOTICE_TEXT_COLOR_OPTIONS:
+                color_label = "기본색"
+            if highlight_label not in NOTICE_HIGHLIGHT_OPTIONS:
+                highlight_label = "없음"
+            index += 1
+            body_lines = []
+            while index < len(lines) and lines[index].strip() != ":::":
+                body_lines.append(lines[index])
+                index += 1
+            body_html = html.escape("\n".join(body_lines).strip()).replace("\n", "<br>")
+            if body_html:
+                tag = NOTICE_TEXT_STYLE_TAGS[style_label]
+                styles = []
+                color = NOTICE_TEXT_COLOR_OPTIONS[color_label]
+                highlight = NOTICE_HIGHLIGHT_OPTIONS[highlight_label]
+                if color:
+                    styles.append(f"color:{color}")
+                if highlight:
+                    styles.extend([f"background-color:{highlight}", "padding:0.08em 0.26em", "border-radius:0.26em"])
+                attr = f" style='{';'.join(styles)}'" if styles else ""
+                html_parts.append(f"<{tag}{attr}>{body_html}</{tag}>")
+        elif stripped == "---":
+            flush_plain()
+            html_parts.append("<hr>")
+        else:
+            marker_match = re.fullmatch(r"\[\[이미지:([^\]]+)\]\]", stripped)
+            heading_match = re.fullmatch(r"(#{1,5})\s+(.+)", stripped)
+            if marker_match:
+                flush_plain()
+                asset = asset_map.get(marker_match.group(1))
+                if asset:
+                    image_html = _render_notice_image_html(asset)
+                    if image_html:
+                        html_parts.append(image_html)
+            elif heading_match:
+                flush_plain()
+                tag = f"h{len(heading_match.group(1))}"
+                html_parts.append(f"<{tag}>{html.escape(heading_match.group(2).strip())}</{tag}>")
+            elif not stripped:
+                flush_plain()
+            else:
+                plain_lines.append(line)
+        index += 1
+    flush_plain()
+    return "".join(html_parts)
+
+
+def build_notice_blocks_html(blocks: list[dict]) -> str:
+    document = _get_notice_document(blocks)
+    return _build_notice_document_html(document.get("body"), document.get("assets") or [])
+
+
+def render_notice_blocks(blocks: list[dict]):
+    rendered = build_notice_blocks_html(blocks)
+    if rendered:
+        st.markdown(f"<div class='notice-rich-content'>{rendered}</div>", unsafe_allow_html=True)
+    else:
+        st.caption("등록된 공지 내용이 없습니다.")
+
+
+def _notice_editor_state_key(token: str) -> str:
+    return f"{token}_document_state"
+
+
+def _initialize_notice_editor(token: str, existing: dict) -> dict:
+    state_key = _notice_editor_state_key(token)
+    if state_key not in st.session_state:
+        st.session_state[state_key] = _get_notice_document(_notice_blocks_from_record(existing))
+    return st.session_state[state_key]
+
+
+def _append_notice_body(token: str, value: str):
+    body_key = f"{token}_document_body"
+    current = str(st.session_state.get(body_key) or "")
+    addition = str(value or "").strip("\n")
+    st.session_state[body_key] = f"{current.rstrip()}\n\n{addition}\n".strip("\n") if current.strip() else addition
+
+
+def _new_document_asset(document: dict) -> dict:
+    existing_assets = document.get("assets") if isinstance(document.get("assets"), list) else []
+    serial = len(existing_assets) + 1
+    return _normalize_notice_asset({"asset_id": f"img_{serial}_{uuid.uuid4().hex[:6]}"}, serial)
+
+
+def _render_document_toolbar(token: str, document: dict):
+    st.markdown("<div class='notice-editor-guide'>본문은 하나의 편집창에서 작성합니다. 아래 도구는 본문 끝에 삽입되며, 삽입된 <code>나눔 줄·강조박스·이미지 표식</code>은 본문 안에서 잘라 원하는 위치로 옮길 수 있습니다.</div>", unsafe_allow_html=True)
+    tool1, tool2, tool3, tool4, tool5 = st.columns([1.05, 1.0, 1.0, 1.0, 1.15])
+
+    with tool1:
+        with st.popover("Tt 서식", use_container_width=True):
+            style = st.selectbox("글자 크기", NOTICE_TEXT_STYLE_OPTIONS, key=f"{token}_quick_style")
+            color = st.selectbox("글자 색", list(NOTICE_TEXT_COLOR_OPTIONS.keys()), key=f"{token}_quick_color")
+            highlight = st.selectbox("음영", list(NOTICE_HIGHLIGHT_OPTIONS.keys()), key=f"{token}_quick_highlight")
+            text = st.text_area("삽입할 문장", key=f"{token}_quick_text", height=100, placeholder="강조하거나 제목으로 만들 문장을 입력해 주세요.")
+            if st.button("본문에 서식 문장 삽입", key=f"{token}_insert_style", use_container_width=True):
+                if not text.strip():
+                    st.warning("삽입할 문장을 입력해 주세요.")
+                elif style == "노멀" and color == "기본색" and highlight == "없음":
+                    _append_notice_body(token, text.strip())
+                    st.rerun()
+                else:
+                    _append_notice_body(token, f":::style|{style}|{color}|{highlight}\n{text.strip()}\n:::")
+                    st.rerun()
+
+    with tool2:
+        if st.button("— 나눔 줄", key=f"{token}_insert_divider", use_container_width=True, help="본문 끝에 나눔 줄을 삽입합니다."):
+            _append_notice_body(token, "---")
+            st.rerun()
+
+    with tool3:
+        with st.popover("▣ 강조박스", use_container_width=True):
+            style_label = st.selectbox("박스 종류", list(NOTICE_CALLOUT_OPTIONS.keys()), key=f"{token}_callout_style")
+            title = st.text_input("박스 제목", value="알아두세요", key=f"{token}_callout_title")
+            body = st.text_area("박스 내용", key=f"{token}_callout_body", height=110)
+            if st.button("본문에 강조박스 삽입", key=f"{token}_insert_callout", use_container_width=True):
+                if not body.strip():
+                    st.warning("강조박스 내용을 입력해 주세요.")
+                else:
+                    safe_title = (title.strip() or "알아두세요").replace("|", " ")
+                    _append_notice_body(token, f":::callout|{NOTICE_CALLOUT_OPTIONS[style_label]}|{safe_title}\n{body.strip()}\n:::")
+                    st.rerun()
+
+    with tool4:
+        with st.popover("🖼 이미지", use_container_width=True):
+            uploaded = st.file_uploader("이미지 선택", type=["jpg", "jpeg", "png", "webp"], key=f"{token}_image_upload", help="JPG·PNG·WEBP, 10MB 이하")
+            alt = st.text_input("이미지 설명", key=f"{token}_image_alt", max_chars=200)
+            caption = st.text_area("이미지 아래 설명", key=f"{token}_image_caption", height=80, max_chars=500)
+            link = st.text_input("이미지 클릭 링크", key=f"{token}_image_link", placeholder="https://...", max_chars=1000)
+            if uploaded is not None:
+                st.image(uploaded, caption=uploaded.name, use_container_width=True)
+            if st.button("본문에 이미지 삽입", key=f"{token}_insert_image", use_container_width=True):
+                if uploaded is None:
+                    st.warning("삽입할 이미지를 선택해 주세요.")
+                else:
+                    valid, normalized_link = _validate_popup_link_url(link)
+                    if not valid:
+                        st.warning("이미지 링크는 https:// 또는 http://로 시작하는 주소로 입력해 주세요.")
+                    else:
+                        asset = _new_document_asset(document)
+                        asset.update({
+                            "image_alt_text": alt.strip(),
+                            "image_caption": caption.strip(),
+                            "image_link_url": normalized_link,
+                            "_uploaded_file": uploaded,
+                        })
+                        document.setdefault("assets", []).append(asset)
+                        _append_notice_body(token, _notice_asset_marker(asset["asset_id"]))
+                        st.rerun()
+
+    with tool5:
+        with st.popover("ⓘ 작성 도움", use_container_width=True):
+            st.markdown("**제목**은 본문에 `# 제목`처럼 입력하면 됩니다.")
+            st.markdown("**나눔 줄**은 `---`, **이미지**는 `[[이미지:...]]` 표식으로 본문에 들어갑니다.")
+            st.caption("표식은 본문 안에서 잘라 이동해 원하는 위치에 배치할 수 있습니다. 우클릭 메뉴는 브라우저 기본 메뉴와 충돌하고 모바일에서 작동하지 않아 넣지 않았습니다.")
+
+
+def _render_document_asset_manager(token: str, document: dict):
+    assets = document.get("assets") if isinstance(document.get("assets"), list) else []
+    if not assets:
+        return
+    with st.expander(f"삽입된 이미지 관리 · {len(assets)}개", expanded=False):
+        st.caption("이미지 위치는 본문의 이미지 표식을 잘라 옮겨 조정합니다. 이미지 설명과 링크만 여기에서 관리합니다.")
+        active_assets = []
+        for index, raw_asset in enumerate(list(assets)):
+            asset = _normalize_notice_asset(raw_asset, index)
+            asset_id = asset["asset_id"]
+            marker = _notice_asset_marker(asset_id)
+            st.markdown(f"<div class='notice-media-card'><div class='notice-media-card-title'>{html.escape(marker)}</div>", unsafe_allow_html=True)
+            signed = create_platform_notice_signed_url(asset.get("image_bucket"), asset.get("image_path"))
+            if signed:
+                st.image(signed, caption=asset.get("image_original_file_name") or "공지 이미지", use_container_width=True)
+            elif asset.get("_uploaded_file") is not None:
+                st.image(asset.get("_uploaded_file"), caption=getattr(asset.get("_uploaded_file"), "name", "새 이미지"), use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                asset["image_alt_text"] = st.text_input("이미지 설명", value=asset.get("image_alt_text") or "", key=f"{token}_{asset_id}_alt", max_chars=200)
+                asset["image_caption"] = st.text_area("이미지 아래 설명", value=asset.get("image_caption") or "", key=f"{token}_{asset_id}_caption", height=72, max_chars=500)
+            with c2:
+                asset["image_link_url"] = st.text_input("이미지 클릭 링크", value=asset.get("image_link_url") or "", key=f"{token}_{asset_id}_link", placeholder="https://...", max_chars=1000)
+                remove = st.checkbox("이 이미지 삭제", value=bool(asset.get("remove_image") or False), key=f"{token}_{asset_id}_remove")
+                asset["remove_image"] = remove
+                if st.button("본문에서 이미지 표식 지우기", key=f"{token}_{asset_id}_remove_marker", use_container_width=True):
+                    body_key = f"{token}_document_body"
+                    st.session_state[body_key] = str(st.session_state.get(body_key) or "").replace(marker, "").replace("\n\n\n", "\n\n")
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+            if not remove:
+                active_assets.append(asset)
+        document["assets"] = active_assets
+
+
+def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
+    # 함수명은 기존 관리자 호출과의 호환을 위해 유지합니다.
+    document = _initialize_notice_editor(token, existing)
+    body_key = f"{token}_document_body"
+    if body_key not in st.session_state:
+        st.session_state[body_key] = str(document.get("body") or "")
+    st.markdown("#### 공지 본문 편집")
+    _render_document_toolbar(token, document)
+    document["body"] = st.text_area(
+        "본문",
+        key=body_key,
+        height=440,
+        max_chars=8000,
+        placeholder="공지 내용을 입력해 주세요.\n\n제목은 # 제목처럼, 나눔 줄은 ---처럼 본문 안에서 바로 쓸 수 있습니다.",
+    )
+    _render_document_asset_manager(token, document)
+    st.markdown("#### 미리보기")
+    render_notice_blocks([document])
+    return [document]
+
+
+def _clean_notice_blocks_for_storage(blocks: list[dict]) -> list[dict]:
+    document = _get_notice_document(blocks)
+    clean_assets: list[dict] = []
+    for index, raw_asset in enumerate(document.get("assets") or []):
+        asset = _normalize_notice_asset(raw_asset, index)
+        if asset.get("remove_image"):
+            continue
+        if not str(asset.get("image_path") or "").strip():
+            continue
+        clean_assets.append({
+            key: asset.get(key)
+            for key in [
+                "asset_id", "image_bucket", "image_path", "image_original_file_name",
+                "image_mime_type", "image_size_bytes", "image_alt_text", "image_caption", "image_link_url",
+            ]
+        })
+    return [{
+        "block_id": str(document.get("block_id") or uuid.uuid4().hex),
+        "type": NOTICE_DOCUMENT_TYPE,
+        "body": str(document.get("body") or ""),
+        "assets": clean_assets,
+    }]
+
+
+def _notice_image_refs(blocks: list[dict]) -> set[tuple[str, str]]:
+    document = _get_notice_document(blocks)
+    refs: set[tuple[str, str]] = set()
+    for index, raw_asset in enumerate(document.get("assets") or []):
+        asset = _normalize_notice_asset(raw_asset, index)
+        path = str(asset.get("image_path") or "").strip()
+        if path and not asset.get("remove_image"):
+            refs.add((str(asset.get("image_bucket") or NOTICE_IMAGE_BUCKET), path))
+    return refs
+
+
+def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
+    document = _get_notice_document(blocks)
+    body = str(document.get("body") or "")
+    prepared_assets: list[dict] = []
+    uploaded_metas: list[dict] = []
+    for index, raw_asset in enumerate(document.get("assets") or []):
+        asset = _normalize_notice_asset(raw_asset, index)
+        if asset.get("remove_image"):
+            continue
+        new_upload = raw_asset.get("_uploaded_file") if isinstance(raw_asset, dict) else None
+        if new_upload is not None:
+            meta = upload_platform_notice_image(new_upload)
+            uploaded_metas.append(meta)
+            asset.update(meta)
+        valid, normalized = _validate_popup_link_url(str(asset.get("image_link_url") or ""))
+        if not valid:
+            raise ValueError("공지 이미지 링크는 https:// 또는 http://로 시작하는 완전한 주소로 입력해 주세요.")
+        asset["image_link_url"] = normalized
+        marker = _notice_asset_marker(asset["asset_id"])
+        # 본문에서 지워진 이미지 표식은 저장하지 않아 불필요한 파일을 남기지 않습니다.
+        if marker not in body:
+            continue
+        prepared_assets.append(asset)
+    prepared_document = _new_notice_document(body, prepared_assets)
+    return _clean_notice_blocks_for_storage([prepared_document]), uploaded_metas
+
+
+def _clear_notice_editor_state(token: str):
+    document = st.session_state.pop(_notice_editor_state_key(token), {})
+    body_key = f"{token}_document_body"
+    st.session_state.pop(body_key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith(f"{token}_quick_") or key.startswith(f"{token}_callout_") or key.startswith(f"{token}_image_"):
+            st.session_state.pop(key, None)
+    for raw_asset in document.get("assets", []) if isinstance(document, dict) else []:
+        asset_id = str(raw_asset.get("asset_id") or "") if isinstance(raw_asset, dict) else ""
+        if asset_id:
+            for key in list(st.session_state.keys()):
+                if key.startswith(f"{token}_{asset_id}_"):
+                    st.session_state.pop(key, None)
+
+
+# 공지 상단 요약과 공개 공지 보기만 단일 문서 렌더러로 덮어씁니다.
+def render_active_notice_banner():
+    notices = load_visible_notices()
+    pinned = [row for row in notices if _as_bool(row.get("is_pinned"))]
+    if not pinned:
+        return
+    notice = pinned[0]
+    icon = _content_level_icon(str(notice.get("notice_level") or "일반"))
+    title = str(notice.get("title") or "공지사항")
+    summary = re.sub(r"\s+", " ", _notice_plain_text_from_blocks(_notice_blocks_from_record(notice))).strip()
+    if len(summary) > 240:
+        summary = f"{summary[:240].rstrip()}…"
+    st.info(f"{icon} **{title}**\n\n{summary}")
+
+
+def render_public_notice_page():
+    render_menu_card("📢 공지사항", "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.", ["운영 안내", "점검 안내", "중요 공지"])
+    notices = load_visible_notices()
+    if not notices:
+        st.caption("현재 게시 중인 공지사항이 없습니다.")
+        return
+    for index, notice in enumerate(notices):
+        level = str(notice.get("notice_level") or "일반")
+        icon = _content_level_icon(level)
+        title = str(notice.get("title") or "공지사항")
+        created_at = _format_kst_display(notice.get("published_at") or notice.get("created_at"))
+        pin_mark = "📌 " if _as_bool(notice.get("is_pinned")) else ""
+        with st.expander(f"{pin_mark}{icon} {title}", expanded=(index == 0 and _as_bool(notice.get("is_pinned")))):
+            if created_at:
+                st.caption(f"{_content_level_label(level)} · {created_at}")
+            render_notice_blocks(_notice_blocks_from_record(notice))
 
 
 def render_admin_notice_manager():
@@ -3719,191 +4954,6 @@ def render_admin_notice_manager():
                     st.success("공지사항을 다시 게시 목록으로 복구했습니다. 아래 편집기에서 내용을 이어서 수정할 수 있습니다.")
                     st.rerun()
 
-
-def render_admin_popup_manager():
-    """이미지 전용 방문 팝업을 작성·수정·게시하는 관리자 화면입니다."""
-    st.markdown("### 🪟 방문 팝업 관리")
-    st.caption("방문자 화면에는 업로드한 이미지와 닫기·‘오늘 하루 다시 열지 않기’만 표시됩니다. 제목과 메모는 관리자 관리용이며 방문자에게 노출되지 않습니다.")
-
-    rows = _load_platform_rows(PLATFORM_POPUP_TABLE)
-    options = {"새 이미지 팝업 작성": None}
-    for row in rows:
-        label = f"#{row.get('id')} · {str(row.get('title') or '제목 없음')[:60]}"
-        if _as_bool(row.get("deleted")):
-            label += " [숨김]"
-        options[label] = row
-
-    selected_label = st.selectbox("작성·편집할 팝업", list(options.keys()), key="popup_editor_select")
-    existing = options[selected_label] or {}
-    record_id = existing.get("id")
-    token = f"popup_{record_id or 'new'}"
-    existing_position = _normalize_popup_position(existing.get("popup_position"))
-    position_labels = list(POPUP_POSITION_OPTIONS.keys())
-    position_index = position_labels.index(POPUP_POSITION_LABELS.get(existing_position, "정중앙"))
-    existing_image_url = create_platform_popup_signed_url(existing) if existing.get("image_path") else ""
-
-    if existing_image_url:
-        st.markdown("#### 현재 등록 이미지")
-        preview_col1, preview_col2 = st.columns([1, 1])
-        with preview_col1:
-            st.image(existing_image_url, caption=str(existing.get("image_original_file_name") or "팝업 이미지"), use_container_width=True)
-        with preview_col2:
-            st.caption(f"표시 위치: {POPUP_POSITION_LABELS.get(existing_position, '정중앙')}")
-            if existing.get("link_url"):
-                st.caption("방문자가 이미지를 클릭하면 아래 링크가 새 창으로 열립니다.")
-                st.code(str(existing.get("link_url")), language=None)
-            else:
-                st.caption("연결 링크가 없으면 이미지는 안내용으로만 표시됩니다.")
-
-    with st.form(f"popup_editor_form_{token}"):
-        title = st.text_input(
-            "관리용 팝업 제목",
-            value=str(existing.get("title") or ""),
-            max_chars=120,
-            key=f"{token}_title",
-            help="방문자 화면에는 표시되지 않습니다. 관리자 목록에서 팝업을 구분하기 위한 제목입니다.",
-        )
-        form_col1, form_col2, form_col3 = st.columns(3)
-        with form_col1:
-            popup_level = st.selectbox(
-                "관리 구분", ["일반", "중요", "점검"],
-                index=["일반", "중요", "점검"].index(str(existing.get("popup_level") or "일반")) if str(existing.get("popup_level") or "일반") in ["일반", "중요", "점검"] else 0,
-                key=f"{token}_level",
-            )
-        with form_col2:
-            audience_label = st.selectbox(
-                "표시 대상", ["모든 방문자", "로그인 회원만"],
-                index=1 if str(existing.get("audience") or "all") == "member" else 0,
-                key=f"{token}_audience",
-            )
-        with form_col3:
-            priority = st.number_input("우선순위", min_value=0, max_value=1000, value=int(existing.get("priority") or 0), step=1, key=f"{token}_priority")
-            is_active = st.checkbox("바로 표시", value=_as_bool(existing.get("is_active"), True), key=f"{token}_active")
-
-        st.markdown("#### 팝업 이미지와 연결 링크")
-        st.caption("팝업은 이미지 전용으로 표시됩니다. 새 팝업은 이미지를 반드시 등록해야 합니다.")
-        popup_image = st.file_uploader(
-            "팝업 이미지 업로드",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=False,
-            key=f"{token}_image_upload",
-            help="권장: 가로 800~1200px, JPG·PNG·WEBP, 10MB 이하",
-        )
-        remove_existing_image = st.checkbox(
-            "현재 등록된 팝업 이미지를 삭제합니다.",
-            value=False,
-            disabled=not bool(existing.get("image_path")),
-            key=f"{token}_remove_image",
-        )
-        image_alt_text = st.text_input(
-            "이미지 대체 설명 (선택)",
-            value=str(existing.get("image_alt_text") or ""),
-            max_chars=200,
-            key=f"{token}_image_alt",
-            help="이미지가 보이지 않을 때 사용되는 짧은 설명입니다.",
-        )
-        link_url = st.text_input(
-            "이미지 클릭 연결 링크 (선택)",
-            value=str(existing.get("link_url") or ""),
-            max_chars=1000,
-            key=f"{token}_link_url",
-            placeholder="https://witti.kr/...",
-            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 새 창으로 이동합니다.",
-        )
-        popup_position_label = st.selectbox(
-            "팝업 표시 위치",
-            position_labels,
-            index=position_index,
-            key=f"{token}_position",
-            help="모바일에서는 화면을 가리지 않도록 하단 중앙 형태로 자동 조정됩니다.",
-        )
-        _, start_at, end_at = _render_schedule_inputs(token, existing)
-        submitted = st.form_submit_button("팝업 저장", use_container_width=True)
-
-    if submitted:
-        valid_link, normalized_link_or_message = _validate_popup_link_url(link_url)
-        has_existing_image = bool(existing.get("image_path"))
-        will_have_image = bool(popup_image is not None or (has_existing_image and not remove_existing_image))
-        if not title.strip():
-            st.warning("관리용 팝업 제목을 입력해 주세요.")
-        elif not will_have_image:
-            st.warning("이미지 전용 팝업은 팝업 이미지를 반드시 등록해야 합니다.")
-        elif not valid_link:
-            st.warning(normalized_link_or_message)
-        elif start_at == "INVALID":
-            st.warning("표시 기간을 다시 확인해 주세요.")
-        else:
-            uploaded_image_meta = None
-            old_bucket = str(existing.get("image_bucket") or POPUP_IMAGE_BUCKET)
-            old_path = str(existing.get("image_path") or "")
-            try:
-                if popup_image is not None:
-                    uploaded_image_meta = upload_platform_popup_image(popup_image)
-                internal_content = str(existing.get("content") or "이미지형 팝업").strip() or "이미지형 팝업"
-                payload = {
-                    "title": title.strip(),
-                    "content": internal_content,
-                    "popup_level": popup_level,
-                    "audience": "member" if audience_label == "로그인 회원만" else "all",
-                    "priority": int(priority),
-                    "is_active": is_active,
-                    "display_start_at": start_at,
-                    "display_end_at": end_at,
-                    "popup_position": POPUP_POSITION_OPTIONS[popup_position_label],
-                    "link_url": normalized_link_or_message,
-                    "link_label": "이미지 열기",
-                    "image_alt_text": image_alt_text.strip(),
-                }
-                if uploaded_image_meta:
-                    payload.update(uploaded_image_meta)
-                elif remove_existing_image:
-                    payload.update({
-                        "image_bucket": None,
-                        "image_path": None,
-                        "image_original_file_name": None,
-                        "image_mime_type": None,
-                        "image_size_bytes": None,
-                    })
-                if not record_id:
-                    payload["created_by"] = "admin"
-
-                _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
-                if old_path and (uploaded_image_meta or remove_existing_image):
-                    delete_platform_popup_image_by_values(old_bucket, old_path)
-                st.session_state.pop("dismissed_platform_popup_ids", None)
-                st.success("이미지 전용 방문 팝업을 저장했습니다.")
-                st.rerun()
-            except Exception as exc:
-                if uploaded_image_meta:
-                    delete_platform_popup_image_by_values(uploaded_image_meta.get("image_bucket"), uploaded_image_meta.get("image_path"))
-                st.error("팝업을 저장하지 못했습니다. 이미지형 팝업 확장 SQL과 Storage 버킷 설정을 확인해 주세요.")
-                st.caption(str(exc))
-
-    st.divider()
-    st.markdown("#### 표시·보관 목록")
-    if not rows:
-        st.caption("작성된 팝업이 없습니다.")
-    else:
-        st.dataframe(_admin_content_display_df(rows, "popup"), use_container_width=True, hide_index=True, height=300)
-        active_rows = [row for row in rows if not _as_bool(row.get("deleted"))]
-        hidden_rows = [row for row in rows if _as_bool(row.get("deleted"))]
-        manage_col1, manage_col2 = st.columns(2)
-        with manage_col1:
-            hide_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in active_rows}
-            selected_hide = st.selectbox("숨김 처리할 팝업", ["선택해 주세요."] + list(hide_options.keys()), key="popup_hide_select")
-            if st.button("선택 팝업 숨김 처리", key="popup_soft_delete", disabled=selected_hide == "선택해 주세요."):
-                soft_delete_record(PLATFORM_POPUP_TABLE, hide_options[selected_hide])
-                st.session_state.pop("dismissed_platform_popup_ids", None)
-                st.success("팝업을 숨김 처리했습니다.")
-                st.rerun()
-        with manage_col2:
-            restore_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in hidden_rows}
-            selected_restore = st.selectbox("복구할 숨김 팝업", ["선택해 주세요."] + list(restore_options.keys()), key="popup_restore_select")
-            if st.button("선택 팝업 복구", key="popup_restore", disabled=selected_restore == "선택해 주세요."):
-                restore_record(PLATFORM_POPUP_TABLE, restore_options[selected_restore])
-                st.session_state.pop("dismissed_platform_popup_ids", None)
-                st.success("팝업을 다시 표시 목록으로 복구했습니다.")
-                st.rerun()
 
 
 # 공지사항을 관리자 데이터 관리 화면에서 영구 삭제할 때, 연결된 공지 이미지도 함께 정리합니다.
