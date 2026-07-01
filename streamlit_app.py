@@ -16,6 +16,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import smtplib
 from email.mime.text import MIMEText
@@ -1015,6 +1016,8 @@ TABLE_NAMES = {
     "play_sessions": "play_sessions",
     "generated_texts": "generated_texts",
     "email_verifications": "email_verifications",
+    "platform_notices": "platform_notices",
+    "platform_popups": "platform_popups",
 }
 
 
@@ -1023,7 +1026,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-06-30-play-record-detail-notes-photo-match-v1"
+APP_VERSION = "2026-07-02-admin-notice-popup-v1"
 
 
 # =========================
@@ -2816,6 +2819,437 @@ def _response_data(response):
     return getattr(response, "data", []) or []
 
 
+
+# =========================
+# 공지사항 · 방문 팝업 공통 기능
+# =========================
+PLATFORM_NOTICE_TABLE = "platform_notices"
+PLATFORM_POPUP_TABLE = "platform_popups"
+KST = ZoneInfo("Asia/Seoul")
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"true", "1", "yes", "y", "on"}
+
+
+def _parse_utc_datetime(value):
+    if value in (None, ""):
+        return None
+    parsed = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.to_pydatetime()
+
+
+def _to_kst_date_time(value):
+    """DB timestamptz 값을 Streamlit 입력값(날짜·시간)으로 바꿉니다."""
+    parsed = _parse_utc_datetime(value)
+    if parsed is None:
+        now_kst = datetime.now(KST)
+        return now_kst.date(), now_kst.time().replace(second=0, microsecond=0, tzinfo=None)
+    converted = parsed.astimezone(KST)
+    return converted.date(), converted.time().replace(second=0, microsecond=0, tzinfo=None)
+
+
+def _schedule_to_utc_iso(date_value, time_value) -> str:
+    """관리자 입력(한국 시간)을 Supabase timestamptz용 UTC ISO 문자열로 변환합니다."""
+    local_dt = datetime.combine(date_value, time_value).replace(tzinfo=KST)
+    return local_dt.astimezone(timezone.utc).isoformat()
+
+
+def _is_currently_visible(record: dict) -> bool:
+    """게시 여부와 표시 기간을 함께 점검합니다."""
+    if not record or _as_bool(record.get("deleted")):
+        return False
+    if not _as_bool(record.get("is_active")):
+        return False
+
+    now = datetime.now(timezone.utc)
+    start_at = _parse_utc_datetime(record.get("display_start_at"))
+    end_at = _parse_utc_datetime(record.get("display_end_at"))
+
+    if start_at is not None and now < start_at:
+        return False
+    if end_at is not None and now > end_at:
+        return False
+    return True
+
+
+def _load_platform_rows(table_name: str) -> list[dict]:
+    """공지·팝업은 서버 service-role로 읽습니다. SQL 적용 전에는 화면을 멈추지 않습니다."""
+    try:
+        response = supabase.table(table_name).select("*").order("created_at", desc=True).execute()
+        return [row for row in _response_data(response) if isinstance(row, dict)]
+    except Exception:
+        return []
+
+
+def load_visible_notices() -> list[dict]:
+    rows = [row for row in _load_platform_rows(PLATFORM_NOTICE_TABLE) if _is_currently_visible(row)]
+    return sorted(
+        rows,
+        key=lambda row: (
+            0 if _as_bool(row.get("is_pinned")) else 1,
+            -(int(pd.Timestamp(_parse_utc_datetime(row.get("created_at")) or datetime.now(timezone.utc)).timestamp())),
+        ),
+    )
+
+
+def load_visible_popups() -> list[dict]:
+    rows = []
+    for row in _load_platform_rows(PLATFORM_POPUP_TABLE):
+        if not _is_currently_visible(row):
+            continue
+        audience = str(row.get("audience") or "all")
+        if audience == "member" and not member_is_logged_in():
+            continue
+        rows.append(row)
+    return sorted(
+        rows,
+        key=lambda row: (
+            -int(row.get("priority") or 0),
+            -(int(pd.Timestamp(_parse_utc_datetime(row.get("created_at")) or datetime.now(timezone.utc)).timestamp())),
+        ),
+    )
+
+
+def _content_level_icon(level: str) -> str:
+    return {"중요": "🚨", "점검": "🛠️", "일반": "📢"}.get(str(level), "📢")
+
+
+def _content_level_label(level: str) -> str:
+    return {"중요": "중요 공지", "점검": "점검 안내", "일반": "일반 공지"}.get(str(level), "공지")
+
+
+def _format_kst_display(value) -> str:
+    parsed = _parse_utc_datetime(value)
+    if parsed is None:
+        return ""
+    return parsed.astimezone(KST).strftime("%Y.%m.%d %H:%M")
+
+
+def render_active_notice_banner():
+    """상단에는 고정 공지 1건만 간단히 보여 주고, 전체는 공지사항 탭에서 확인합니다."""
+    notices = load_visible_notices()
+    pinned = [row for row in notices if _as_bool(row.get("is_pinned"))]
+    if not pinned:
+        return
+
+    notice = pinned[0]
+    icon = _content_level_icon(str(notice.get("notice_level") or "일반"))
+    title = str(notice.get("title") or "공지사항")
+    content = str(notice.get("content") or "")
+    st.info(f"{icon} **{title}**\n\n{content}")
+
+
+def render_active_popup_if_needed():
+    """방문 세션에서 아직 닫지 않은 활성 팝업 중 우선순위 1위를 표시합니다."""
+    popups = load_visible_popups()
+    if not popups:
+        return
+
+    dismissed_ids = set(st.session_state.get("dismissed_platform_popup_ids", []))
+    popup = next((row for row in popups if int(row.get("id") or 0) not in dismissed_ids), None)
+    if not popup:
+        return
+
+    popup_id = int(popup.get("id") or 0)
+    title = str(popup.get("title") or "안내")
+    content = str(popup.get("content") or "")
+    icon = _content_level_icon(str(popup.get("popup_level") or "일반"))
+
+    def dismiss_current_popup():
+        current = set(st.session_state.get("dismissed_platform_popup_ids", []))
+        current.add(popup_id)
+        st.session_state["dismissed_platform_popup_ids"] = sorted(current)
+
+    # Streamlit 버전에 st.dialog가 없을 때도 앱이 멈추지 않도록 안내 카드로 대체합니다.
+    if hasattr(st, "dialog"):
+        @st.dialog(f"{icon} {title}")
+        def _popup_dialog():
+            st.write(content)
+            st.caption("이 안내는 현재 방문 세션에서 한 번만 표시됩니다.")
+            if st.button("확인", key=f"platform_popup_close_{popup_id}", use_container_width=True):
+                dismiss_current_popup()
+                st.rerun()
+
+        _popup_dialog()
+    else:
+        st.warning(f"{icon} {title}\n\n{content}")
+        if st.button("안내 닫기", key=f"platform_popup_fallback_close_{popup_id}"):
+            dismiss_current_popup()
+            st.rerun()
+
+
+def render_public_notice_page():
+    render_menu_card(
+        "📢 공지사항",
+        "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.",
+        ["운영 안내", "점검 안내", "중요 공지"]
+    )
+    notices = load_visible_notices()
+    if not notices:
+        st.caption("현재 게시 중인 공지사항이 없습니다.")
+        return
+
+    for index, notice in enumerate(notices):
+        level = str(notice.get("notice_level") or "일반")
+        icon = _content_level_icon(level)
+        title = str(notice.get("title") or "공지사항")
+        created_at = _format_kst_display(notice.get("published_at") or notice.get("created_at"))
+        pin_mark = "📌 " if _as_bool(notice.get("is_pinned")) else ""
+        with st.expander(f"{pin_mark}{icon} {title}", expanded=(index == 0 and _as_bool(notice.get("is_pinned")))):
+            if created_at:
+                st.caption(f"{_content_level_label(level)} · {created_at}")
+            st.write(str(notice.get("content") or ""))
+
+
+def _save_platform_content(table_name: str, record_id, payload: dict):
+    """공지·팝업 신규 작성과 기존 편집을 공통 처리합니다."""
+    if record_id:
+        response = supabase.table(table_name).update(payload).eq("id", int(record_id)).execute()
+    else:
+        response = supabase.table(table_name).insert(payload).execute()
+    rows = _response_data(response)
+    return rows[0] if rows else payload
+
+
+def _admin_content_display_df(rows: list[dict], content_type: str) -> pd.DataFrame:
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    if content_type == "notice":
+        rename_map = {
+            "id": "번호", "title": "제목", "notice_level": "구분", "is_pinned": "상단 고정",
+            "is_active": "게시", "display_start_at": "게시 시작", "display_end_at": "게시 종료",
+            "published_at": "게시일", "updated_at": "수정일", "deleted": "숨김 여부",
+        }
+        columns = ["id", "title", "notice_level", "is_pinned", "is_active", "display_start_at", "display_end_at", "published_at", "updated_at", "deleted"]
+    else:
+        rename_map = {
+            "id": "번호", "title": "제목", "popup_level": "구분", "audience": "표시 대상",
+            "priority": "우선순위", "is_active": "표시", "display_start_at": "표시 시작",
+            "display_end_at": "표시 종료", "updated_at": "수정일", "deleted": "숨김 여부",
+        }
+        columns = ["id", "title", "popup_level", "audience", "priority", "is_active", "display_start_at", "display_end_at", "updated_at", "deleted"]
+    columns = [column for column in columns if column in df.columns]
+    displayed = df[columns].copy()
+    for column in ["display_start_at", "display_end_at", "published_at", "updated_at"]:
+        if column in displayed.columns:
+            displayed[column] = displayed[column].apply(_format_kst_display)
+    return displayed.rename(columns=rename_map)
+
+
+def _render_schedule_inputs(prefix: str, existing: dict) -> tuple[bool, str | None, str | None]:
+    existing_start = existing.get("display_start_at") if existing else None
+    existing_end = existing.get("display_end_at") if existing else None
+    has_schedule_default = bool(existing_start or existing_end)
+    use_schedule = st.checkbox("게시·표시 기간을 설정합니다.", value=has_schedule_default, key=f"{prefix}_use_schedule")
+    if not use_schedule:
+        return False, None, None
+
+    start_date, start_time = _to_kst_date_time(existing_start)
+    end_date, end_time = _to_kst_date_time(existing_end)
+    if not existing_end:
+        end_date = start_date + timedelta(days=7)
+
+    st.caption("입력 시간은 한국 시간(KST) 기준입니다.")
+    start_col1, start_col2 = st.columns(2)
+    with start_col1:
+        selected_start_date = st.date_input("시작 날짜", value=start_date, key=f"{prefix}_start_date")
+    with start_col2:
+        selected_start_time = st.time_input("시작 시간", value=start_time, key=f"{prefix}_start_time")
+    end_col1, end_col2 = st.columns(2)
+    with end_col1:
+        selected_end_date = st.date_input("종료 날짜", value=end_date, key=f"{prefix}_end_date")
+    with end_col2:
+        selected_end_time = st.time_input("종료 시간", value=end_time, key=f"{prefix}_end_time")
+
+    start_iso = _schedule_to_utc_iso(selected_start_date, selected_start_time)
+    end_iso = _schedule_to_utc_iso(selected_end_date, selected_end_time)
+    if _parse_utc_datetime(end_iso) < _parse_utc_datetime(start_iso):
+        st.warning("종료 시점은 시작 시점보다 빠를 수 없습니다.")
+        return True, "INVALID", "INVALID"
+    return True, start_iso, end_iso
+
+
+def render_admin_notice_manager():
+    st.markdown("### 📢 공지사항 관리")
+    st.caption("공지사항은 공지 탭에서 보이며, 상단 고정 공지는 첫 화면에도 간단히 표시됩니다.")
+    rows = _load_platform_rows(PLATFORM_NOTICE_TABLE)
+    options = {"새 공지 작성": None}
+    for row in rows:
+        label = f"#{row.get('id')} · {str(row.get('title') or '제목 없음')[:60]}"
+        if _as_bool(row.get("deleted")):
+            label += " [숨김]"
+        options[label] = row
+
+    selected_label = st.selectbox("작성·편집할 공지", list(options.keys()), key="notice_editor_select")
+    existing = options[selected_label] or {}
+    record_id = existing.get("id")
+    token = f"notice_{record_id or 'new'}"
+
+    with st.form(f"notice_editor_form_{token}"):
+        title = st.text_input("공지 제목", value=str(existing.get("title") or ""), max_chars=120, key=f"{token}_title")
+        content = st.text_area("공지 내용", value=str(existing.get("content") or ""), height=220, max_chars=5000, key=f"{token}_content")
+        form_col1, form_col2 = st.columns(2)
+        with form_col1:
+            notice_level = st.selectbox(
+                "공지 구분", ["일반", "중요", "점검"],
+                index=["일반", "중요", "점검"].index(str(existing.get("notice_level") or "일반")) if str(existing.get("notice_level") or "일반") in ["일반", "중요", "점검"] else 0,
+                key=f"{token}_level",
+            )
+            is_pinned = st.checkbox("첫 화면 상단에 고정 표시", value=_as_bool(existing.get("is_pinned")), key=f"{token}_pinned")
+        with form_col2:
+            is_active = st.checkbox("바로 게시", value=_as_bool(existing.get("is_active"), True), key=f"{token}_active")
+            if existing.get("updated_at"):
+                st.caption(f"최근 수정: {_format_kst_display(existing.get('updated_at'))}")
+        _, start_at, end_at = _render_schedule_inputs(token, existing)
+        submitted = st.form_submit_button("공지사항 저장", use_container_width=True)
+
+    if submitted:
+        if not title.strip() or not content.strip():
+            st.warning("공지 제목과 내용을 모두 입력해 주세요.")
+        elif start_at == "INVALID":
+            st.warning("게시 기간을 다시 확인해 주세요.")
+        else:
+            payload = {
+                "title": title.strip(), "content": content.strip(), "notice_level": notice_level,
+                "is_pinned": is_pinned, "is_active": is_active,
+                "display_start_at": start_at, "display_end_at": end_at,
+            }
+            if not record_id:
+                payload["created_by"] = "admin"
+                if is_active:
+                    payload["published_at"] = _utc_now_iso()
+            elif is_active and not existing.get("published_at"):
+                payload["published_at"] = _utc_now_iso()
+            try:
+                _save_platform_content(PLATFORM_NOTICE_TABLE, record_id, payload)
+                st.success("공지사항을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error("공지사항을 저장하지 못했습니다. 먼저 공지·팝업 SQL을 실행했는지 확인해 주세요.")
+                st.caption(str(exc))
+
+    st.divider()
+    st.markdown("#### 게시·보관 목록")
+    if not rows:
+        st.caption("작성된 공지사항이 없습니다.")
+    else:
+        st.dataframe(_admin_content_display_df(rows, "notice"), use_container_width=True, hide_index=True, height=300)
+        active_rows = [row for row in rows if not _as_bool(row.get("deleted"))]
+        hidden_rows = [row for row in rows if _as_bool(row.get("deleted"))]
+        manage_col1, manage_col2 = st.columns(2)
+        with manage_col1:
+            hide_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in active_rows}
+            selected_hide = st.selectbox("숨김 처리할 공지", ["선택해 주세요."] + list(hide_options.keys()), key="notice_hide_select")
+            if st.button("선택 공지 숨김 처리", key="notice_soft_delete", disabled=selected_hide == "선택해 주세요."):
+                soft_delete_record(PLATFORM_NOTICE_TABLE, hide_options[selected_hide])
+                st.success("공지사항을 숨김 처리했습니다.")
+                st.rerun()
+        with manage_col2:
+            restore_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in hidden_rows}
+            selected_restore = st.selectbox("복구할 숨김 공지", ["선택해 주세요."] + list(restore_options.keys()), key="notice_restore_select")
+            if st.button("선택 공지 복구", key="notice_restore", disabled=selected_restore == "선택해 주세요."):
+                restore_record(PLATFORM_NOTICE_TABLE, restore_options[selected_restore])
+                st.success("공지사항을 다시 게시 목록으로 복구했습니다.")
+                st.rerun()
+
+
+def render_admin_popup_manager():
+    st.markdown("### 🪟 방문 팝업 관리")
+    st.caption("활성 팝업이 여러 개면 우선순위 숫자가 높은 1개만 방문자에게 표시됩니다. 팝업은 방문 세션에서 닫으면 같은 세션에서는 다시 보이지 않습니다.")
+    rows = _load_platform_rows(PLATFORM_POPUP_TABLE)
+    options = {"새 팝업 작성": None}
+    for row in rows:
+        label = f"#{row.get('id')} · {str(row.get('title') or '제목 없음')[:60]}"
+        if _as_bool(row.get("deleted")):
+            label += " [숨김]"
+        options[label] = row
+
+    selected_label = st.selectbox("작성·편집할 팝업", list(options.keys()), key="popup_editor_select")
+    existing = options[selected_label] or {}
+    record_id = existing.get("id")
+    token = f"popup_{record_id or 'new'}"
+
+    with st.form(f"popup_editor_form_{token}"):
+        title = st.text_input("팝업 제목", value=str(existing.get("title") or ""), max_chars=120, key=f"{token}_title")
+        content = st.text_area("팝업 내용", value=str(existing.get("content") or ""), height=220, max_chars=5000, key=f"{token}_content")
+        form_col1, form_col2, form_col3 = st.columns(3)
+        with form_col1:
+            popup_level = st.selectbox(
+                "팝업 구분", ["일반", "중요", "점검"],
+                index=["일반", "중요", "점검"].index(str(existing.get("popup_level") or "일반")) if str(existing.get("popup_level") or "일반") in ["일반", "중요", "점검"] else 0,
+                key=f"{token}_level",
+            )
+        with form_col2:
+            audience_label = st.selectbox(
+                "표시 대상", ["모든 방문자", "로그인 회원만"],
+                index=1 if str(existing.get("audience") or "all") == "member" else 0,
+                key=f"{token}_audience",
+            )
+        with form_col3:
+            priority = st.number_input("우선순위", min_value=0, max_value=1000, value=int(existing.get("priority") or 0), step=1, key=f"{token}_priority")
+            is_active = st.checkbox("바로 표시", value=_as_bool(existing.get("is_active"), True), key=f"{token}_active")
+        _, start_at, end_at = _render_schedule_inputs(token, existing)
+        submitted = st.form_submit_button("팝업 저장", use_container_width=True)
+
+    if submitted:
+        if not title.strip() or not content.strip():
+            st.warning("팝업 제목과 내용을 모두 입력해 주세요.")
+        elif start_at == "INVALID":
+            st.warning("표시 기간을 다시 확인해 주세요.")
+        else:
+            payload = {
+                "title": title.strip(), "content": content.strip(), "popup_level": popup_level,
+                "audience": "member" if audience_label == "로그인 회원만" else "all",
+                "priority": int(priority), "is_active": is_active,
+                "display_start_at": start_at, "display_end_at": end_at,
+            }
+            if not record_id:
+                payload["created_by"] = "admin"
+            try:
+                _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                # 관리자가 수정한 직후에는 같은 브라우저에서도 최신 팝업을 확인할 수 있게 합니다.
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("방문 팝업을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error("팝업을 저장하지 못했습니다. 먼저 공지·팝업 SQL을 실행했는지 확인해 주세요.")
+                st.caption(str(exc))
+
+    st.divider()
+    st.markdown("#### 표시·보관 목록")
+    if not rows:
+        st.caption("작성된 팝업이 없습니다.")
+    else:
+        st.dataframe(_admin_content_display_df(rows, "popup"), use_container_width=True, hide_index=True, height=300)
+        active_rows = [row for row in rows if not _as_bool(row.get("deleted"))]
+        hidden_rows = [row for row in rows if _as_bool(row.get("deleted"))]
+        manage_col1, manage_col2 = st.columns(2)
+        with manage_col1:
+            hide_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in active_rows}
+            selected_hide = st.selectbox("숨김 처리할 팝업", ["선택해 주세요."] + list(hide_options.keys()), key="popup_hide_select")
+            if st.button("선택 팝업 숨김 처리", key="popup_soft_delete", disabled=selected_hide == "선택해 주세요."):
+                soft_delete_record(PLATFORM_POPUP_TABLE, hide_options[selected_hide])
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("팝업을 숨김 처리했습니다.")
+                st.rerun()
+        with manage_col2:
+            restore_options = {f"#{row['id']} · {row.get('title')}": row.get("id") for row in hidden_rows}
+            selected_restore = st.selectbox("복구할 숨김 팝업", ["선택해 주세요."] + list(restore_options.keys()), key="popup_restore_select")
+            if st.button("선택 팝업 복구", key="popup_restore", disabled=selected_restore == "선택해 주세요."):
+                restore_record(PLATFORM_POPUP_TABLE, restore_options[selected_restore])
+                st.session_state.pop("dismissed_platform_popup_ids", None)
+                st.success("팝업을 다시 표시 목록으로 복구했습니다.")
+                st.rerun()
+
+
 def save_subscriber(data):
     """소통 탭에서 입력받은 회원·기관 정보를 Supabase public profile 테이블에 저장합니다."""
     payload = {
@@ -3060,6 +3494,10 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# 첫 화면의 고정 공지와 방문 팝업은 관리자에서 작성·게시합니다.
+render_active_notice_banner()
+render_active_popup_if_needed()
+
 # =========================
 # 공개 기능 설정
 # - False: 알림장 기능은 코드와 기존 기록을 보존한 채 사용자 화면에서 숨깁니다.
@@ -3097,9 +3535,9 @@ apply_mobile_settings_launcher()
 apply_multiselect_korean_labels()
 purge_expired_private_records_once_per_session()
 
-tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "👤 내 정보 보기", "🔐 관리자"]
+tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📢 공지사항", "👤 내 정보 보기", "🔐 관리자"]
 tabs = st.tabs(tab_labels)
-tab1, tab2, tab3, tab6, tab7 = tabs
+tab1, tab2, tab3, tab_notice, tab6, tab7 = tabs
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -6013,6 +6451,12 @@ if SHOW_DIARY_FEATURE:
                 )
 
 # =========================
+# TAB 4. 공지사항
+# =========================
+with tab_notice:
+    render_public_notice_page()
+
+# =========================
 # TAB 6. 내 정보 보기
 # =========================
 with tab6:
@@ -6032,8 +6476,8 @@ with tab7:
 
     render_menu_card(
         "🔐 관리자 모드",
-        "회원, 놀이 기록 세션, 보관 사진과 생성 문장을 조회하고 CSV로 내려받을 수 있습니다.",
-        ["회원 관리", "놀이 세션", "사진 기록", "생성 문장", "숨김 기록 복구", "CSV"]
+        "회원·기록 데이터를 관리하고, 방문자 공지사항과 팝업을 작성·수정·게시할 수 있습니다.",
+        ["회원 관리", "기록 관리", "공지사항", "방문 팝업", "숨김 기록 복구", "CSV"]
     )
 
     with st.expander("관리자 메뉴 열기", expanded=False):
@@ -6051,170 +6495,176 @@ with tab7:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
         if st.session_state.get("admin_logged_in"):
-            period = st.selectbox("조회 단위", ["전체", "오늘", "최근 7일", "이번 달"], key="dashboard_period_select")
-            table_options = {
-                "회원 관리": ("subscribers", "members.csv"),
-                "놀이 세션": ("play_sessions", "play_sessions.csv"),
-                "사진 기록": ("photo_records", "photo_records.csv"),
-                "생성 문장": ("generated_texts", "generated_texts.csv"),
-                "이전 기록 요정 기록": ("phrase_logs", "phrase_logs.csv"),
-            }
+            admin_console_tabs = st.tabs(["📊 데이터 관리", "📢 공지사항", "🪟 방문 팝업"])
+            with admin_console_tabs[0]:
+                period = st.selectbox("조회 단위", ["전체", "오늘", "최근 7일", "이번 달"], key="dashboard_period_select")
+                table_options = {
+                    "회원 관리": ("subscribers", "members.csv"),
+                    "놀이 세션": ("play_sessions", "play_sessions.csv"),
+                    "사진 기록": ("photo_records", "photo_records.csv"),
+                    "생성 문장": ("generated_texts", "generated_texts.csv"),
+                    "이전 기록 요정 기록": ("phrase_logs", "phrase_logs.csv"),
+                }
 
-            # 대시보드와 일반 목록은 숨김 처리되지 않은 활성 기록만 표시합니다.
-            all_frames = {
-                label: filter_by_period(load_table(table), period)
-                for label, (table, _) in table_options.items()
-            }
+                # 대시보드와 일반 목록은 숨김 처리되지 않은 활성 기록만 표시합니다.
+                all_frames = {
+                    label: filter_by_period(load_table(table), period)
+                    for label, (table, _) in table_options.items()
+                }
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("회원 수", f"{len(all_frames['회원 관리'])}명")
-            col2.metric("놀이 세션", f"{len(all_frames['놀이 세션'])}건")
-            col3.metric("보관 사진", f"{len(all_frames['사진 기록'])}장")
-            col4.metric("생성 문장", f"{len(all_frames['생성 문장'])}건")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("회원 수", f"{len(all_frames['회원 관리'])}명")
+                col2.metric("놀이 세션", f"{len(all_frames['놀이 세션'])}건")
+                col3.metric("보관 사진", f"{len(all_frames['사진 기록'])}장")
+                col4.metric("생성 문장", f"{len(all_frames['생성 문장'])}건")
 
-            st.divider()
-            graph_col1, graph_col2 = st.columns(2)
-            with graph_col1:
-                session_df = all_frames["놀이 세션"]
-                if not session_df.empty and "record_type" in session_df.columns:
-                    draw_category_chart(session_df["record_type"].fillna("미분류").value_counts(), "기록 유형 분포")
-                else:
-                    st.caption("표시할 놀이 세션이 없습니다.")
-            with graph_col2:
-                generated_df = all_frames["생성 문장"]
-                if not generated_df.empty and "output_type" in generated_df.columns:
-                    draw_category_chart(generated_df["output_type"].fillna("미분류").value_counts(), "생성 문장 유형")
-                else:
-                    st.caption("표시할 생성 문장이 없습니다.")
-
-            admin_menu = st.selectbox("조회할 데이터 선택", list(table_options.keys()), key="admin_data_select")
-            table_name, file_name = table_options[admin_menu]
-            df = all_frames[admin_menu].copy()
-
-            rename_map = {
-                "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
-                "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
-                "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
-                "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
-                "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진 1차 분석",
-                "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
-                "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
-                "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
-            }
-
-            st.markdown("### 현재 활성 기록")
-            display_df = df.rename(columns=rename_map)
-            if "삭제 여부" in display_df.columns:
-                display_df = display_df.drop(columns=["삭제 여부"])
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
-            st.download_button(
-                "CSV 다운로드",
-                display_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name=file_name,
-                mime="text/csv",
-                key="admin_csv_download",
-            )
-
-            if not df.empty and "id" in df.columns:
                 st.divider()
-                st.markdown("### 🛠️ 활성 기록 숨김·영구 삭제")
-                st.caption("숨김 처리는 DB에서 지우지 않고 목록에서만 감춥니다. 아래 ‘숨김 기록 복구’에서 다시 활성화할 수 있습니다.")
-                delete_ids = st.multiselect(
-                    "숨김 처리 또는 영구 삭제할 번호",
-                    df["id"].dropna().astype(int).tolist(),
-                    key=f"admin_delete_ids_{table_name}",
-                    placeholder="선택해 주세요.",
-                )
-                dcol1, dcol2 = st.columns(2)
-                with dcol1:
-                    if st.button("선택 기록 숨김 처리", key=f"admin_soft_delete_{table_name}", disabled=not delete_ids):
-                        for record_id in delete_ids:
-                            soft_delete_record(table_name, record_id)
-                        st.success(f"{len(delete_ids)}건을 숨김 처리했습니다.")
-                        st.rerun()
-                with dcol2:
-                    confirm = st.text_input("영구 삭제하려면 '영구삭제' 입력", key=f"admin_hard_confirm_{table_name}")
-                    if st.button(
-                        "선택 기록 영구 삭제",
-                        key=f"admin_hard_delete_{table_name}",
-                        disabled=(not delete_ids or confirm.strip() != "영구삭제"),
-                    ):
-                        for record_id in delete_ids:
-                            hard_delete_record(table_name, record_id)
-                        st.success(f"{len(delete_ids)}건을 영구 삭제했습니다.")
-                        st.rerun()
+                graph_col1, graph_col2 = st.columns(2)
+                with graph_col1:
+                    session_df = all_frames["놀이 세션"]
+                    if not session_df.empty and "record_type" in session_df.columns:
+                        draw_category_chart(session_df["record_type"].fillna("미분류").value_counts(), "기록 유형 분포")
+                    else:
+                        st.caption("표시할 놀이 세션이 없습니다.")
+                with graph_col2:
+                    generated_df = all_frames["생성 문장"]
+                    if not generated_df.empty and "output_type" in generated_df.columns:
+                        draw_category_chart(generated_df["output_type"].fillna("미분류").value_counts(), "생성 문장 유형")
+                    else:
+                        st.caption("표시할 생성 문장이 없습니다.")
 
-            # ---------------------------------------------------------
-            # 숨김 기록 복구: 이전 코드에 있었지만 1차 보수 과정에서 UI가 누락된 기능을 복원합니다.
-            # - load_table(..., include_deleted=True)로 DB의 숨김 기록까지 다시 불러옵니다.
-            # - subscribers를 복구할 때는 restore_record()가 is_active도 함께 True로 변경합니다.
-            # ---------------------------------------------------------
-            st.divider()
-            st.markdown("### ♻️ 숨김 기록 복구")
-            st.caption("숨김 처리된 기록은 아직 DB에 남아 있습니다. 선택한 기록을 다시 활성 목록으로 되돌릴 수 있습니다.")
+                admin_menu = st.selectbox("조회할 데이터 선택", list(table_options.keys()), key="admin_data_select")
+                table_name, file_name = table_options[admin_menu]
+                df = all_frames[admin_menu].copy()
 
-            hidden_scope = st.radio(
-                "숨김 기록 조회 범위",
-                ["전체", "현재 조회 단위"],
-                horizontal=True,
-                key=f"admin_restore_scope_{table_name}",
-            )
+                rename_map = {
+                    "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
+                    "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
+                    "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
+                    "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
+                    "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진 1차 분석",
+                    "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
+                    "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
+                    "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
+                }
 
-            hidden_all_df = load_table(table_name, include_deleted=True)
-            if not hidden_all_df.empty and "deleted" in hidden_all_df.columns:
-                hidden_mask = hidden_all_df["deleted"].apply(
-                    lambda value: str(value).strip().lower() in {"true", "1", "yes", "y"}
-                )
-                hidden_df = hidden_all_df.loc[hidden_mask].copy()
-            else:
-                hidden_df = pd.DataFrame()
-
-            if hidden_scope == "현재 조회 단위":
-                hidden_df = filter_by_period(hidden_df, period)
-
-            if hidden_df.empty:
-                st.info("현재 조건에서 복구할 숨김 기록이 없습니다.")
-            else:
-                hidden_display_df = hidden_df.rename(columns=rename_map)
-                if "삭제 여부" in hidden_display_df.columns:
-                    hidden_display_df = hidden_display_df.drop(columns=["삭제 여부"])
-
-                st.dataframe(hidden_display_df, use_container_width=True, hide_index=True, height=320)
-                hidden_ids = hidden_df["id"].dropna().astype(int).tolist() if "id" in hidden_df.columns else []
-                restore_ids = st.multiselect(
-                    "복구할 숨김 기록 번호",
-                    hidden_ids,
-                    key=f"admin_restore_ids_{table_name}_{hidden_scope}",
-                    placeholder="선택해 주세요.",
+                st.markdown("### 현재 활성 기록")
+                display_df = df.rename(columns=rename_map)
+                if "삭제 여부" in display_df.columns:
+                    display_df = display_df.drop(columns=["삭제 여부"])
+                st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
+                st.download_button(
+                    "CSV 다운로드",
+                    display_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=file_name,
+                    mime="text/csv",
+                    key="admin_csv_download",
                 )
 
-                rcol1, rcol2 = st.columns(2)
-                with rcol1:
-                    if st.button(
-                        "선택한 숨김 기록 복구",
-                        key=f"admin_restore_selected_{table_name}_{hidden_scope}",
-                        disabled=not restore_ids,
-                    ):
-                        for record_id in restore_ids:
-                            restore_record(table_name, record_id)
-                        st.success(f"선택한 숨김 기록 {len(restore_ids)}건을 다시 활성화했습니다.")
-                        st.rerun()
-
-                with rcol2:
-                    restore_all_confirm = st.checkbox(
-                        "현재 표시된 숨김 기록 전체를 복구합니다.",
-                        key=f"admin_restore_all_confirm_{table_name}_{hidden_scope}",
+                if not df.empty and "id" in df.columns:
+                    st.divider()
+                    st.markdown("### 🛠️ 활성 기록 숨김·영구 삭제")
+                    st.caption("숨김 처리는 DB에서 지우지 않고 목록에서만 감춥니다. 아래 ‘숨김 기록 복구’에서 다시 활성화할 수 있습니다.")
+                    delete_ids = st.multiselect(
+                        "숨김 처리 또는 영구 삭제할 번호",
+                        df["id"].dropna().astype(int).tolist(),
+                        key=f"admin_delete_ids_{table_name}",
+                        placeholder="선택해 주세요.",
                     )
-                    if st.button(
-                        f"표시된 숨김 기록 {len(hidden_ids)}건 전체 복구",
-                        key=f"admin_restore_all_{table_name}_{hidden_scope}",
-                        disabled=(not hidden_ids or not restore_all_confirm),
-                    ):
-                        for record_id in hidden_ids:
-                            restore_record(table_name, record_id)
-                        st.success(f"표시된 숨김 기록 {len(hidden_ids)}건을 다시 활성화했습니다.")
-                        st.rerun()
+                    dcol1, dcol2 = st.columns(2)
+                    with dcol1:
+                        if st.button("선택 기록 숨김 처리", key=f"admin_soft_delete_{table_name}", disabled=not delete_ids):
+                            for record_id in delete_ids:
+                                soft_delete_record(table_name, record_id)
+                            st.success(f"{len(delete_ids)}건을 숨김 처리했습니다.")
+                            st.rerun()
+                    with dcol2:
+                        confirm = st.text_input("영구 삭제하려면 '영구삭제' 입력", key=f"admin_hard_confirm_{table_name}")
+                        if st.button(
+                            "선택 기록 영구 삭제",
+                            key=f"admin_hard_delete_{table_name}",
+                            disabled=(not delete_ids or confirm.strip() != "영구삭제"),
+                        ):
+                            for record_id in delete_ids:
+                                hard_delete_record(table_name, record_id)
+                            st.success(f"{len(delete_ids)}건을 영구 삭제했습니다.")
+                            st.rerun()
 
-                if table_name == "subscribers":
-                    st.caption("회원 관리에서 복구하면 해당 회원의 활성 상태도 함께 복구되어 다시 로그인할 수 있습니다.")
+                # ---------------------------------------------------------
+                # 숨김 기록 복구: 이전 코드에 있었지만 1차 보수 과정에서 UI가 누락된 기능을 복원합니다.
+                # - load_table(..., include_deleted=True)로 DB의 숨김 기록까지 다시 불러옵니다.
+                # - subscribers를 복구할 때는 restore_record()가 is_active도 함께 True로 변경합니다.
+                # ---------------------------------------------------------
+                st.divider()
+                st.markdown("### ♻️ 숨김 기록 복구")
+                st.caption("숨김 처리된 기록은 아직 DB에 남아 있습니다. 선택한 기록을 다시 활성 목록으로 되돌릴 수 있습니다.")
 
+                hidden_scope = st.radio(
+                    "숨김 기록 조회 범위",
+                    ["전체", "현재 조회 단위"],
+                    horizontal=True,
+                    key=f"admin_restore_scope_{table_name}",
+                )
+
+                hidden_all_df = load_table(table_name, include_deleted=True)
+                if not hidden_all_df.empty and "deleted" in hidden_all_df.columns:
+                    hidden_mask = hidden_all_df["deleted"].apply(
+                        lambda value: str(value).strip().lower() in {"true", "1", "yes", "y"}
+                    )
+                    hidden_df = hidden_all_df.loc[hidden_mask].copy()
+                else:
+                    hidden_df = pd.DataFrame()
+
+                if hidden_scope == "현재 조회 단위":
+                    hidden_df = filter_by_period(hidden_df, period)
+
+                if hidden_df.empty:
+                    st.info("현재 조건에서 복구할 숨김 기록이 없습니다.")
+                else:
+                    hidden_display_df = hidden_df.rename(columns=rename_map)
+                    if "삭제 여부" in hidden_display_df.columns:
+                        hidden_display_df = hidden_display_df.drop(columns=["삭제 여부"])
+
+                    st.dataframe(hidden_display_df, use_container_width=True, hide_index=True, height=320)
+                    hidden_ids = hidden_df["id"].dropna().astype(int).tolist() if "id" in hidden_df.columns else []
+                    restore_ids = st.multiselect(
+                        "복구할 숨김 기록 번호",
+                        hidden_ids,
+                        key=f"admin_restore_ids_{table_name}_{hidden_scope}",
+                        placeholder="선택해 주세요.",
+                    )
+
+                    rcol1, rcol2 = st.columns(2)
+                    with rcol1:
+                        if st.button(
+                            "선택한 숨김 기록 복구",
+                            key=f"admin_restore_selected_{table_name}_{hidden_scope}",
+                            disabled=not restore_ids,
+                        ):
+                            for record_id in restore_ids:
+                                restore_record(table_name, record_id)
+                            st.success(f"선택한 숨김 기록 {len(restore_ids)}건을 다시 활성화했습니다.")
+                            st.rerun()
+
+                    with rcol2:
+                        restore_all_confirm = st.checkbox(
+                            "현재 표시된 숨김 기록 전체를 복구합니다.",
+                            key=f"admin_restore_all_confirm_{table_name}_{hidden_scope}",
+                        )
+                        if st.button(
+                            f"표시된 숨김 기록 {len(hidden_ids)}건 전체 복구",
+                            key=f"admin_restore_all_{table_name}_{hidden_scope}",
+                            disabled=(not hidden_ids or not restore_all_confirm),
+                        ):
+                            for record_id in hidden_ids:
+                                restore_record(table_name, record_id)
+                            st.success(f"표시된 숨김 기록 {len(hidden_ids)}건을 다시 활성화했습니다.")
+                            st.rerun()
+
+                    if table_name == "subscribers":
+                        st.caption("회원 관리에서 복구하면 해당 회원의 활성 상태도 함께 복구되어 다시 로그인할 수 있습니다.")
+            with admin_console_tabs[1]:
+                render_admin_notice_manager()
+
+            with admin_console_tabs[2]:
+                render_admin_popup_manager()
