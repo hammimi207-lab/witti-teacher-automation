@@ -944,7 +944,6 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 }
 
 
-
 /* 공지사항 블록 편집기 · 공개 보기 */
 .notice-editor-guide { font-size:13px; color:#5D7088; line-height:1.65; margin:4px 0 10px; }
 .notice-block-label { display:inline-flex; align-items:center; min-height:26px; padding:3px 9px; border-radius:999px; background:#EAF4FF; color:#1D4ED8; font-size:12px; font-weight:800; margin-bottom:8px; }
@@ -1057,7 +1056,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-notice-and-popup-link-fix-v1"
+APP_VERSION = "2026-07-02-play-record-process-output-v1"
 
 
 # =========================
@@ -1507,7 +1506,6 @@ def reset_member_password_by_email(email: str, new_password: str):
         raise RuntimeError(f"비밀번호를 재설정하지 못했습니다: {exc}")
 
 
-
 def private_log_metadata() -> dict | None:
     """로그인한 회원의 기록에만 1년 보관 정보를 붙입니다."""
     user_id = current_member_user_id()
@@ -1748,7 +1746,6 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
 
 [교사 입력]
 - 놀이명: {play_name or '미입력'}
-- 놀이를 통한 배움의 이해: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
 - 선택 교육과정 영역: {curriculum}
@@ -1895,15 +1892,19 @@ def create_play_session(
     parent_type: str = "",
     play_subcategory_notes: dict | None = None,
     teacher_support_notes: dict | None = None,
+    teacher_observed_situation: str = "",
+    next_play_support_plan: str = "",
 ) -> dict:
     """놀이 세션을 생성합니다.
 
-    새 상세 메모 컬럼은 별도 update로 저장해, 마이그레이션 실행 전에도 기존 핵심 흐름은 중단되지 않도록 합니다.
+    기존 play_goal 컬럼은 과거 기록 호환을 위해 빈 값으로만 유지합니다.
+    새로 추가한 교사 관찰 상황·다음 놀이 지원 계획은 별도 update로 저장해,
+    마이그레이션 전에도 사진 분석 기본 흐름이 멈추지 않도록 구성합니다.
     """
     payload = {
         "user_id": user_id,
         "play_name": play_name.strip(),
-        "play_goal": play_goal.strip(),
+        "play_goal": str(play_goal or "").strip(),
         "age_group": age_group,
         "child_alias": child_alias.strip(),
         "curriculum_areas": curriculum_areas,
@@ -1923,6 +1924,8 @@ def create_play_session(
         "parent_type": str(parent_type or "").strip() or None,
         "play_subcategory_notes": _as_note_dict(play_subcategory_notes),
         "teacher_support_notes": _as_note_dict(teacher_support_notes),
+        "teacher_observed_situation": str(teacher_observed_situation or "").strip() or None,
+        "next_play_support_plan": str(next_play_support_plan or "").strip() or None,
         "updated_at": _utc_now_iso(),
     }
     if session_id:
@@ -1930,10 +1933,29 @@ def create_play_session(
             supabase.table("play_sessions").update(optional_payload).eq("session_id", session_id).execute()
             session.update(optional_payload)
         except Exception:
-            # 새 마이그레이션이 아직 적용되지 않았다면, 화면 내 생성 흐름은 유지합니다.
+            # 새 마이그레이션이 아직 적용되지 않았다면, 화면 내 분석 흐름은 유지합니다.
             pass
     return session
 
+
+def update_play_session_teacher_context(
+    session_id: str,
+    teacher_observed_situation: str,
+    next_play_support_plan: str,
+):
+    """교사가 최종 생성 전에 입력한 관찰 상황·다음 지원 계획을 세션에 저장합니다."""
+    if not session_id:
+        return
+    payload = {
+        "teacher_observed_situation": str(teacher_observed_situation or "").strip() or None,
+        "next_play_support_plan": str(next_play_support_plan or "").strip() or None,
+        "updated_at": _utc_now_iso(),
+    }
+    try:
+        supabase.table("play_sessions").update(payload).eq("session_id", session_id).execute()
+    except Exception:
+        # 마이그레이션 전이라도 기록 생성은 계속할 수 있게 합니다.
+        pass
 
 def update_play_session_analysis(session_id: str, analysis_result: dict):
     if not session_id:
@@ -2066,74 +2088,298 @@ PARENT_TYPE_GUIDANCE = {
 }
 
 
+CURRICULUM_CORE_GUIDES_BY_AGE = {
+    "0세": {
+        "신체운동·건강": "감각 자극에 반응하고 몸을 움직이며 편안한 일과와 신체 경험의 기초를 쌓아가는 과정입니다.",
+        "의사소통": "시선, 표정, 울음, 옹알이와 말소리로 관심과 요구를 나타내는 경험과 연결됩니다.",
+        "사회관계": "교사와 친숙한 사람에게 안정감을 느끼고 또래가 있는 공간에 관심을 보이는 경험과 연결됩니다.",
+        "예술경험": "소리, 리듬, 색, 촉감에 감각적으로 반응하며 아름다움을 느끼는 경험과 연결됩니다.",
+        "자연탐구": "보고, 듣고, 만지는 감각 경험을 통해 주변 사물과 자연에 관심을 갖는 과정과 연결됩니다.",
+    },
+    "1세": {
+        "신체운동·건강": "감각과 신체를 활용해 움직임을 반복해서 시도하고 일과에 익숙해지는 경험과 연결됩니다.",
+        "의사소통": "몸짓, 말소리, 간단한 말로 관심과 요구를 나타내는 경험과 연결됩니다.",
+        "사회관계": "친숙한 사람과 안정적인 관계를 맺고 또래의 행동에 관심을 보이는 경험과 연결됩니다.",
+        "예술경험": "소리와 리듬, 미술 재료의 촉감과 모방 행동을 즐기는 경험과 연결됩니다.",
+        "자연탐구": "친숙한 사물과 자연을 감각으로 반복 탐색하며 특성과 변화를 알아가는 경험과 연결됩니다.",
+    },
+    "2세": {
+        "신체운동·건강": "몸의 움직임과 일상생활 습관을 함께 경험하며 건강하고 안전한 생활의 기초를 다지는 과정과 연결됩니다.",
+        "의사소통": "표정, 몸짓, 단어, 짧은 말로 요구와 느낌을 나타내고 말놀이와 이야기에 관심을 갖는 경험과 연결됩니다.",
+        "사회관계": "나와 다른 사람을 구별하고 또래 곁에서 또는 함께 놀이하며 다른 사람의 행동과 감정에 반응하는 경험과 연결됩니다.",
+        "예술경험": "노래, 리듬, 움직임, 미술 재료를 활용해 자신의 느낌을 표현해 보는 경험과 연결됩니다.",
+        "자연탐구": "주변 사물과 자연을 반복 탐색하고 같고 다름, 수량, 공간, 변화에 관심을 갖는 경험과 연결됩니다.",
+    },
+    "3세": {
+        "신체운동·건강": "기본 움직임을 즐기고 몸의 균형과 방향을 조절하며 안전한 놀이 방식을 경험하는 과정과 연결됩니다.",
+        "의사소통": "짧은 문장과 질문으로 생각과 느낌을 나타내고 그림책과 이야기 듣기에 관심을 보이는 경험과 연결됩니다.",
+        "사회관계": "나와 친구의 감정을 알아가고 친구 곁에서 함께 놀이하며 간단한 약속을 경험하는 과정과 연결됩니다.",
+        "예술경험": "소리, 움직임, 색, 모양을 즐기고 자신의 느낌을 자유롭게 표현하는 경험과 연결됩니다.",
+        "자연탐구": "주변 사물과 자연에 호기심을 보이고 같고 다름을 살펴보며 탐색하는 경험과 연결됩니다.",
+    },
+    "4세": {
+        "신체운동·건강": "몸의 움직임을 조절하고 도구와 공간을 활용하며 놀이 속 안전과 건강한 생활을 경험하는 과정과 연결됩니다.",
+        "의사소통": "자신의 생각과 이유를 말하고 이야기의 흐름을 듣고 묻고 답하며 표현을 확장하는 경험과 연결됩니다.",
+        "사회관계": "친구와 차례, 공유, 간단한 규칙을 경험하고 서로의 감정과 생각을 살피는 과정과 연결됩니다.",
+        "예술경험": "상상한 내용을 음악, 움직임, 미술, 극놀이 등 다양한 방식으로 표현하는 경험과 연결됩니다.",
+        "자연탐구": "주변 세계의 특징을 비교하고 변화에 관심을 가지며 궁금한 점을 탐색하는 경험과 연결됩니다.",
+    },
+    "5세": {
+        "신체운동·건강": "몸의 움직임을 계획적으로 조절하고 규칙 있는 놀이에 참여하며 안전한 생활 태도를 확장하는 과정과 연결됩니다.",
+        "의사소통": "경험을 회상해 이야기하고 자신의 생각을 이유와 함께 설명하며 듣기·말하기·읽기·쓰기에 관심을 넓히는 경험과 연결됩니다.",
+        "사회관계": "친구와 역할과 규칙을 조율하고 공동의 놀이를 만들어 가며 협력하는 과정과 연결됩니다.",
+        "예술경험": "표현 방법을 선택하고 계획하여 자신의 생각과 느낌을 창의적으로 나타내는 경험과 연결됩니다.",
+        "자연탐구": "자연과 생활 속 문제를 관찰, 비교, 예측하며 탐구하고 해결 방법을 시도하는 경험과 연결됩니다.",
+    },
+}
+
+RECORD_TYPE_CORE_GUIDANCE = {
+    "놀이 이야기": "사진과 교사의 관찰을 바탕으로 놀이가 관심에서 시작되어 탐색·표현·관계·확장으로 이어지는 흐름을 읽고, 교사의 지원과 다음 놀이를 연결해 기록합니다.",
+    "일지": "하루의 놀이 맥락 안에서 관찰된 사실, 교육과정 연계, 영유아의 배움과 교사의 지원을 근거 중심으로 정리하는 기록입니다.",
+    "알림장": "가정과 공유할 수 있도록 관찰된 사실과 교사의 지원을 따뜻하고 분명한 문장으로 전달하는 기록입니다.",
+}
+
+PLAY_DETAIL_CORE_GUIDANCE = {
+    "영아": {
+        "관심의 시작": "영아가 사람·사물·자료·공간에 시선, 몸짓, 소리, 움직임으로 반응하고 스스로 다가가며 놀이가 시작되는 단서입니다.",
+        "탐색과 반복": "영아가 자료를 만지고 움직이고 되풀이하며 감각적 특성과 변화를 알아가는 과정입니다.",
+        "표현과 구성": "영아가 표정, 몸짓, 소리, 단어·짧은 말, 재료 조작으로 관심과 느낌을 나타내는 과정입니다.",
+        "관계와 상호작용": "교사 또는 또래가 있는 공간에서 반응을 주고받고, 함께 머무르며 놀이 경험을 넓혀가는 과정입니다.",
+        "확장과 심화": "관심을 보인 자료나 행동을 다시 선택하고 새로운 방식으로 이어가며 놀이 경험을 지속하는 과정입니다.",
+    },
+    "유아": {
+        "관심의 시작": "유아가 자신의 흥미와 선택을 바탕으로 자료·공간·또래에게 다가가며 놀이를 시작하는 단서입니다.",
+        "탐색과 반복": "자료의 특성과 관계를 살피고 비교·반복하며 자신만의 놀이 방법을 만들어 가는 과정입니다.",
+        "표현과 구성": "유아가 생각과 느낌을 말, 움직임, 미술, 구성, 역할놀이 등 다양한 방식으로 표현하고 구성하는 과정입니다.",
+        "관계와 상호작용": "친구와 생각·역할·차례를 나누고 반응을 조절하며 공동의 놀이 흐름을 만들어 가는 과정입니다.",
+        "확장과 심화": "기존 놀이에 새로운 자료·역할·규칙·질문을 더해 놀이의 의미와 방법을 넓혀가는 과정입니다.",
+    },
+}
+
+
+def curriculum_framework_label(age_group: str) -> str:
+    return "표준보육과정" if normalize_age(age_group) in ["0세", "1세", "2세"] else "누리과정"
+
+
+def curriculum_framework_short_label(age_group: str) -> str:
+    return "표준보육과정 연계" if normalize_age(age_group) in ["0세", "1세", "2세"] else "누리과정 연계"
+
+
+def play_detail_guidance_text(age_group: str, selected_details: list[str] | None) -> str:
+    subject_group = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    guide = PLAY_DETAIL_CORE_GUIDANCE[subject_group]
+    rows = []
+    for item in selected_details or []:
+        if item in guide:
+            rows.append(f"- {item}: {guide[item]}")
+    return "\n".join(rows) if rows else "미선택"
+
+
+def render_record_type_guidance(record_type: str, age_group: str):
+    if record_type in RECORD_TYPE_CORE_GUIDANCE:
+        framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+        st.info(f"**기록 유형 핵심 안내**  {RECORD_TYPE_CORE_GUIDANCE[record_type]}\n\n{framework}의 놀이 중심·관찰 중심 원칙에 맞춰 사실과 교사의 판단을 분리해 기록합니다.")
+
+
+def render_play_detail_guidance(age_group: str, selected_details: list[str]):
+    if not selected_details:
+        return
+    framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+    st.markdown(f"**{framework} 관점의 놀이 세부 구분 핵심 설명**")
+    guide = play_detail_guidance_text(age_group, selected_details)
+    for line in guide.split("\n"):
+        st.caption(line)
+
+
+def _curriculum_fallback_links(age_group: str, curriculum_areas: list[str]) -> list[dict]:
+    age = normalize_age(age_group)
+    guides = CURRICULUM_CORE_GUIDES_BY_AGE.get(age, CURRICULUM_CORE_GUIDES_BY_AGE["2세"])
+    return [
+        {"area": str(area), "description": guides.get(str(area), "선택한 교육과정 영역의 경험과 연결해 살펴볼 수 있습니다.")}
+        for area in curriculum_areas or []
+    ]
+
+
+def _normalize_curriculum_links(value, age_group: str, selected_areas: list[str]) -> list[dict]:
+    by_area: dict[str, str] = {}
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            area = str(item.get("area") or "").strip()
+            description = str(item.get("description") or "").strip()
+            if area and description:
+                by_area[area] = description
+
+    fallback = {item["area"]: item["description"] for item in _curriculum_fallback_links(age_group, selected_areas)}
+    normalized = []
+    for area in selected_areas or []:
+        area_text = str(area).strip()
+        if not area_text:
+            continue
+        normalized.append({"area": area_text, "description": by_area.get(area_text) or fallback.get(area_text) or "선택한 영역의 경험과 연결해 살펴볼 수 있습니다."})
+    return normalized
+
+
+def _record_label(output_type: str) -> str:
+    return "놀이 이야기 기록 예시 (종합)" if output_type == "놀이 이야기" else "보육일지 기록 예시 (종합)"
+
+
+def _structured_record_plain_text(output: dict) -> str:
+    framework = str(output.get("framework_label") or "교육과정")
+    observation_label = str(output.get("observation_label") or "영유아 관찰 및 평가")
+    record_label = str(output.get("record_label") or "종합 기록")
+    links = output.get("curriculum_links") or []
+    link_text = "\n".join([f"- {item.get('area')}: {item.get('description')}" for item in links if isinstance(item, dict)]) or "- 선택한 교육과정 영역이 없습니다."
+    chunks = [
+        f"[사진 속 놀이 내용]\n{str(output.get('photo_play_content') or '').strip()}",
+        f"[교사가 관찰한 놀이 상황]\n{str(output.get('teacher_observed_situation') or '').strip()}",
+        f"[{framework}]\n{link_text}",
+        f"[{observation_label}]\n{str(output.get('observation_evaluation') or '').strip()}",
+    ]
+    next_plan = str(output.get("next_play_support_plan") or "").strip()
+    if next_plan:
+        chunks.append(f"[다음 놀이 지원 계획]\n{next_plan}")
+    chunks.append(f"[{record_label}]\n{str(output.get('integrated_record') or '').strip()}")
+    return "\n\n".join(chunks).strip()
+
+
 def generate_final_play_record(context: dict, edited_draft: str, revision_direction: str = "") -> dict:
-    """사진 1차 분석과 교사 수정 내용을 반영해 최종 놀이 이야기 또는 3개 작문 예시를 만듭니다."""
+    """놀이 이야기·일지는 과정 산출과 종합 기록을 함께 만들고, 알림장은 기존 3개 예시 방식을 유지합니다."""
     client = get_openai_client()
     if client is None:
         raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
 
     output_type = str(context.get("output_type") or "놀이 이야기")
     play_name = str(context.get("play_name") or "오늘의 놀이")
-    play_goal = str(context.get("play_goal") or "")
     age_group = str(context.get("age_group") or "")
     child_alias = str(context.get("child_alias") or "")
-    curriculum = curriculum_display_text(context.get("curriculum_areas"))
+    curriculum_areas = _as_text_list(context.get("curriculum_areas"))
+    curriculum = curriculum_display_text(curriculum_areas)
     play_subcategories = _as_text_list(context.get("play_subcategories"))
     teacher_supports = _as_text_list(context.get("teacher_supports"))
     detail_tags = ", ".join(play_subcategories) or "미선택"
     supports = ", ".join(teacher_supports) or "미선택"
     detail_notes = _selection_notes_display(play_subcategories, context.get("play_subcategory_notes"))
     support_notes = _selection_notes_display(teacher_supports, context.get("teacher_support_notes"))
-    parent_type = str(context.get("parent_type") or "일반형").strip()
-    if parent_type not in PARENT_TYPE_OPTIONS:
-        parent_type = "일반형"
-    parent_guidance = PARENT_TYPE_GUIDANCE[parent_type] if output_type == "알림장" else "해당 없음"
+    teacher_observed_situation = str(context.get("teacher_observed_situation") or revision_direction or "").strip()
+    next_play_support_plan = str(context.get("next_play_support_plan") or "").strip()
+    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+    photo_play_content = str(analysis.get("ai_caption") or "사진에서 확인되는 놀이 장면을 바탕으로 분석했습니다.").strip()
+    framework = curriculum_framework_label(age_group)
+    framework_title = curriculum_framework_short_label(age_group)
+    child_label = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
 
-    if output_type == "놀이 이야기":
-        output_schema = """{\n  \"sections\": {\n    \"놀이 주제\": \"1~2문장\",\n    \"놀이에서 읽은 배움\": \"1~2문장\",\n    \"교사의 지원\": \"1~2문장\",\n    \"다음 놀이로 이어가기\": \"1~2문장\"\n  }\n}"""
-    else:
-        output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+    if output_type in ["놀이 이야기", "일지"]:
+        record_label = _record_label(output_type)
+        record_style = (
+            "놀이의 관심·탐색·표현·관계·교사 지원 흐름이 자연스럽게 이어지도록 6~9문장으로 작성하세요."
+            if output_type == "놀이 이야기"
+            else "보육일지 문체로, 관찰 사실과 교사의 지원 및 배움 읽기가 분명히 드러나도록 6~9문장으로 작성하세요. '했음/보였음/지원하였음'처럼 공식 기록에 적합한 종결을 사용하세요."
+        )
+        output_schema = """{
+  \"curriculum_links\": [
+    {\"area\": \"선택한 영역명\", \"description\": \"사진과 교사 관찰에 근거한 1문장 연계 설명\"}
+  ],
+  \"observation_evaluation\": \"영아 또는 유아의 관심, 탐색, 표현, 관계, 배움의 변화를 교육과정에 근거해 3~5문장으로 정리\",
+  \"integrated_record\": \"종합 기록 6~9문장\"
+}"""
+        prompt = f"""
+당신은 한국 영유아교육 현장의 사진 기반 기록을 돕는 보조자입니다.
+사진 1차 분석과 교사가 직접 적은 관찰 상황을 바탕으로, 교사의 판단이 드러나는 과정형 기록을 작성하세요.
 
-    prompt = f"""
-당신은 한국 영유아교육 현장의 기록 문장을 돕는 보조자입니다.
-사진 분석으로 만든 1차 초안과 교사의 수정 내용을 바탕으로 최종 기록을 작성하세요.
-
-[놀이 정보]
+[기본 정보]
 - 놀이명: {play_name}
-- 놀이를 통한 배움의 이해: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
-- 교육과정 영역(복수): {curriculum}
-- 놀이 세부 구분(복수): {detail_tags}
-- 놀이 세부 구분별 실제 장면 메모:
-{detail_notes}
-- 교사의 지원(복수): {supports}
-- 교사의 지원별 구체 지원 메모:
-{support_notes}
 - 기록 유형: {output_type}
-- 보호자 유형(알림장에만 적용): {parent_type if output_type == '알림장' else '해당 없음'}
-- 알림장 문체 기준: {parent_guidance}
-
-[교사가 수정한 1차 초안]
+- {framework} 선택 영역: {curriculum}
+- 사진 속 놀이 내용: {photo_play_content}
+- 교사가 관찰한 놀이 상황(필수): {teacher_observed_situation}
+- 놀이 세부 구분: {detail_tags}
+- 놀이 세부 구분별 구체 장면:
+{detail_notes}
+- 교사의 지원: {supports}
+- 교사의 지원별 구체 내용:
+{support_notes}
+- 놀이 세부 구분의 {framework} 관점 핵심 설명:
+{play_detail_guidance_text(age_group, play_subcategories)}
+- 교사가 수정한 사진 1차 분석 결과:
 {edited_draft.strip()}
 
-[추가 수정 방향]
-{revision_direction.strip() or '없음'}
+[작성 기준]
+- 사진과 교사 관찰에 직접 드러난 사실만 사용하세요. 보이지 않은 대화·감정·사건·발달 상태를 지어내지 마세요.
+- curriculum_links에는 교사가 선택한 영역만 정확히 포함하고, 영역마다 사진·관찰 장면과 연결된 설명을 1문장씩 작성하세요.
+- 0~2세는 ‘영아’의 감각, 반응, 반복 탐색, 몸짓·말소리·짧은 말, 안정감의 언어를 사용하세요.
+- 3~5세는 ‘유아’의 흥미, 선택, 탐색, 표현, 또래와의 상호작용, 놀이 확장의 언어를 사용하세요.
+- observation_evaluation은 평가적 낙인이나 단정 없이, {child_label}의 관심·탐색·표현·관계·배움의 변화를 {framework} 관점에서 정리하세요.
+- {record_label}은 {record_style}
+- 다음 놀이 지원 계획은 AI가 새로 만들거나 바꾸지 않습니다. 별도 입력값이 있을 때 화면에서 원문 그대로 보여 줄 것입니다.
+- 아래 JSON 객체만 반환하세요.
 
-반드시 지킬 점:
-- 사진에 직접 드러나지 않은 대화·사건·정서·발달 수준을 지어내지 마세요.
-- 특정 아동의 진단, 비교, 평가를 하지 마세요.
-- 교육과정 영역은 교사가 선택한 항목을 맥락으로 연결하되 과도하게 나열하지 마세요.
-- 교사가 적은 구체 장면과 지원 메모는 사진·초안과 모순되지 않는 범위에서 우선 반영하세요.
-- 놀이 이야기는 네 개 섹션 전체가 합쳐 4~6문장 안팎이 되도록 간결하게 작성하세요.
-- 일지·알림장은 각각 서로 다른 문체의 예시 3개를 만들고, 각 예시는 3~5문장 이내로 작성하세요.
-- 아동 실명 대신 입력한 별칭 또는 '영아/유아' 같은 일반 표현을 사용하세요.
-- 알림장 결과에는 '예민형', '공격형', '불안형' 같은 보호자 분류 단어를 절대 쓰지 마세요.
-
-아래 JSON 형식만 반환하세요.
 {output_schema}
 """.strip()
 
+        response = client.responses.create(
+            model=get_openai_vision_model(),
+            input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+            max_output_tokens=1800,
+            store=False,
+        )
+        raw = str(getattr(response, "output_text", "") or "").strip()
+        payload = _parse_json_object(raw)
+        curriculum_links = _normalize_curriculum_links(payload.get("curriculum_links"), age_group, curriculum_areas)
+        observation_evaluation = str(payload.get("observation_evaluation") or "").strip()
+        integrated_record = str(payload.get("integrated_record") or "").strip()
+        if not observation_evaluation:
+            observation_evaluation = (
+                f"{child_alias.strip() or child_label}는 {teacher_observed_situation}의 과정에서 관심을 보인 자료와 행동을 반복해 살피며 놀이를 이어갔습니다. "
+                f"선택한 {framework} 영역의 경험이 사진과 교사 관찰 속에서 함께 드러났습니다."
+            )
+        if not integrated_record:
+            integrated_record = (
+                f"{edited_draft.strip()} {teacher_observed_situation} "
+                f"교사는 {supports if supports != '미선택' else '영유아의 반응을 살피는 지원'}을 통해 놀이가 이어질 수 있도록 도왔습니다."
+            ).strip()
+        result = {
+            "output_type": output_type,
+            "photo_play_content": photo_play_content,
+            "teacher_observed_situation": teacher_observed_situation,
+            "framework_label": framework_title,
+            "observation_label": f"{child_label} 관찰 및 평가",
+            "curriculum_links": curriculum_links,
+            "observation_evaluation": age_sanitize(observation_evaluation, age_group),
+            "next_play_support_plan": next_play_support_plan,
+            "record_label": record_label,
+            "integrated_record": age_sanitize(integrated_record, age_group),
+            "sections": {},
+            "examples": [],
+        }
+        result["plain_text"] = _structured_record_plain_text(result)
+        return result
+
+    # 알림장은 기존 보호자 유형별 3개 예시 생성 방식을 유지합니다.
+    parent_type = str(context.get("parent_type") or "일반형").strip()
+    if parent_type not in PARENT_TYPE_OPTIONS:
+        parent_type = "일반형"
+    parent_guidance = PARENT_TYPE_GUIDANCE[parent_type]
+    output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+    prompt = f"""
+당신은 한국 영유아교육 현장의 알림장 문장을 돕는 보조자입니다.
+사진 분석 1차 결과와 교사의 관찰을 바탕으로 알림장 예시 3개를 작성하세요.
+
+- 놀이명: {play_name}
+- 연령: {age_group or '미입력'}
+- 아이 별칭: {child_alias or '미입력'}
+- 선택 교육과정 영역: {curriculum}
+- 교사가 수정한 사진 1차 분석 결과: {edited_draft.strip()}
+- 교사가 관찰한 놀이 상황: {teacher_observed_situation or '미입력'}
+- 보호자 유형에 따른 문체 기준: {parent_guidance}
+
+사진에 직접 드러나지 않은 사건·감정·발달 수준을 지어내지 말고, 각 예시는 3~5문장 이내로 작성하세요.
+결과에는 보호자 유형명 자체를 쓰지 마세요. 아래 JSON 형식만 반환하세요.
+{output_schema}
+""".strip()
     response = client.responses.create(
         model=get_openai_vision_model(),
         input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
@@ -2142,34 +2388,18 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     )
     raw = str(getattr(response, "output_text", "") or "").strip()
     payload = _parse_json_object(raw)
-    if output_type == "놀이 이야기":
-        sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
-        ordered = ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]
-        normalized = {name: str(sections.get(name) or "").strip() for name in ordered}
-        if not all(normalized.values()):
-            normalized = {
-                "놀이 주제": f"{play_name} 놀이에서 사진 속 장면과 교사가 정리한 관찰을 중심으로 놀이 흐름을 살펴보았습니다.",
-                "놀이에서 읽은 배움": f"{edited_draft.strip()} 선택한 {curriculum} 영역의 경험이 놀이 속에서 함께 드러났습니다.",
-                "교사의 지원": f"교사는 {supports if supports != '미선택' else '아이의 반응을 살피는 상호작용'}을 통해 놀이가 이어질 수 있도록 지원했습니다.",
-                "다음 놀이로 이어가기": "오늘 관심을 보인 자료와 표현을 다시 꺼내어 다음 탐색으로 연결해 볼 수 있습니다.",
-            }
-        plain = "\n\n".join(f"{name}\n{normalized[name]}" for name in ordered)
-        return {"output_type": output_type, "sections": normalized, "examples": [], "plain_text": plain}
-
     examples = payload.get("examples") if isinstance(payload.get("examples"), list) else []
     examples = [str(item).strip() for item in examples if str(item).strip()][:3]
     if len(examples) < 3:
+        subject = child_alias.strip() or ("영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아")
         base = edited_draft.strip()
-        subject = child_alias.strip() or ("영아" if age_group in ["0세", "1세", "2세"] else "유아")
-        tone_word = "일지" if output_type == "일지" else "알림장"
         examples = [
-            f"{base}\n\n{subject}의 관심과 반응을 중심으로 {tone_word}에 담았습니다.",
-            f"{play_name} 활동에서 관찰된 장면을 바탕으로 기록했습니다. {base}",
+            f"{base}\n\n{subject}의 관심과 반응을 중심으로 오늘의 모습을 전합니다.",
+            f"{play_name} 활동에서 관찰된 장면을 바탕으로 정리했습니다. {base}",
             f"오늘의 {play_name} 경험은 {curriculum} 영역과 연결해 살펴볼 수 있었습니다. {base}",
         ]
     plain = "\n\n".join(f"예시 {index + 1}\n{item}" for index, item in enumerate(examples))
     return {"output_type": output_type, "sections": {}, "examples": examples, "plain_text": plain}
-
 
 def save_generated_text(session_id: str, user_id: str, output_type: str, result_text: str, edited_text: str, source_text: str):
     payload = {
@@ -2339,10 +2569,10 @@ def render_member_information_page():
             st.caption("저장된 놀이 기록이 없습니다. 기록 요정에서 사진 분석을 시작해 주세요.")
         else:
             display = _format_kst_datetime_column(sessions_df)
-            cols = [c for c in ["작성일시", "play_name", "play_goal", "age_group", "child_alias", "record_type", "parent_type", "curriculum_areas", "play_subcategories", "teacher_supports", "photo_match_status", "photo_match_reason", "ai_summary"] if c in display.columns]
+            cols = [c for c in ["작성일시", "play_name", "age_group", "child_alias", "record_type", "parent_type", "curriculum_areas", "play_subcategories", "teacher_supports", "teacher_observed_situation", "next_play_support_plan", "photo_match_status", "photo_match_reason", "ai_summary"] if c in display.columns]
             display = display[cols].rename(columns={
-                "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭",
-                "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진 1차 분석",
+                "play_name": "놀이명", "age_group": "연령", "child_alias": "아이 별칭", "teacher_observed_situation": "교사가 관찰한 놀이 상황", "next_play_support_plan": "다음 놀이 지원 계획",
+                "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진에 대한 1차 분석 결과",
             })
             st.dataframe(display, use_container_width=True, hide_index=True, height=360)
 
@@ -2558,8 +2788,6 @@ def apply_sidebar_open_hint():
         height=0,
         width=0,
     )
-
-
 
 
 def apply_mobile_settings_launcher():
@@ -2848,7 +3076,6 @@ def render_result_card(text: str, css_class: str = "result-card-blue"):
 
 def _response_data(response):
     return getattr(response, "data", []) or []
-
 
 
 # =========================
@@ -3379,7 +3606,6 @@ def render_active_popup_if_needed():
     )
 
 
-
 def render_public_notice_page():
     render_menu_card(
         "📢 공지사항",
@@ -3810,7 +4036,6 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
     return True
 
 
-
 def load_table(table_name, include_deleted=False):
     """관리자 페이지에서 Supabase 테이블을 DataFrame으로 불러옵니다."""
     try:
@@ -3999,7 +4224,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 
 # =========================
@@ -5019,7 +5243,6 @@ def render_admin_notice_manager():
                     st.session_state[target_key] = int(restored_id)
                     st.success("공지사항을 다시 게시 목록으로 복구했습니다. 아래 편집기에서 내용을 이어서 수정할 수 있습니다.")
                     st.rerun()
-
 
 
 # 공지사항을 관리자 데이터 관리 화면에서 영구 삭제할 때, 연결된 공지 이미지도 함께 정리합니다.
@@ -6946,7 +7169,6 @@ def get_child_action_options(age: str | None) -> list[str]:
     return ["- 선택 -"]
 
 
-
 # =========================
 # 놀이 이야기 생성
 # =========================
@@ -7309,7 +7531,7 @@ def reset_tab2_inputs_once():
     이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
     사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
     """
-    reset_flag = "_tab2_initial_values_cleared_20260630_v6"
+    reset_flag = "_tab2_initial_values_cleared_20260702_v7"
     if st.session_state.get(reset_flag):
         return
 
@@ -7336,6 +7558,9 @@ def reset_tab2_inputs_once():
         "photo_child_action",
         "photo_child_action_custom",
         "wizard_parent_type",
+        "wizard_play_goal",
+        "wizard_teacher_observed_situation",
+        "wizard_next_play_support_plan",
     ]
 
     for key in keys_to_clear:
@@ -7370,45 +7595,68 @@ def _note_widget_key(prefix: str, option: str) -> str:
 
 
 def render_selected_note_inputs(selected: list[str], note_kind: str) -> dict[str, str]:
-    """선택된 놀이 세부 구분·교사 지원마다 실제 장면을 적는 입력란을 그립니다."""
+    """선택된 놀이 세부 구분·교사 지원마다 구체 설명을 받습니다.
+
+    놀이 이야기와 일지에서는 선택한 모든 항목의 설명이 필수입니다.
+    필수 검증은 사진 분석 버튼을 누를 때 한 번 더 수행합니다.
+    """
     notes: dict[str, str] = {}
     if not selected:
         return notes
 
     is_play_detail = note_kind == "play_detail"
     title = "선택한 놀이 세부 구분별 실제 장면" if is_play_detail else "선택한 교사 지원별 구체 지원 내용"
-    st.caption(f"{title}을 적어 주세요. 사진과 관찰에 근거한 표현일수록 최종 문장이 정확해집니다.")
+    st.caption(f"{title}은 **필수 입력**입니다. 사진과 관찰에 근거한 표현일수록 최종 문장이 정확해집니다.")
 
     placeholders = PLAY_DETAIL_NOTE_PLACEHOLDERS if is_play_detail else TEACHER_SUPPORT_NOTE_PLACEHOLDERS
     key_prefix = "wizard_play_detail_note" if is_play_detail else "wizard_teacher_support_note"
-    label_suffix = "장면 설명" if is_play_detail else "구체 지원"
+    label_suffix = "장면 설명 (필수)" if is_play_detail else "구체 지원 (필수)"
 
     for option in selected:
-        left, right = st.columns([1.25, 2.75])
-        with left:
-            st.markdown(f"**{option}**")
-        with right:
-            value = st.text_input(
-                f"{option} {label_suffix}",
-                placeholder=placeholders.get(option, "사진에서 확인되는 실제 장면이나 교사의 지원을 적어 주세요."),
-                key=_note_widget_key(key_prefix, option),
-            )
-            if value.strip():
-                notes[option] = value.strip()
+        st.markdown(f"**{option}**")
+        value = st.text_area(
+            f"{option} {label_suffix}",
+            placeholder=placeholders.get(option, "사진에서 확인되는 실제 장면이나 교사의 지원을 적어 주세요."),
+            height=84,
+            key=_note_widget_key(key_prefix, option),
+        )
+        if value.strip():
+            notes[option] = value.strip()
     return notes
-
 
 def render_final_play_output(output: dict):
     output_type = str(output.get("output_type") or "")
-    if output_type == "놀이 이야기":
-        sections = output.get("sections") or {}
-        for title in ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]:
-            st.markdown(f"#### {title}")
-            render_result_card(str(sections.get(title) or ""), "result-card-gray")
-    else:
-        for index, example in enumerate(output.get("examples") or [], start=1):
-            st.markdown(f"#### {output_type} 예시 {index}")
-            render_result_card(str(example), "result-card-gray")
+    if output_type in ["놀이 이야기", "일지"]:
+        st.markdown("#### 사진 속 놀이 내용")
+        render_result_card(str(output.get("photo_play_content") or ""), "result-card-gray")
+
+        st.markdown("#### 교사가 관찰한 놀이 상황")
+        render_result_card(str(output.get("teacher_observed_situation") or ""), "result-card-gray")
+
+        st.markdown(f"#### {output.get('framework_label') or '교육과정 연계'}")
+        link_rows = output.get("curriculum_links") or []
+        if link_rows:
+            curriculum_df = pd.DataFrame(link_rows).rename(columns={"area": "영역", "description": "내용"})
+            st.dataframe(curriculum_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("선택한 교육과정 영역의 연계 설명이 없습니다.")
+
+        st.markdown(f"#### {output.get('observation_label') or '영유아 관찰 및 평가'}")
+        render_result_card(str(output.get("observation_evaluation") or ""), "result-card-gray")
+
+        next_plan = str(output.get("next_play_support_plan") or "").strip()
+        if next_plan:
+            st.markdown("#### 다음 놀이 지원 계획")
+            st.caption("교사가 입력한 계획을 원문 그대로 표시합니다.")
+            render_result_card(next_plan, "result-card-gray")
+
+        st.markdown(f"#### {output.get('record_label') or '종합 기록'}")
+        render_result_card(str(output.get("integrated_record") or ""), "result-card-gray")
+        return
+
+    for index, example in enumerate(output.get("examples") or [], start=1):
+        st.markdown(f"#### {output_type} 예시 {index}")
+        render_result_card(str(example), "result-card-gray")
 
 
 def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
@@ -7421,10 +7669,9 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
         context.get("teacher_support_notes"),
     )
     analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-    return (
+    base = (
         "교사의 발견 | 사진 기반 놀이 기록\n\n"
         f"놀이명: {context.get('play_name') or '-'}\n"
-        f"놀이를 통한 배움의 이해: {context.get('play_goal') or '-'}\n"
         f"연령: {context.get('age_group') or '-'}\n"
         f"아이 별칭: {context.get('child_alias') or '-'}\n"
         f"교육과정 영역: {curriculum_display_text(context.get('curriculum_areas'))}\n"
@@ -7435,17 +7682,16 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
         f"[사진-놀이명 점검]\n"
         f"상태: {analysis.get('photo_match_status') or '-'}\n"
         f"사유: {analysis.get('photo_match_reason') or '-'}\n\n"
-        f"[교사가 수정한 1차 정보]\n{first_draft.strip()}\n\n"
-        f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
+        f"[사진에 대한 1차 분석 결과]\n{first_draft.strip()}\n\n"
     )
-
+    return base + f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
 
 with tab2:
     reset_tab2_inputs_once()
     render_menu_card(
         "🧚‍♀️ 사진 기반 놀이 기록 만들기",
-        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 교사가 1차 정보를 수정한 뒤 놀이 이야기·일지·알림장으로 다시 생성할 수 있습니다.",
-        ["사진 자동 추천", "사진-놀이명 점검", "1차 정보 생성", "교사 수정", "다시 생성", "기록 다운로드"]
+        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 사진 분석 결과와 교사의 관찰을 바탕으로 놀이 이야기·보육일지를 과정과 함께 생성합니다.",
+        ["사진 자동 추천", "사진-놀이명 점검", "사진 1차 분석", "교사 관찰", "과정 산출", "기록 다운로드"]
     )
 
     if not member_is_logged_in():
@@ -7453,13 +7699,6 @@ with tab2:
     else:
         st.markdown("### 1. 놀이 기본 정보")
         play_name = st.text_input("놀이명", placeholder="예: 블록으로 만든 우리 동네", key="wizard_play_name")
-        play_goal = st.text_area(
-            "놀이를 통한 배움의 이해",
-            placeholder="예: 영유아의 흥미와 관심에서 시작된 놀이가 즐거운 경험으로 이어진 상황을 이해하고, 스스로 선택하고 시도하는 과정이 놀이 배움으로 연결되도록 지원하고자 합니다.",
-            help="영유아의 흥미와 관심이 어떤 놀이 경험으로 이어졌는지, 교사가 자율성과 배움을 어떻게 지원하고자 하는지 적어 주세요.",
-            height=110,
-            key="wizard_play_goal",
-        )
         info_col1, info_col2 = st.columns(2)
         with info_col1:
             age_group = st.selectbox("연령", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="wizard_age_group")
@@ -7469,11 +7708,11 @@ with tab2:
         if age_group in ["0세", "1세", "2세"]:
             curriculum_options = STANDARD_AREAS
             curriculum_label = "표준보육과정 영역 (복수 선택)"
-            curriculum_help = "0~2세는 표준보육과정 5개 영역 중 필요한 항목을 복수로 선택합니다."
+            curriculum_help = "0~2세는 표준보육과정 영역 중 사진과 관찰 장면에 실제로 연결되는 항목을 복수로 선택합니다."
         elif age_group in ["3세", "4세", "5세"]:
             curriculum_options = NURI_AREAS
             curriculum_label = "누리과정 영역 (복수 선택)"
-            curriculum_help = "3~5세는 누리과정 5개 영역 중 필요한 항목을 복수로 선택합니다."
+            curriculum_help = "3~5세는 누리과정 영역 중 사진과 관찰 장면에 실제로 연결되는 항목을 복수로 선택합니다."
         else:
             curriculum_options = []
             curriculum_label = "표준보육과정·누리과정 영역 (복수 선택)"
@@ -7490,6 +7729,8 @@ with tab2:
         st.caption(curriculum_help)
 
         record_type = st.selectbox("놀이 기록 유형", ["- 선택 -", "놀이 이야기", "일지", "알림장"], key="wizard_record_type")
+        render_record_type_guidance(record_type, age_group)
+
         play_subcategories: list[str] = []
         teacher_supports: list[str] = []
         play_subcategory_notes: dict[str, str] = {}
@@ -7505,14 +7746,16 @@ with tab2:
             )
             st.caption("일반형은 따뜻하고 자연스럽게, 예민형·공격형은 사실과 지원을 더 중립적으로, 불안형은 차분한 안내 중심으로 문장을 생성합니다.")
 
-        if record_type == "놀이 이야기":
-            st.markdown("#### 놀이 이야기 세부 구성")
+        if record_type in ["놀이 이야기", "일지"]:
+            heading = "놀이 이야기 세부 구성" if record_type == "놀이 이야기" else "보육일지 세부 구성"
+            st.markdown(f"#### {heading}")
             play_subcategories = st.multiselect(
                 "놀이 세부 구분 (복수 선택)",
                 PLAY_STORY_DETAIL_OPTIONS,
                 key="wizard_play_subcategories",
                 placeholder="선택해 주세요.",
             )
+            render_play_detail_guidance(age_group, play_subcategories)
             play_subcategory_notes = render_selected_note_inputs(play_subcategories, "play_detail")
 
             teacher_supports = st.multiselect(
@@ -7522,7 +7765,7 @@ with tab2:
                 placeholder="선택해 주세요.",
             )
             teacher_support_notes = render_selected_note_inputs(teacher_supports, "teacher_support")
-            st.caption("선택값과 교사가 적은 실제 장면·구체 지원은 ‘놀이에서 읽은 배움’과 ‘교사의 지원’ 결과에 함께 반영됩니다.")
+            st.caption("선택한 놀이 세부 구분과 교사의 지원은 각각 구체 설명을 입력해야 합니다. 입력 내용은 교육과정 연계, 관찰 및 평가, 종합 기록에 반영됩니다.")
 
         st.markdown("### 2. 사진 등록 및 자동 추천")
         uploaded_play_photos = st.file_uploader(
@@ -7539,10 +7782,10 @@ with tab2:
         )
 
         if st.button("사진 자동 추천 및 1차 정보 만들기", key="wizard_start_analysis"):
+            missing_detail_notes = [option for option in play_subcategories if not _as_note_dict(play_subcategory_notes).get(option, "").strip()]
+            missing_support_notes = [option for option in teacher_supports if not _as_note_dict(teacher_support_notes).get(option, "").strip()]
             if not play_name.strip():
                 st.warning("놀이명을 입력해 주세요.")
-            elif not play_goal.strip():
-                st.warning("놀이를 통한 배움의 이해를 입력해 주세요.")
             elif age_group == "- 선택 -":
                 st.warning("연령을 선택해 주세요.")
             elif not child_alias.strip():
@@ -7553,6 +7796,14 @@ with tab2:
                 st.warning("놀이 기록 유형을 선택해 주세요.")
             elif record_type == "알림장" and parent_type == "- 선택 -":
                 st.warning("알림장에 적용할 보호자 유형을 선택해 주세요.")
+            elif record_type in ["놀이 이야기", "일지"] and not play_subcategories:
+                st.warning("놀이 세부 구분을 한 개 이상 선택해 주세요.")
+            elif record_type in ["놀이 이야기", "일지"] and not teacher_supports:
+                st.warning("교사의 지원을 한 개 이상 선택해 주세요.")
+            elif missing_detail_notes:
+                st.warning("선택한 놀이 세부 구분의 실제 장면 설명을 모두 입력해 주세요: " + ", ".join(missing_detail_notes))
+            elif missing_support_notes:
+                st.warning("선택한 교사의 지원의 구체 지원 내용을 모두 입력해 주세요: " + ", ".join(missing_support_notes))
             elif not uploaded_play_photos:
                 st.warning("놀이 사진을 한 장 이상 등록해 주세요.")
             elif len(uploaded_play_photos) < MIN_RECOMMENDED_PLAY_PHOTO_COUNT:
@@ -7564,7 +7815,6 @@ with tab2:
             else:
                 context = {
                     "play_name": play_name,
-                    "play_goal": play_goal,
                     "age_group": age_group,
                     "child_alias": child_alias,
                     "curriculum_areas": curriculum_areas,
@@ -7574,6 +7824,8 @@ with tab2:
                     "play_subcategory_notes": play_subcategory_notes,
                     "teacher_supports": teacher_supports,
                     "teacher_support_notes": teacher_support_notes,
+                    "teacher_observed_situation": "",
+                    "next_play_support_plan": "",
                 }
                 session_id = ""
                 try:
@@ -7585,7 +7837,7 @@ with tab2:
                         session = create_play_session(
                             current_member_user_id(),
                             play_name,
-                            play_goal,
+                            "",
                             age_group,
                             child_alias,
                             curriculum_areas,
@@ -7614,10 +7866,11 @@ with tab2:
                     st.session_state["wizard_selected_photo_names"] = [str(getattr(file, "name", "")) for file in recommended_files]
                     st.session_state["wizard_analysis_result"] = analysis
                     st.session_state["wizard_initial_draft"] = analysis.get("draft") or ""
+                    st.session_state["wizard_teacher_observed_situation"] = ""
+                    st.session_state["wizard_next_play_support_plan"] = ""
                     st.session_state.pop("wizard_final_output", None)
                     st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
                 except Exception as exc:
-                    # 세션 생성 뒤 어느 단계에서든 실패하면 원본 파일과 메타데이터가 남지 않게 정리합니다.
                     if session_id:
                         delete_photos_for_session(session_id)
                         try:
@@ -7630,7 +7883,7 @@ with tab2:
         analysis = st.session_state.get("wizard_analysis_result") or {}
         context = st.session_state.get("wizard_context") or {}
         if analysis and context:
-            st.markdown("### 3. 사진 1차 분석 정보")
+            st.markdown("### 3. 사진에 대한 1차 분석 결과")
             selected_names = st.session_state.get("wizard_selected_photo_names") or []
             st.caption("자동 추천 사진: " + ", ".join(selected_names))
 
@@ -7638,14 +7891,12 @@ with tab2:
             photo_match_reason = str(analysis.get("photo_match_reason") or "").strip()
             if photo_match_status == "확인 필요":
                 st.warning(
-                    "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. "
-                    "사진 또는 놀이명을 다시 확인해 주세요.\n\n"
+                    "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. 사진 또는 놀이명을 다시 확인해 주세요.\n\n"
                     + (photo_match_reason or "사진 속 핵심 자료·행동을 다시 확인해 주세요.")
                 )
             elif photo_match_status == "판단 어려움":
                 st.info(
-                    "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. "
-                    "사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
+                    "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. 사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
                     + (photo_match_reason or "사진 속 핵심 자료·행동이 일부만 보입니다.")
                 )
             else:
@@ -7654,20 +7905,47 @@ with tab2:
             if analysis.get("ai_caption"):
                 st.info(analysis.get("ai_caption"))
             st.text_area(
-                "교사가 수정하는 1차 정보 (4~6문장)",
+                "사진에 대한 1차 분석 결과 (교사가 수정 가능)",
                 height=210,
                 key="wizard_initial_draft",
                 help="사진 분석으로 만든 초안입니다. 실제 관찰 내용과 기관의 기록 원칙에 맞게 교사가 수정해 주세요.",
             )
-            revision_direction = st.text_area("수정 방향 (선택)", placeholder="예: 교사의 지원은 자료 지원보다 상호작용 지원 중심으로 표현해 주세요.", height=85, key="wizard_revision_direction")
-            if st.button("수정 방향 반영해 최종 문장 다시 생성", key="wizard_regenerate"):
+            if "wizard_teacher_observed_situation" not in st.session_state and context.get("teacher_observed_situation"):
+                st.session_state["wizard_teacher_observed_situation"] = str(context.get("teacher_observed_situation") or "")
+            if "wizard_next_play_support_plan" not in st.session_state and context.get("next_play_support_plan"):
+                st.session_state["wizard_next_play_support_plan"] = str(context.get("next_play_support_plan") or "")
+            teacher_observed_situation = st.text_area(
+                "교사가 관찰한 놀이 상황 (필수 입력)",
+                placeholder="예: 영아들이 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다.",
+                height=120,
+                key="wizard_teacher_observed_situation",
+                help="사진에서 확인한 장면에 교사가 실제로 관찰한 놀이 흐름, 말과 행동, 관계 장면을 적어 주세요.",
+            )
+            next_play_support_plan = st.text_area(
+                "다음 놀이 지원 계획 (선택)",
+                placeholder="예: 가격표와 메뉴판을 추가로 제공해 가게 놀이가 글자와 수 개념 탐색으로 이어지도록 지원합니다.",
+                height=100,
+                key="wizard_next_play_support_plan",
+                help="입력하면 최종 결과에 교사가 작성한 문장을 그대로 표시합니다. 입력하지 않으면 결과에 표시하지 않습니다.",
+            )
+            if st.button("교사가 관찰한 놀이 상황을 반영해 최종 기록 생성", key="wizard_regenerate"):
                 edited_draft = str(st.session_state.get("wizard_initial_draft") or "").strip()
                 if not edited_draft:
-                    st.warning("교사가 수정한 1차 정보를 입력해 주세요.")
+                    st.warning("사진에 대한 1차 분석 결과를 확인하고 수정해 주세요.")
+                elif not teacher_observed_situation.strip():
+                    st.warning("교사가 관찰한 놀이 상황은 필수 입력입니다.")
                 else:
                     try:
-                        with st.spinner("교사가 수정한 방향을 반영해 최종 기록을 만들고 있습니다."):
-                            output = generate_final_play_record(context, edited_draft, revision_direction)
+                        context["teacher_observed_situation"] = teacher_observed_situation.strip()
+                        context["next_play_support_plan"] = next_play_support_plan.strip()
+                        st.session_state["wizard_context"] = context
+                        update_play_session_teacher_context(
+                            str(st.session_state.get("wizard_session_id") or ""),
+                            teacher_observed_situation,
+                            next_play_support_plan,
+                        )
+                        with st.spinner("사진 1차 분석 결과와 교사의 관찰을 반영해 과정형 기록을 만들고 있습니다."):
+                            output = generate_final_play_record(context, edited_draft)
                             save_generated_text(
                                 str(st.session_state.get("wizard_session_id") or ""),
                                 current_member_user_id(),
@@ -7677,19 +7955,18 @@ with tab2:
                                 str(analysis.get("draft") or ""),
                             )
                         st.session_state["wizard_final_output"] = output
-                        st.success("최종 기록을 만들었습니다.")
+                        st.success("사진 분석, 교사 관찰, 교육과정 연계, 종합 기록을 생성했습니다.")
                     except Exception as exc:
                         st.error("최종 기록을 만들지 못했습니다.")
                         st.caption(str(exc))
 
         output = st.session_state.get("wizard_final_output") or {}
         if output and context:
-            st.markdown("### 4. 최종 생성 결과")
+            st.markdown("### 4. 과정과 최종 기록")
             render_final_play_output(output)
             download_text = build_record_download_text(context, str(st.session_state.get("wizard_initial_draft") or ""), output)
             safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(context.get("play_name") or "놀이기록"))[:40]
             st.download_button("기록 다운로드", data=download_text.encode("utf-8"), file_name=f"{safe_title}_놀이기록.txt", mime="text/plain", key="wizard_record_download")
-
 
 # =========================
 # TAB 3. 사진 보정
@@ -8091,11 +8368,11 @@ with tab7:
                     "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
                     "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
                     "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
-                    "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
-                    "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진 1차 분석",
+                    "play_name": "놀이명", "age_group": "연령", "child_alias": "아이 별칭", "teacher_observed_situation": "교사가 관찰한 놀이 상황", "next_play_support_plan": "다음 놀이 지원 계획", "curriculum_areas": "교육과정 영역",
+                    "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진에 대한 1차 분석 결과",
                     "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
                     "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
-                    "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
+                    "result_text": "생성 결과", "edited_text": "교사가 수정한 1차 분석 결과", "source_text": "원본 사진 1차 분석 결과", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
                 }
 
                 st.markdown("### 현재 활성 기록")
