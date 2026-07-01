@@ -39,6 +39,26 @@ try:
 except Exception:
     OpenAI = None
 
+# Word 문서 다운로드용 라이브러리입니다.
+# Streamlit Cloud에서는 requirements.txt에 python-docx를 추가해야 합니다.
+try:
+    from docx import Document
+    from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, RGBColor
+except Exception:
+    Document = None
+    WD_ALIGN_VERTICAL = None
+    WD_TABLE_ALIGNMENT = None
+    WD_ALIGN_PARAGRAPH = None
+    OxmlElement = None
+    qn = None
+    Cm = None
+    Pt = None
+    RGBColor = None
+
 from manual_automation_app import rank_images
 
 st.set_page_config(page_title="놀이 기록 자동화", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
@@ -8282,6 +8302,308 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
     )
     return base + f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
 
+
+# =========================
+# Word 문서 다운로드
+# =========================
+WORD_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+WORD_FONT_NAME = "맑은 고딕"
+
+
+def _docx_set_east_asia_font(run_or_style, font_name: str = WORD_FONT_NAME):
+    """한글이 Word에서 안정적으로 보이도록 동아시아 글꼴을 함께 지정합니다."""
+    if qn is None:
+        return
+    try:
+        element = getattr(run_or_style, "_element", None)
+        if element is None:
+            return
+        rpr = element.get_or_add_rPr()
+        rfonts = rpr.rFonts
+        if rfonts is None:
+            rfonts = OxmlElement("w:rFonts")
+            rpr.append(rfonts)
+        rfonts.set(qn("w:ascii"), font_name)
+        rfonts.set(qn("w:hAnsi"), font_name)
+        rfonts.set(qn("w:eastAsia"), font_name)
+    except Exception:
+        pass
+
+
+def _docx_style_run(run, *, font_size: float = 10.5, bold: bool = False, color: str | None = None):
+    run.font.name = WORD_FONT_NAME
+    _docx_set_east_asia_font(run, WORD_FONT_NAME)
+    if Pt is not None:
+        run.font.size = Pt(font_size)
+    run.bold = bold
+    if color and RGBColor is not None:
+        try:
+            run.font.color.rgb = RGBColor.from_string(color)
+        except Exception:
+            pass
+
+
+def _docx_set_cell_shading(cell, fill: str):
+    if OxmlElement is None or qn is None:
+        return
+    try:
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = tc_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tc_pr.append(shd)
+        shd.set(qn("w:fill"), fill)
+        shd.set(qn("w:val"), "clear")
+    except Exception:
+        pass
+
+
+def _docx_set_cell_text(cell, text: str, *, bold: bool = False, color: str | None = None, font_size: float = 10.2):
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.paragraph_format.space_after = Pt(0) if Pt is not None else 0
+    lines = str(text or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            paragraph.add_run().add_break()
+        run = paragraph.add_run(line)
+        _docx_style_run(run, font_size=font_size, bold=bold, color=color)
+    if WD_ALIGN_VERTICAL is not None:
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+
+def _docx_add_heading(doc, text: str, level: int = 2):
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(13 if Pt is not None else 0)
+    paragraph.paragraph_format.space_after = Pt(6 if Pt is not None else 0)
+    run = paragraph.add_run(text)
+    _docx_style_run(run, font_size=13.5 if level == 2 else 12, bold=True, color="163A5F")
+    return paragraph
+
+
+def _docx_add_body(doc, text: str, *, font_size: float = 10.6):
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_after = Pt(5 if Pt is not None else 0)
+    paragraph.paragraph_format.line_spacing = 1.55
+    lines = str(text or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            paragraph.add_run().add_break()
+        run = paragraph.add_run(line)
+        _docx_style_run(run, font_size=font_size)
+    return paragraph
+
+
+def _docx_add_metadata_table(doc, rows: list[tuple[str, str]]):
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    if WD_TABLE_ALIGNMENT is not None:
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for label, value in rows:
+        cells = table.add_row().cells
+        _docx_set_cell_shading(cells[0], "EAF3FB")
+        _docx_set_cell_text(cells[0], label, bold=True, color="163A5F")
+        _docx_set_cell_text(cells[1], value or "-")
+    doc.add_paragraph()
+    return table
+
+
+def _docx_add_two_column_table(doc, headers: tuple[str, str], rows: list[tuple[str, str]]):
+    table = doc.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+    if WD_TABLE_ALIGNMENT is not None:
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    header_cells = table.rows[0].cells
+    for cell, text in zip(header_cells, headers):
+        _docx_set_cell_shading(cell, "1F4E78")
+        _docx_set_cell_text(cell, text, bold=True, color="FFFFFF")
+    for left, right in rows:
+        cells = table.add_row().cells
+        _docx_set_cell_text(cells[0], left or "-")
+        _docx_set_cell_text(cells[1], right or "-")
+    doc.add_paragraph()
+    return table
+
+
+def _docx_add_highlight_box(doc, title: str, body: str, *, fill: str = "F2F7FC"):
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    cell = table.cell(0, 0)
+    _docx_set_cell_shading(cell, fill)
+    cell.text = ""
+    title_p = cell.paragraphs[0]
+    title_p.paragraph_format.space_after = Pt(4 if Pt is not None else 0)
+    title_run = title_p.add_run(title)
+    _docx_style_run(title_run, font_size=11.1, bold=True, color="163A5F")
+    body_p = cell.add_paragraph()
+    body_p.paragraph_format.line_spacing = 1.5
+    lines = str(body or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            body_p.add_run().add_break()
+        body_run = body_p.add_run(line)
+        _docx_style_run(body_run, font_size=10.5)
+    doc.add_paragraph()
+    return table
+
+
+def _docx_selection_note_rows(selected, notes) -> list[tuple[str, str]]:
+    selected_values = _as_text_list(selected)
+    note_map = _as_note_dict(notes)
+    return [(item, note_map.get(item) or "미입력") for item in selected_values]
+
+
+def build_record_word_document(
+    context: dict,
+    first_draft: str,
+    output: dict,
+    selected_photo_names: list[str] | None = None,
+) -> bytes:
+    """기록요정 결과를 문서형 Word 파일로 정리합니다.
+
+    생성 과정과 최종 기록을 한 파일에 담되, 교사가 현장에서 바로 열람·인쇄할 수 있도록
+    제목·기본정보·표·섹션·강조 박스 중심으로 구성합니다.
+    """
+    if Document is None:
+        raise RuntimeError("Word 다운로드 구성요소가 설치되지 않았습니다. requirements.txt에 python-docx를 추가해 주세요.")
+
+    doc = Document()
+    section = doc.sections[0]
+    if Cm is not None:
+        section.top_margin = Cm(1.7)
+        section.bottom_margin = Cm(1.7)
+        section.left_margin = Cm(1.8)
+        section.right_margin = Cm(1.8)
+
+    # 문서 전체 기본 글꼴
+    for style_name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
+        try:
+            style = doc.styles[style_name]
+            style.font.name = WORD_FONT_NAME
+            _docx_set_east_asia_font(style, WORD_FONT_NAME)
+        except Exception:
+            pass
+    try:
+        doc.styles["Normal"].font.size = Pt(10.5)
+    except Exception:
+        pass
+
+    output_type = str(context.get("output_type") or output.get("output_type") or "기록")
+    play_name = str(context.get("play_name") or "오늘의 기록").strip()
+    age_group = str(context.get("age_group") or "-").strip()
+    child_alias = str(context.get("child_alias") or "-").strip()
+    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정")
+    created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+
+    # 문서 제목
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    title_p.paragraph_format.space_after = Pt(4 if Pt is not None else 0)
+    title_run = title_p.add_run("놀이 기록 자동화")
+    _docx_style_run(title_run, font_size=19, bold=True, color="163A5F")
+
+    subtitle_p = doc.add_paragraph()
+    subtitle_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    subtitle_p.paragraph_format.space_after = Pt(14 if Pt is not None else 0)
+    subtitle_run = subtitle_p.add_run(f"{output_type} 기록 문서")
+    _docx_style_run(subtitle_run, font_size=13.5, bold=True, color="4B647B")
+
+    # 기본 정보
+    _docx_add_heading(doc, "기록 기본 정보")
+    metadata_rows = [
+        ("놀이명", play_name or "-"),
+        ("기록 유형", output_type),
+        ("연령", age_group),
+        ("아이 별칭", child_alias),
+        ("교육과정 영역", curriculum_display_text(context.get("curriculum_areas"))),
+        ("생성일시", created_at),
+    ]
+    if output_type == "알림장":
+        metadata_rows.insert(4, ("보호자 유형", str(context.get("parent_type") or "일반형")))
+    _docx_add_metadata_table(doc, metadata_rows)
+
+    # 입력 과정 요약
+    _docx_add_heading(doc, "기록 생성 과정")
+    selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
+    if selected_photo_names:
+        _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
+
+    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+    match_status = str(analysis.get("photo_match_status") or "-").strip()
+    match_reason = str(analysis.get("photo_match_reason") or "-").strip()
+    _docx_add_highlight_box(doc, "사진-놀이명 점검", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
+
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
+    if component_rows:
+        _docx_add_heading(doc, f"{component_label}과 실제 장면")
+        _docx_add_two_column_table(doc, (component_label, "교사가 입력한 실제 장면"), component_rows)
+
+    if output_type == "놀이 이야기":
+        support_rows = _docx_selection_note_rows(context.get("teacher_supports"), context.get("teacher_support_notes"))
+        if support_rows:
+            _docx_add_heading(doc, "교사의 지원과 구체 지원")
+            _docx_add_two_column_table(doc, ("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
+
+    _docx_add_heading(doc, "사진에 대한 1차 분석 결과")
+    _docx_add_body(doc, first_draft.strip() or "-")
+
+    # 알림장은 3개 예시 중심으로 출력합니다.
+    if output_type == "알림장":
+        observed = str(context.get("teacher_observed_situation") or "").strip()
+        if observed:
+            _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
+            _docx_add_body(doc, observed)
+        _docx_add_heading(doc, "알림장 기록 예시")
+        examples = output.get("examples") or []
+        for index, example in enumerate(examples, start=1):
+            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="F2F7FC")
+    else:
+        # 놀이 이야기·보육일지 과정형 기록
+        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
+        _docx_add_heading(doc, photo_section_title)
+        _docx_add_body(doc, str(output.get("photo_play_content") or "-"))
+
+        _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
+        _docx_add_body(doc, str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"))
+
+        _docx_add_heading(doc, f"{framework} 연계")
+        curriculum_rows = []
+        for item in output.get("curriculum_links") or []:
+            if isinstance(item, dict):
+                curriculum_rows.append((str(item.get("area") or "-"), str(item.get("description") or "-")))
+        if curriculum_rows:
+            _docx_add_two_column_table(doc, ("영역", "내용"), curriculum_rows)
+        else:
+            _docx_add_body(doc, "선택한 교육과정 영역의 연계 설명이 없습니다.")
+
+        _docx_add_heading(doc, str(output.get("observation_label") or "영유아 관찰 및 평가"))
+        _docx_add_body(doc, str(output.get("observation_evaluation") or "-"))
+
+        next_plan = str(output.get("next_play_support_plan") or "").strip()
+        if next_plan:
+            _docx_add_heading(doc, "다음 놀이 지원 계획")
+            _docx_add_highlight_box(doc, "교사가 입력한 지원 계획", next_plan, fill="F6FBF5")
+
+        _docx_add_heading(doc, str(output.get("record_label") or "종합 기록"))
+        _docx_add_highlight_box(doc, "최종 기록", str(output.get("integrated_record") or "-"), fill="EDF5FC")
+
+    # 푸터: 별도 유의 문단을 마지막 페이지에 밀어 넣지 않도록 푸터에 간결히 표시합니다.
+    footer = section.footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    footer_run = footer.add_run("놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다.")
+    _docx_style_run(footer_run, font_size=8.3, color="667085")
+
+    doc.core_properties.title = f"{play_name}_{output_type}"
+    doc.core_properties.subject = "놀이 기록 자동화 결과"
+    doc.core_properties.author = "놀이 기록 자동화"
+
+    output_buffer = io.BytesIO()
+    doc.save(output_buffer)
+    output_buffer.seek(0)
+    return output_buffer.getvalue()
+
+
 with tab2:
     reset_tab2_inputs_once()
     render_menu_card(
@@ -8578,9 +8900,25 @@ with tab2:
         if output and context:
             st.markdown("### 4. 과정과 최종 기록")
             render_final_play_output(output)
-            download_text = build_record_download_text(context, str(st.session_state.get("wizard_initial_draft") or ""), output)
             safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(context.get("play_name") or "놀이기록"))[:40]
-            st.download_button("기록 다운로드", data=download_text.encode("utf-8"), file_name=f"{safe_title}_놀이기록.txt", mime="text/plain", key="wizard_record_download")
+            try:
+                word_document = build_record_word_document(
+                    context,
+                    str(st.session_state.get("wizard_initial_draft") or ""),
+                    output,
+                    st.session_state.get("wizard_selected_photo_names") or [],
+                )
+                st.download_button(
+                    "Word 문서 다운로드",
+                    data=word_document,
+                    file_name=f"{safe_title}_{str(context.get('output_type') or '놀이기록')}_기록.docx",
+                    mime=WORD_MIME_TYPE,
+                    key="wizard_record_download_docx",
+                )
+                st.caption("기본 정보, 사진 분석 과정, 교육과정 연계, 관찰·평가, 최종 기록이 보기 편한 Word 문서로 저장됩니다.")
+            except Exception as exc:
+                st.error("Word 문서를 만들지 못했습니다. requirements.txt에 python-docx가 설치되어 있는지 확인해 주세요.")
+                st.caption(str(exc))
 
 # =========================
 # TAB 3. 사진 보정
