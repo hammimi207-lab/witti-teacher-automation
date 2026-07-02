@@ -6198,9 +6198,9 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-force_sidebar_collapsed_on_first_load()
-apply_sidebar_open_hint()
-apply_mobile_settings_launcher()
+#force_sidebar_collapsed_on_first_load()
+#apply_sidebar_open_hint()
+#apply_mobile_settings_launcher()
 apply_multiselect_korean_labels()
 purge_expired_private_records_once_per_session()
 
