@@ -4,6 +4,7 @@
 # 실행: streamlit run streamlit_app.py
 
 import base64
+import copy
 import hashlib
 import hmac
 import re
@@ -995,6 +996,224 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 
 
 # =========================
+# UI/UX 계층 보정
+# - 색상 팔레트는 기존 값을 그대로 사용하고, 정보 구조·여백·크기만 정리합니다.
+# =========================
+st.markdown(
+    """
+    <style>
+    /* 대메뉴: 플랫폼의 중심 흐름을 명확히 보여 주는 카드형 내비게이션 */
+    div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+        display:flex !important;
+        align-items:center !important;
+        gap:8px !important;
+        padding:9px !important;
+        margin:4px 0 24px !important;
+        overflow-x:auto !important;
+        background:rgba(255,255,255,0.95) !important;
+        border:1px solid var(--witti-line) !important;
+        border-radius:20px !important;
+        box-shadow:0 10px 26px rgba(15, 23, 42, 0.07) !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+        flex:1 0 auto !important;
+        min-width:126px !important;
+        min-height:48px !important;
+        padding:11px 16px !important;
+        border:1px solid transparent !important;
+        border-radius:13px !important;
+        background:#F8FAFD !important;
+        color:#52657B !important;
+        font-size:14px !important;
+        font-weight:850 !important;
+        letter-spacing:-0.25px !important;
+        white-space:nowrap !important;
+        transition:all .16s ease !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"]:hover {
+        background:#EEF6FF !important;
+        border-color:#D8E9FF !important;
+        color:var(--witti-navy) !important;
+        transform:translateY(-1px);
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
+        border-color:#0B2A45 !important;
+        color:#FFFFFF !important;
+        box-shadow:0 8px 16px rgba(11,42,69,.18) !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] * {
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+    }
+
+    /* 소메뉴: 상위 메뉴보다 한 단계 가볍게, 선택 상태만 또렷하게 */
+    div[data-testid="stTabs"].witti-sub-tabs > div[role="tablist"] {
+        gap:5px !important;
+        padding:0 0 6px !important;
+        margin:2px 0 16px !important;
+        background:transparent !important;
+        border:0 !important;
+        border-bottom:1px solid #E2EAF3 !important;
+        border-radius:0 !important;
+        box-shadow:none !important;
+        overflow-x:auto !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+        min-height:34px !important;
+        padding:6px 10px !important;
+        border:0 !important;
+        border-radius:9px !important;
+        background:transparent !important;
+        color:#73839A !important;
+        font-size:13px !important;
+        font-weight:750 !important;
+        letter-spacing:-0.18px !important;
+        white-space:nowrap !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"]:hover {
+        background:#F2F7FD !important;
+        color:#174F80 !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:#EAF4FF !important;
+        color:#174F80 !important;
+        border:1px solid #CBE1F8 !important;
+        box-shadow:none !important;
+    }
+
+    /* 관리자 공지 관리: 조작 버튼은 문서 편집 도구처럼 작고 분명하게 */
+    button.witti-compact-action {
+        min-height:32px !important;
+        height:32px !important;
+        padding:5px 10px !important;
+        border-radius:9px !important;
+        font-size:12.5px !important;
+        font-weight:800 !important;
+        line-height:1.1 !important;
+        box-shadow:none !important;
+    }
+    button.witti-compact-action:not(.witti-compact-primary) {
+        background:#FFFFFF !important;
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+        border:1px solid #CFE0F0 !important;
+    }
+    button.witti-compact-action:not(.witti-compact-primary) * {
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+    }
+    button.witti-compact-primary {
+        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+        border-color:#0B2A45 !important;
+    }
+    div[data-testid="stButton"].witti-compact-action-wrap {
+        width:auto !important;
+        max-width:max-content !important;
+    }
+    .witti-notice-attachment-card {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:11px 12px;
+        margin-top:8px;
+        background:#FFFFFF;
+        border:1px solid #DCE8F5;
+        border-radius:12px;
+    }
+    .witti-notice-attachment-name { color:#173C62; font-size:14px; font-weight:800; word-break:break-word; }
+    .witti-notice-attachment-meta { color:#667085; font-size:12px; margin-top:3px; }
+    .witti-notice-attachment-error { color:#B42318; font-size:12px; margin-top:4px; }
+
+    @media (max-width:768px) {
+        div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+            padding:7px !important; gap:6px !important; border-radius:16px !important; margin-bottom:18px !important;
+        }
+        div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+            min-width:112px !important; min-height:43px !important; padding:9px 12px !important; font-size:13px !important;
+        }
+        div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+            min-height:32px !important; font-size:12.5px !important; padding:6px 9px !important;
+        }
+        .witti-notice-attachment-card { align-items:flex-start; flex-direction:column; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def install_navigation_hierarchy_styling():
+    """대메뉴와 소메뉴를 DOM에서 구분해 시각 계층을 부여합니다.
+
+    Streamlit 탭은 모두 같은 DOM 구조를 사용하므로, 주 메뉴의 라벨을 기준으로 1회 표식하고
+    나머지 탭은 소메뉴 스타일로 표시합니다. 기능·색상은 바꾸지 않고 읽기 순서만 명확히 합니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MARKER = '__wittiNavigationHierarchyStyleInstalled';
+            const MAIN_LABELS = ['소통', '기록 요정', '사진 보정', '공지사항', '내 정보 보기', '관리자'];
+            const COMPACT_WORDS = ['내용 수정', '공지사항 저장', '저장 전 내용 되돌리기', '새 공지 작성', '첨부파일 목록에 추가', '이전 내용 보기'];
+
+            function markTabs() {
+                const roots = Array.from(doc.querySelectorAll('div[data-testid="stTabs"]'));
+                roots.forEach((root) => {
+                    const tablist = root.querySelector('div[role="tablist"]');
+                    if (!tablist) return;
+                    const labels = Array.from(tablist.querySelectorAll('button[data-baseweb="tab"]'))
+                        .map((button) => String(button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim());
+                    const mainHits = MAIN_LABELS.filter((label) => labels.some((value) => value.includes(label)));
+                    if (mainHits.length >= 4) {
+                        root.classList.add('witti-main-tabs');
+                        root.classList.remove('witti-sub-tabs');
+                    } else if (!root.classList.contains('witti-main-tabs')) {
+                        root.classList.add('witti-sub-tabs');
+                    }
+                });
+            }
+
+            function markCompactButtons() {
+                Array.from(doc.querySelectorAll('button')).forEach((button) => {
+                    const label = String(button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (!label) return;
+                    const isCompact = COMPACT_WORDS.some((word) => label.includes(word));
+                    if (!isCompact) return;
+                    button.classList.add('witti-compact-action');
+                    if (label.includes('공지사항 저장')) button.classList.add('witti-compact-primary');
+                    const wrap = button.closest('div[data-testid="stButton"]');
+                    if (wrap) wrap.classList.add('witti-compact-action-wrap');
+                });
+            }
+
+            function decorate() {
+                markTabs();
+                markCompactButtons();
+            }
+
+            decorate();
+            if (!win[MARKER]) {
+                win[MARKER] = new MutationObserver(decorate);
+                win[MARKER].observe(doc.body, { childList:true, subtree:true, attributes:true });
+            }
+            [150, 450, 900, 1800].forEach((delay) => setTimeout(decorate, delay));
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+# =========================
 # Supabase DB 설정 및 공통 함수
 # =========================
 # 주의: SQLite(witti_data.db)는 배포 환경에서 PC/세션마다 기록이 달라질 수 있어 사용하지 않습니다.
@@ -1085,7 +1304,7 @@ WITTI_SITE_LABEL = "놀이 기록 자동화"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-diary-components-platform-rename-v1"
+APP_VERSION = "2026-07-02-uiux-notice-attachments-cache-v2"
 
 
 # =========================
@@ -5111,13 +5330,90 @@ def _build_notice_attachments_html(blocks: list[dict]) -> str:
     return "<div class='notice-attachments'><div class='notice-attachments-title'>첨부파일</div>" + "".join(rendered) + "</div>"
 
 
-def render_notice_blocks(blocks: list[dict]):
+def _get_notice_attachment_bytes(bucket_name: str | None, attachment_path: str | None) -> bytes:
+    """Signed URL 생성이 실패해도 첨부파일 목록과 다운로드가 사라지지 않도록 서버에서 직접 읽습니다."""
+    path = str(attachment_path or "").strip()
+    if not path:
+        return b""
+    try:
+        response = supabase.storage.from_(str(bucket_name or NOTICE_ATTACHMENT_BUCKET)).download(path)
+        if isinstance(response, bytes):
+            return response
+        if isinstance(response, bytearray):
+            return bytes(response)
+        return bytes(response or b"")
+    except Exception:
+        return b""
+
+
+def render_notice_attachment_section(blocks: list[dict], key_prefix: str = "public_notice"):
+    """공지 본문과 별개로 첨부파일을 항상 표시합니다.
+
+    기존 HTML 렌더링은 signed URL 발급이 잠시 실패하면 첨부파일 전체를 숨기는 문제가 있었습니다.
+    이 함수는 파일 메타데이터를 우선 표시하고, 링크가 가능하면 열기 버튼을, 그렇지 않으면
+    서버 직접 다운로드 버튼을 제공해 첨부파일이 보이지 않는 문제를 막습니다.
+    """
+    document = _get_notice_document(blocks)
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    visible = []
+    for index, raw_attachment in enumerate(attachments):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        if not str(attachment.get("attachment_path") or "").strip():
+            continue
+        visible.append(attachment)
+
+    if not visible:
+        return
+
+    st.markdown("#### 첨부파일")
+    for index, attachment in enumerate(visible, start=1):
+        file_name = str(attachment.get("attachment_original_file_name") or f"첨부파일 {index}")
+        mime_type = str(attachment.get("attachment_mime_type") or "application/octet-stream")
+        icon = _attachment_icon(mime_type, file_name)
+        size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+        attachment_key = f"{key_prefix}_{attachment.get('attachment_id') or index}"
+        signed_url = create_platform_notice_attachment_signed_url(
+            attachment.get("attachment_bucket"),
+            attachment.get("attachment_path"),
+        )
+
+        with st.container(border=True):
+            left, right = st.columns([5, 1.45])
+            with left:
+                st.markdown(f"**{icon} {file_name}**")
+                if size_text:
+                    st.caption(size_text)
+                if not signed_url:
+                    st.caption("첨부파일 링크를 준비하는 중입니다. 아래 다운로드 버튼으로 파일을 받을 수 있습니다.")
+            with right:
+                if signed_url:
+                    st.link_button("열기 / 다운로드", signed_url, key=f"{attachment_key}_open", use_container_width=True)
+                else:
+                    data = _get_notice_attachment_bytes(
+                        attachment.get("attachment_bucket"),
+                        attachment.get("attachment_path"),
+                    )
+                    if data:
+                        st.download_button(
+                            "다운로드",
+                            data=data,
+                            file_name=file_name,
+                            mime=mime_type,
+                            key=f"{attachment_key}_download",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.caption("파일을 불러오지 못했습니다.")
+
+
+def render_notice_blocks(blocks: list[dict], key_prefix: str = "notice"):
     rendered = build_notice_blocks_html(blocks)
-    attachment_html = _build_notice_attachments_html(blocks)
-    combined = f"{rendered}{attachment_html}"
-    if combined:
-        st.markdown(f"<div class='notice-rich-content'>{combined}</div>", unsafe_allow_html=True)
-    else:
+    if rendered:
+        st.markdown(f"<div class='notice-rich-content'>{rendered}</div>", unsafe_allow_html=True)
+    render_notice_attachment_section(blocks, key_prefix=key_prefix)
+    if not rendered and not _get_notice_document(blocks).get("attachments"):
         st.caption("등록된 공지 내용이 없습니다.")
 
 
@@ -5275,7 +5571,7 @@ def _render_document_attachment_manager(token: str, document: dict):
             key=f"{token}_attachment_upload",
             help="이미지, PDF, 한글(HWP·HWPX) 파일을 최대 5개까지 선택할 수 있습니다.",
         )
-        if st.button("첨부파일 목록에 추가", key=f"{token}_attachment_add", use_container_width=True):
+        if st.button("첨부파일 목록에 추가", key=f"{token}_attachment_add", use_container_width=False):
             selected_files = list(selected_files or [])
             if not selected_files:
                 st.warning("추가할 첨부파일을 먼저 선택해 주세요.")
@@ -5351,7 +5647,7 @@ def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
     with st.expander("미리보기 열기", expanded=False):
         st.caption("저장 전 게시 화면을 확인할 수 있습니다. 긴 공지도 편집 영역을 가리지 않도록 높이를 제한했습니다.")
         with st.container(height=360, border=True):
-            render_notice_blocks([document])
+            render_notice_blocks([document], key_prefix=f"notice_preview_{token}")
     return [document]
 
 
@@ -5519,7 +5815,7 @@ def render_public_notice_page():
         with st.expander(f"{pin_mark}{icon} {title}", expanded=(index == 0 and _as_bool(notice.get("is_pinned")))):
             if created_at:
                 st.caption(f"{_content_level_label(level)} · {created_at}")
-            render_notice_blocks(_notice_blocks_from_record(notice))
+            render_notice_blocks(_notice_blocks_from_record(notice), key_prefix=f"public_notice_{notice.get('id') or index}")
 
 
 def render_admin_notice_manager():
@@ -5598,7 +5894,7 @@ def render_admin_notice_manager():
                     if st.button(
                         f"{_content_level_icon(level)} #{row_id} · {title_value}",
                         key=f"notice_open_title_{row_id}",
-                        use_container_width=True,
+                        use_container_width=False,
                     ):
                         _reset_notice_form_state(row_id)
                         st.session_state[target_key] = int(row_id)
@@ -5615,14 +5911,14 @@ def render_admin_notice_manager():
                     if row.get("display_start_at") or row.get("display_end_at"):
                         st.caption("게시 기간 설정됨")
                 with action_col:
-                    if st.button("내용 수정", key=f"notice_open_edit_{row_id}", use_container_width=True):
+                    if st.button("내용 수정", key=f"notice_open_edit_{row_id}", use_container_width=False):
                         _reset_notice_form_state(row_id)
                         st.session_state[target_key] = int(row_id)
                         st.rerun()
 
     top_col, status_col = st.columns([2, 6])
     with top_col:
-        if st.button("＋ 새 공지 작성", key="notice_open_new", use_container_width=True):
+        if st.button("＋ 새 공지 작성", key="notice_open_new", use_container_width=False):
             _reset_notice_form_state(None)
             st.session_state.pop(target_key, None)
             st.rerun()
@@ -5685,9 +5981,9 @@ def render_admin_notice_manager():
 
     save_col, reset_col = st.columns([3, 1])
     with save_col:
-        save_clicked = st.button("공지사항 저장", key=f"{token}_save", use_container_width=True)
+        save_clicked = st.button("공지사항 저장", key=f"{token}_save", use_container_width=False)
     with reset_col:
-        if record_id and st.button("저장 전 내용 되돌리기", key=f"{token}_reset", use_container_width=True):
+        if record_id and st.button("저장 전 내용 되돌리기", key=f"{token}_reset", use_container_width=False):
             _reset_notice_form_state(record_id)
             st.rerun()
 
@@ -5911,6 +6207,7 @@ purge_expired_private_records_once_per_session()
 tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📢 공지사항", "👤 내 정보 보기", "🔐 관리자"]
 tabs = st.tabs(tab_labels)
 tab1, tab2, tab3, tab_notice, tab6, tab7 = tabs
+install_navigation_hierarchy_styling()
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -8170,6 +8467,67 @@ def reset_tab2_inputs_once():
     st.session_state[reset_flag] = True
 
 
+# 기록요정 입력값은 탭 이동 중에는 유지하되, 실제 분석·생성이 완료된 뒤에는 다음 기록을 위해 비웁니다.
+# 결과 화면은 별도 완료 스냅샷으로 보존하므로, 입력창을 초기화해도 Word 다운로드와 결과 확인은 가능합니다.
+WIZARD_ENTRY_STATE_KEYS = [
+    "wizard_play_name",
+    "wizard_age_group",
+    "wizard_child_alias",
+    "wizard_curriculum_areas",
+    "wizard_record_type",
+    "wizard_parent_type",
+    "wizard_play_subcategories",
+    "wizard_teacher_supports",
+    "wizard_diary_components",
+    "wizard_play_photo_uploader",
+    "wizard_recommendation_count",
+    "wizard_photo_analysis_agree",
+]
+WIZARD_DYNAMIC_PREFIXES = (
+    "wizard_play_detail_note_",
+    "wizard_diary_component_note_",
+    "wizard_teacher_support_note_",
+)
+WIZARD_ANALYSIS_STATE_KEYS = [
+    "wizard_session_id",
+    "wizard_context",
+    "wizard_selected_photo_names",
+    "wizard_analysis_result",
+    "wizard_initial_draft",
+    "wizard_teacher_observed_situation",
+    "wizard_next_play_support_plan",
+    "wizard_final_output",
+]
+
+
+def _clear_wizard_entry_state():
+    for key in WIZARD_ENTRY_STATE_KEYS:
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith(WIZARD_DYNAMIC_PREFIXES):
+            st.session_state.pop(key, None)
+
+
+def apply_pending_wizard_cleanup():
+    """위젯이 만들어지기 전에만 실행해 Streamlit 상태 변경 오류를 피합니다."""
+    if st.session_state.pop("_wizard_clear_entry_after_analysis", False):
+        _clear_wizard_entry_state()
+    if st.session_state.pop("_wizard_clear_after_final", False):
+        _clear_wizard_entry_state()
+        for key in WIZARD_ANALYSIS_STATE_KEYS:
+            st.session_state.pop(key, None)
+
+
+def _store_completed_wizard_snapshot(context: dict, analysis: dict, initial_draft: str, selected_photo_names: list[str], output: dict):
+    st.session_state["wizard_completed_snapshot"] = {
+        "context": copy.deepcopy(context or {}),
+        "analysis": copy.deepcopy(analysis or {}),
+        "initial_draft": str(initial_draft or ""),
+        "selected_photo_names": list(selected_photo_names or []),
+        "output": copy.deepcopy(output or {}),
+    }
+
+
 PLAY_STORY_DETAIL_OPTIONS = [
     "관심의 시작", "탐색과 반복", "표현과 구성", "관계와 상호작용", "확장과 심화"
 ]
@@ -8605,6 +8963,7 @@ def build_record_word_document(
 
 
 with tab2:
+    apply_pending_wizard_cleanup()
     reset_tab2_inputs_once()
     render_menu_card(
         "🧚‍♀️ 사진 기반 놀이 기록 만들기",
@@ -8764,6 +9123,7 @@ with tab2:
                     "next_play_support_plan": "",
                 }
                 session_id = ""
+                analysis_completed = False
                 try:
                     with st.spinner("사진을 선별하고 비공개로 저장한 뒤, 놀이 장면을 분석하고 있습니다."):
                         recommended_files, quality_scores = select_recommended_play_photos(
@@ -8805,7 +9165,8 @@ with tab2:
                     st.session_state["wizard_teacher_observed_situation"] = ""
                     st.session_state["wizard_next_play_support_plan"] = ""
                     st.session_state.pop("wizard_final_output", None)
-                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
+                    st.session_state.pop("wizard_completed_snapshot", None)
+                    analysis_completed = True
                 except Exception as exc:
                     if session_id:
                         delete_photos_for_session(session_id)
@@ -8815,6 +9176,11 @@ with tab2:
                             pass
                     st.error("사진 추천·저장 또는 1차 분석을 완료하지 못했습니다.")
                     st.caption(str(exc))
+                if analysis_completed:
+                    # 분석 결과와 입력 맥락은 별도 session_state에 보존하고, 상단 입력폼만 비웁니다.
+                    st.session_state["_wizard_clear_entry_after_analysis"] = True
+                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
+                    st.rerun()
 
         analysis = st.session_state.get("wizard_analysis_result") or {}
         context = st.session_state.get("wizard_context") or {}
@@ -8871,6 +9237,7 @@ with tab2:
                 elif not teacher_observed_situation.strip():
                     st.warning("교사가 관찰한 놀이 상황은 필수 입력입니다.")
                 else:
+                    final_generation_completed = False
                     try:
                         context["teacher_observed_situation"] = teacher_observed_situation.strip()
                         context["next_play_support_plan"] = next_play_support_plan.strip()
@@ -8890,28 +9257,45 @@ with tab2:
                                 edited_draft,
                                 str(analysis.get("draft") or ""),
                             )
+                        _store_completed_wizard_snapshot(
+                            context=context,
+                            analysis=analysis,
+                            initial_draft=edited_draft,
+                            selected_photo_names=st.session_state.get("wizard_selected_photo_names") or [],
+                            output=output,
+                        )
                         st.session_state["wizard_final_output"] = output
-                        st.success("사진 분석, 교사 관찰, 교육과정 연계, 종합 기록을 생성했습니다.")
+                        st.session_state["_wizard_clear_after_final"] = True
+                        final_generation_completed = True
                     except Exception as exc:
                         st.error("최종 기록을 만들지 못했습니다.")
                         st.caption(str(exc))
+                    if final_generation_completed:
+                        st.success("사진 분석, 교사 관찰, 교육과정 연계, 종합 기록을 생성했습니다.")
+                        st.rerun()
 
-        output = st.session_state.get("wizard_final_output") or {}
-        if output and context:
+        completed_snapshot = st.session_state.get("wizard_completed_snapshot") or {}
+        completed_output = completed_snapshot.get("output") if isinstance(completed_snapshot, dict) else {}
+        completed_context = completed_snapshot.get("context") if isinstance(completed_snapshot, dict) else {}
+        completed_draft = completed_snapshot.get("initial_draft") if isinstance(completed_snapshot, dict) else ""
+        completed_photo_names = completed_snapshot.get("selected_photo_names") if isinstance(completed_snapshot, dict) else []
+        output = completed_output or st.session_state.get("wizard_final_output") or {}
+        output_context = completed_context or context
+        if output and output_context:
             st.markdown("### 4. 과정과 최종 기록")
             render_final_play_output(output)
-            safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(context.get("play_name") or "놀이기록"))[:40]
+            safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(output_context.get("play_name") or "놀이기록"))[:40]
             try:
                 word_document = build_record_word_document(
-                    context,
-                    str(st.session_state.get("wizard_initial_draft") or ""),
+                    output_context,
+                    str(completed_draft or st.session_state.get("wizard_initial_draft") or ""),
                     output,
-                    st.session_state.get("wizard_selected_photo_names") or [],
+                    list(completed_photo_names or st.session_state.get("wizard_selected_photo_names") or []),
                 )
                 st.download_button(
                     "Word 문서 다운로드",
                     data=word_document,
-                    file_name=f"{safe_title}_{str(context.get('output_type') or '놀이기록')}_기록.docx",
+                    file_name=f"{safe_title}_{str(output_context.get('output_type') or '놀이기록')}_기록.docx",
                     mime=WORD_MIME_TYPE,
                     key="wizard_record_download_docx",
                 )
@@ -8919,6 +9303,10 @@ with tab2:
             except Exception as exc:
                 st.error("Word 문서를 만들지 못했습니다. requirements.txt에 python-docx가 설치되어 있는지 확인해 주세요.")
                 st.caption(str(exc))
+
+            if st.button("새 기록 작성", key="wizard_start_new_record", use_container_width=False):
+                st.session_state.pop("wizard_completed_snapshot", None)
+                st.rerun()
 
 # =========================
 # TAB 3. 사진 보정
