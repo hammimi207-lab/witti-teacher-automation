@@ -105,11 +105,24 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
         linear-gradient(180deg, #FAFCFF 0%, var(--witti-bg) 44%, #FFFFFF 100%);
 }
 
+/* 데스크톱은 검색 포털처럼 중앙 콘텐츠 폭을 제한해 좌우 여백을 확보합니다. */
 .block-container {
-    padding-top: 1.45rem;
-    padding-left: 2.2rem;
-    padding-right: 2.2rem;
-    max-width: 1180px;
+    width: min(1120px, calc(100% - 96px)) !important;
+    max-width: 1120px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+    padding-top: 1.6rem;
+    padding-bottom: 3rem;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* 노트북·작은 데스크톱에서는 내용 폭을 너무 좁히지 않되, 최소 32px 이상의 양옆 여백을 유지합니다. */
+@media (min-width: 769px) and (max-width: 1200px) {
+    .block-container {
+        width: calc(100% - 64px) !important;
+    }
 }
 
 h1, h2, h3, h4 {
@@ -637,10 +650,14 @@ hr {
 }
 
     .block-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
         padding-top: 1.55rem;
+        padding-bottom: 2rem;
         padding-left: 1rem;
         padding-right: 1rem;
-        max-width: 100%;
     }
 
     .app-hero {
