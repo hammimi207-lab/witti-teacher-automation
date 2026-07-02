@@ -1056,192 +1056,11 @@ st.markdown(
 )
 
 
-# =========================
-# UI/UX 보정: 색상은 유지하고 메뉴의 정보 구조만 정돈합니다.
-# - 대메뉴는 카드형 탭
-# - 소메뉴는 가벼운 보조 탭
-# - 지속 MutationObserver를 사용하지 않아 로딩·브라우저 부담을 줄입니다.
-# =========================
-st.markdown(
-    """
-    <style>
-    .witti-menu-heading {
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:12px;
-        margin:8px 0 8px;
-    }
-    .witti-menu-heading-title {
-        color:var(--witti-navy);
-        font-size:14px;
-        font-weight:900;
-        letter-spacing:-0.25px;
-    }
-    .witti-menu-heading-copy {
-        color:var(--witti-muted);
-        font-size:12.5px;
-        font-weight:600;
-    }
-
-    /* 대메뉴 */
-    div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
-        display:flex !important;
-        align-items:stretch !important;
-        gap:8px !important;
-        padding:9px !important;
-        margin:0 0 24px !important;
-        overflow-x:auto !important;
-        background:rgba(255,255,255,0.96) !important;
-        border:1px solid var(--witti-line) !important;
-        border-radius:20px !important;
-        box-shadow:0 12px 28px rgba(15,23,42,.075) !important;
-        scrollbar-width:thin;
-    }
-    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
-        flex:1 0 132px !important;
-        min-width:132px !important;
-        min-height:50px !important;
-        padding:11px 15px !important;
-        border:1px solid #E0E8F2 !important;
-        border-radius:14px !important;
-        background:#F8FAFD !important;
-        color:#52657B !important;
-        font-size:14px !important;
-        font-weight:850 !important;
-        letter-spacing:-0.25px !important;
-        white-space:nowrap !important;
-        transition:transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease !important;
-    }
-    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"]:hover {
-        background:#EEF6FF !important;
-        border-color:#CBE1F8 !important;
-        color:var(--witti-navy) !important;
-        transform:translateY(-1px) !important;
-        box-shadow:0 6px 14px rgba(15,23,42,.07) !important;
-    }
-    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] {
-        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
-        border-color:#0B2A45 !important;
-        color:#FFFFFF !important;
-        box-shadow:0 8px 16px rgba(11,42,69,.18) !important;
-    }
-    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] * {
-        color:#FFFFFF !important;
-        -webkit-text-fill-color:#FFFFFF !important;
-    }
-
-    /* 소메뉴: 대메뉴보다 한 단계 가볍게 보이도록 정리 */
-    div[data-testid="stTabs"].witti-sub-tabs > div[role="tablist"] {
-        display:flex !important;
-        gap:6px !important;
-        padding:0 0 7px !important;
-        margin:2px 0 18px !important;
-        background:transparent !important;
-        border:0 !important;
-        border-bottom:1px solid #E2EAF3 !important;
-        border-radius:0 !important;
-        box-shadow:none !important;
-        overflow-x:auto !important;
-        scrollbar-width:thin;
-    }
-    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
-        min-height:34px !important;
-        padding:6px 11px !important;
-        border:1px solid transparent !important;
-        border-radius:9px !important;
-        background:transparent !important;
-        color:#73839A !important;
-        font-size:13px !important;
-        font-weight:750 !important;
-        letter-spacing:-0.16px !important;
-        white-space:nowrap !important;
-        box-shadow:none !important;
-    }
-    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"]:hover {
-        background:#F2F7FD !important;
-        color:#174F80 !important;
-    }
-    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"][aria-selected="true"] {
-        background:#EAF4FF !important;
-        color:#174F80 !important;
-        border-color:#CBE1F8 !important;
-        box-shadow:none !important;
-    }
-
-    /* 공지 작성·관리 조작 버튼: 문서 편집 도구 크기로 축소 */
-    div[class*="st-key-notice_"] div[data-testid="stButton"] button,
-    div[class*="st-key-notice_"] div[data-testid="stDownloadButton"] button,
-    div[class*="st-key-public_notice_"] div[data-testid="stButton"] button {
-        min-height:32px !important;
-        height:32px !important;
-        padding:5px 10px !important;
-        border-radius:9px !important;
-        font-size:12.5px !important;
-        font-weight:800 !important;
-        line-height:1.1 !important;
-        box-shadow:none !important;
-    }
-    div[class*="st-key-notice_"] div[data-testid="stButton"] button:not([kind="primary"]) {
-        background:#FFFFFF !important;
-        border-color:#CFE0F0 !important;
-        color:#174F80 !important;
-        -webkit-text-fill-color:#174F80 !important;
-    }
-    div[class*="st-key-notice_"] div[data-testid="stButton"] button:not([kind="primary"]) * {
-        color:#174F80 !important;
-        -webkit-text-fill-color:#174F80 !important;
-    }
-
-    .witti-notice-attachment-card {
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:12px;
-        padding:12px 13px;
-        margin-top:8px;
-        background:#FFFFFF;
-        border:1px solid #DCE8F5;
-        border-radius:12px;
-    }
-    .witti-notice-attachment-name { color:#173C62; font-size:14px; font-weight:800; word-break:break-word; }
-    .witti-notice-attachment-meta { color:#667085; font-size:12px; margin-top:3px; }
-    .witti-notice-attachment-error { color:#B42318; font-size:12px; margin-top:4px; }
-
-    @media (max-width:768px) {
-        .witti-menu-heading { margin-top:5px; }
-        .witti-menu-heading-copy { display:none; }
-        div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
-            gap:6px !important;
-            padding:7px !important;
-            border-radius:16px !important;
-            margin-bottom:18px !important;
-        }
-        div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
-            flex:0 0 auto !important;
-            min-width:116px !important;
-            min-height:43px !important;
-            padding:9px 12px !important;
-            font-size:13px !important;
-        }
-        div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
-            min-height:32px !important;
-            padding:6px 9px !important;
-            font-size:12.5px !important;
-        }
-        .witti-notice-attachment-card { align-items:flex-start; flex-direction:column; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
 def install_navigation_hierarchy_styling():
-    """탭을 한 번만 표식해 대·소메뉴의 시각적 계층을 만듭니다.
+    """대메뉴와 소메뉴를 DOM에서 구분해 시각 계층을 부여합니다.
 
-    이전처럼 MutationObserver로 문서 전체를 계속 감시하지 않습니다. 페이지가 만들어지는
-    초기 짧은 구간에만 몇 차례 확인하므로 브라우저 로딩 부담을 만들지 않습니다.
+    Streamlit 탭은 모두 같은 DOM 구조를 사용하므로, 주 메뉴의 라벨을 기준으로 1회 표식하고
+    나머지 탭은 소메뉴 스타일로 표시합니다. 기능·색상은 바꾸지 않고 읽기 순서만 명확히 합니다.
     """
     components.html(
         """
@@ -1249,9 +1068,11 @@ def install_navigation_hierarchy_styling():
         (function () {
             const win = window.parent;
             const doc = win.document;
+            const MARKER = '__wittiNavigationHierarchyStyleInstalled';
             const MAIN_LABELS = ['소통', '기록 요정', '사진 보정', '공지사항', '내 정보 보기', '관리자'];
+            const COMPACT_WORDS = ['내용 수정', '공지사항 저장', '저장 전 내용 되돌리기', '새 공지 작성', '첨부파일 목록에 추가', '이전 내용 보기'];
 
-            function decorate() {
+            function markTabs() {
                 const roots = Array.from(doc.querySelectorAll('div[data-testid="stTabs"]'));
                 roots.forEach((root) => {
                     const tablist = root.querySelector('div[role="tablist"]');
@@ -1262,14 +1083,36 @@ def install_navigation_hierarchy_styling():
                     if (mainHits.length >= 4) {
                         root.classList.add('witti-main-tabs');
                         root.classList.remove('witti-sub-tabs');
-                    } else {
+                    } else if (!root.classList.contains('witti-main-tabs')) {
                         root.classList.add('witti-sub-tabs');
-                        root.classList.remove('witti-main-tabs');
                     }
                 });
             }
 
-            [0, 100, 300, 700, 1300, 2100].forEach((delay) => win.setTimeout(decorate, delay));
+            function markCompactButtons() {
+                Array.from(doc.querySelectorAll('button')).forEach((button) => {
+                    const label = String(button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (!label) return;
+                    const isCompact = COMPACT_WORDS.some((word) => label.includes(word));
+                    if (!isCompact) return;
+                    button.classList.add('witti-compact-action');
+                    if (label.includes('공지사항 저장')) button.classList.add('witti-compact-primary');
+                    const wrap = button.closest('div[data-testid="stButton"]');
+                    if (wrap) wrap.classList.add('witti-compact-action-wrap');
+                });
+            }
+
+            function decorate() {
+                markTabs();
+                markCompactButtons();
+            }
+
+            decorate();
+            if (!win[MARKER]) {
+                win[MARKER] = new MutationObserver(decorate);
+                win[MARKER].observe(doc.body, { childList:true, subtree:true, attributes:true });
+            }
+            [150, 450, 900, 1800].forEach((delay) => setTimeout(decorate, delay));
         })();
         </script>
         """,
@@ -1369,7 +1212,7 @@ WITTI_SITE_LABEL = "놀이 기록 자동화"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-uiux-navigation-attachments-cache-v1"
+APP_VERSION = "2026-07-02-no-sidebar-settings-performance-stable"
 
 
 # =========================
@@ -3062,9 +2905,10 @@ def render_generated_phrase(idx: int, text: str):
     )
 
 def apply_multiselect_korean_labels():
-    """기본 영문 복수 선택 문구를 한국어로 가볍게 보정합니다.
+    """Streamlit/BaseWeb의 기본 영문 복수 선택 문구를 한국어로 보정합니다.
 
-    페이지 전체를 지속 감시하지 않고 초기 화면이 완성되는 짧은 구간에만 몇 차례 적용합니다.
+    위젯별 placeholder도 함께 지정하지만, 브라우저·Streamlit 버전에 따라
+    기본 문구가 다시 나타나는 경우를 대비해 문서 레벨에서 한 번 더 바꿉니다.
     """
     components.html(
         """
@@ -3082,6 +2926,7 @@ def apply_multiselect_korean_labels():
                 const nodes = [];
                 let node;
                 while ((node = walker.nextNode())) nodes.push(node);
+
                 nodes.forEach((textNode) => {
                     const value = textNode.nodeValue || '';
                     const trimmed = value.trim();
@@ -3093,7 +2938,18 @@ def apply_multiselect_korean_labels():
                 });
             }
 
-            [0, 120, 350, 800, 1500].forEach((delay) => win.setTimeout(translateMultiselectLabels, delay));
+            translateMultiselectLabels();
+            if (!win.__wittiMultiselectKoreanObserver) {
+                win.__wittiMultiselectKoreanObserver = new MutationObserver(translateMultiselectLabels);
+                win.__wittiMultiselectKoreanObserver.observe(doc.body, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true,
+                    attributes: true,
+                    attributeFilter: ['placeholder']
+                });
+            }
+            [150, 500, 1200, 2500].forEach((delay) => setTimeout(translateMultiselectLabels, delay));
         })();
         </script>
         """,
@@ -5053,66 +4909,24 @@ def _get_notice_attachment_bytes(bucket_name: str | None, attachment_path: str |
         return b""
 
 
-def _collect_notice_attachments(blocks: list[dict], source_record: dict | None = None) -> list[dict]:
-    """공지 문서에 저장된 첨부파일을 안정적으로 모읍니다.
+def render_notice_attachment_section(blocks: list[dict], key_prefix: str = "public_notice"):
+    """공지 본문과 별개로 첨부파일을 항상 표시합니다.
 
-    새 문서형(content_blocks 안 attachments)뿐 아니라, 이전 보수본에서 남을 수 있는
-    루트 attachments / attachment_files / notice_attachments 구조도 읽습니다.
-    저장 형식이 섞여 있어도 공개 화면에서 파일 목록이 사라지지 않게 하기 위한 호환 함수입니다.
+    기존 HTML 렌더링은 signed URL 발급이 잠시 실패하면 첨부파일 전체를 숨기는 문제가 있었습니다.
+    이 함수는 파일 메타데이터를 우선 표시하고, 링크가 가능하면 열기 버튼을, 그렇지 않으면
+    서버 직접 다운로드 버튼을 제공해 첨부파일이 보이지 않는 문제를 막습니다.
     """
-    candidates: list[object] = []
     document = _get_notice_document(blocks)
-    if isinstance(document, dict):
-        raw_document_attachments = document.get("attachments")
-        if isinstance(raw_document_attachments, list):
-            candidates.extend(raw_document_attachments)
-
-    if isinstance(source_record, dict):
-        for field_name in ("attachments", "attachment_files", "notice_attachments"):
-            raw_value = source_record.get(field_name)
-            if isinstance(raw_value, str):
-                try:
-                    raw_value = json.loads(raw_value)
-                except Exception:
-                    raw_value = None
-            if isinstance(raw_value, list):
-                candidates.extend(raw_value)
-
-    collected: list[dict] = []
-    seen: set[tuple[str, str]] = set()
-    for index, raw_attachment in enumerate(candidates):
-        if not isinstance(raw_attachment, dict):
-            continue
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    visible = []
+    for index, raw_attachment in enumerate(attachments):
         attachment = _normalize_notice_attachment(raw_attachment, index)
         if attachment.get("remove_attachment"):
             continue
-        path = str(attachment.get("attachment_path") or "").strip()
-        file_name = str(attachment.get("attachment_original_file_name") or "").strip()
-        if not path and not file_name:
+        if not str(attachment.get("attachment_path") or "").strip():
             continue
-        identity = (
-            str(attachment.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET),
-            path or file_name,
-        )
-        if identity in seen:
-            continue
-        seen.add(identity)
-        collected.append(attachment)
-    return collected
+        visible.append(attachment)
 
-
-def render_notice_attachment_section(
-    blocks: list[dict],
-    key_prefix: str = "public_notice",
-    source_record: dict | None = None,
-):
-    """공지 본문과 별개로 첨부파일을 항상 표시합니다.
-
-    저장된 파일의 경로가 있으면 signed URL 또는 서버 다운로드로 연결합니다. 경로가 없는
-    이전 미완료 첨부는 파일명이라도 표시해, 관리자에게 어떤 공지를 다시 저장해야 하는지
-    숨기지 않고 알려 줍니다.
-    """
-    visible = _collect_notice_attachments(blocks, source_record=source_record)
     if not visible:
         return
 
@@ -5123,30 +4937,26 @@ def render_notice_attachment_section(
         icon = _attachment_icon(mime_type, file_name)
         size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
         attachment_key = f"{key_prefix}_{attachment.get('attachment_id') or index}"
-        path = str(attachment.get("attachment_path") or "").strip()
-        signed_url = (
-            create_platform_notice_attachment_signed_url(
-                attachment.get("attachment_bucket"), path
-            )
-            if path else ""
+        signed_url = create_platform_notice_attachment_signed_url(
+            attachment.get("attachment_bucket"),
+            attachment.get("attachment_path"),
         )
 
         with st.container(border=True):
-            left, right = st.columns([5, 1.55])
+            left, right = st.columns([5, 1.45])
             with left:
                 st.markdown(f"**{icon} {file_name}**")
                 if size_text:
                     st.caption(size_text)
-                if not path:
-                    st.caption("이전 저장 과정에서 파일 경로가 남지 않았습니다. 관리자에서 첨부파일을 다시 추가한 뒤 공지사항 저장을 눌러 주세요.")
-                elif not signed_url:
-                    st.caption("열기 링크를 준비하지 못했습니다. 아래 다운로드 버튼을 사용할 수 있는지 확인해 주세요.")
+                if not signed_url:
+                    st.caption("첨부파일 링크를 준비하는 중입니다. 아래 다운로드 버튼으로 파일을 받을 수 있습니다.")
             with right:
                 if signed_url:
-                    st.link_button("열기", signed_url, key=f"{attachment_key}_open", use_container_width=True)
-                elif path:
+                    st.link_button("열기 / 다운로드", signed_url, key=f"{attachment_key}_open", use_container_width=True)
+                else:
                     data = _get_notice_attachment_bytes(
-                        attachment.get("attachment_bucket"), path
+                        attachment.get("attachment_bucket"),
+                        attachment.get("attachment_path"),
                     )
                     if data:
                         st.download_button(
@@ -5161,17 +4971,12 @@ def render_notice_attachment_section(
                         st.caption("파일을 불러오지 못했습니다.")
 
 
-def render_notice_blocks(
-    blocks: list[dict],
-    key_prefix: str = "notice",
-    source_record: dict | None = None,
-):
+def render_notice_blocks(blocks: list[dict], key_prefix: str = "notice"):
     rendered = build_notice_blocks_html(blocks)
     if rendered:
         st.markdown(f"<div class='notice-rich-content'>{rendered}</div>", unsafe_allow_html=True)
-    attachments = _collect_notice_attachments(blocks, source_record=source_record)
-    render_notice_attachment_section(blocks, key_prefix=key_prefix, source_record=source_record)
-    if not rendered and not attachments:
+    render_notice_attachment_section(blocks, key_prefix=key_prefix)
+    if not rendered and not _get_notice_document(blocks).get("attachments"):
         st.caption("등록된 공지 내용이 없습니다.")
 
 
@@ -5507,8 +5312,7 @@ def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], lis
             uploaded_attachment_metas.append(meta)
             attachment.update(meta)
         if not str(attachment.get("attachment_path") or "").strip():
-            file_name = str(attachment.get("attachment_original_file_name") or "첨부파일")
-            raise ValueError(f"'{file_name}' 첨부파일의 저장 경로를 만들지 못했습니다. 파일을 목록에서 삭제한 뒤 다시 추가해 주세요.")
+            continue
         prepared_attachments.append(attachment)
 
     if len(prepared_attachments) > MAX_NOTICE_ATTACHMENT_COUNT:
@@ -5560,36 +5364,21 @@ def render_active_notice_banner():
 
 
 def render_public_notice_page():
-    render_menu_card(
-        "📢 공지사항",
-        "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.",
-        ["운영 안내", "점검 안내", "중요 공지"],
-    )
+    render_menu_card("📢 공지사항", "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.", ["운영 안내", "점검 안내", "중요 공지"])
     notices = load_visible_notices()
     if not notices:
         st.caption("현재 게시 중인 공지사항이 없습니다.")
         return
-
     for index, notice in enumerate(notices):
         level = str(notice.get("notice_level") or "일반")
         icon = _content_level_icon(level)
         title = str(notice.get("title") or "공지사항")
         created_at = _format_kst_display(notice.get("published_at") or notice.get("created_at"))
         pin_mark = "📌 " if _as_bool(notice.get("is_pinned")) else ""
-        blocks = _notice_blocks_from_record(notice)
-        attachment_count = len(_collect_notice_attachments(blocks, source_record=notice))
-        attachment_badge = f" · 📎 {attachment_count}" if attachment_count else ""
-        with st.expander(
-            f"{pin_mark}{icon} {title}{attachment_badge}",
-            expanded=(index == 0 and _as_bool(notice.get("is_pinned"))),
-        ):
+        with st.expander(f"{pin_mark}{icon} {title}", expanded=(index == 0 and _as_bool(notice.get("is_pinned")))):
             if created_at:
                 st.caption(f"{_content_level_label(level)} · {created_at}")
-            render_notice_blocks(
-                blocks,
-                key_prefix=f"public_notice_{notice.get('id') or index}",
-                source_record=notice,
-            )
+            render_notice_blocks(_notice_blocks_from_record(notice), key_prefix=f"public_notice_{notice.get('id') or index}")
 
 
 def render_admin_notice_manager():
@@ -5656,9 +5445,7 @@ def render_admin_notice_manager():
             else:
                 status_label = "예약·기간 종료"
 
-            row_blocks = _notice_blocks_from_record(row)
-            attachment_count = len(_collect_notice_attachments(row_blocks, source_record=row))
-            preview_text = _notice_plain_text_from_blocks(row_blocks)
+            preview_text = _notice_plain_text_from_blocks(_notice_blocks_from_record(row))
             preview_text = re.sub(r"\s+", " ", preview_text).strip()
             if len(preview_text) > 95:
                 preview_text = preview_text[:95].rstrip() + "…"
@@ -5677,8 +5464,6 @@ def render_admin_notice_manager():
                         st.rerun()
                     if preview_text:
                         st.caption(preview_text)
-                    if attachment_count:
-                        st.caption(f"📎 첨부파일 {attachment_count}개")
                     modified_at = _format_kst_display(row.get("updated_at") or row.get("created_at"))
                     meta = f"{_content_level_label(level)} · {modified_at or '-'}"
                     if _as_bool(row.get("is_pinned")):
@@ -5964,20 +5749,9 @@ max_summary_sentences = 6
 apply_multiselect_korean_labels()
 purge_expired_private_records_once_per_session()
 
-st.markdown(
-    """
-    <div class="witti-menu-heading">
-        <div class="witti-menu-heading-title">서비스 메뉴</div>
-        <div class="witti-menu-heading-copy">필요한 업무를 선택해 이어서 진행하세요.</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 tab_labels = ["💬 소통", "🧚‍♀️ 기록 요정", "✨ 사진 보정", "📢 공지사항", "👤 내 정보 보기", "🔐 관리자"]
 tabs = st.tabs(tab_labels)
 tab1, tab2, tab3, tab_notice, tab6, tab7 = tabs
-# 대메뉴와 소메뉴의 계층만 짧게 표식합니다. 지속 DOM 감시는 하지 않습니다.
 install_navigation_hierarchy_styling()
 
 work_dir = Path(tempfile.mkdtemp())
@@ -9076,12 +8850,7 @@ with tab2:
                 st.caption(str(exc))
 
             if st.button("새 기록 작성", key="wizard_start_new_record", use_container_width=False):
-                # 결과 화면을 닫고, 다음 기록을 위해 입력·분석 상태를 함께 정리합니다.
                 st.session_state.pop("wizard_completed_snapshot", None)
-                st.session_state.pop("wizard_final_output", None)
-                for state_key in WIZARD_ANALYSIS_STATE_KEYS:
-                    st.session_state.pop(state_key, None)
-                _clear_wizard_entry_state()
                 st.rerun()
 
 # =========================
