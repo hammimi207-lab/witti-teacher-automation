@@ -62,7 +62,7 @@ except Exception:
 
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="놀이 기록 자동화", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="놀이 기록 자동화", page_icon="🌿", layout="wide")
 
 st.markdown("""
 
@@ -97,39 +97,6 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 
 #MainMenu, footer {
     visibility: hidden;
-}
-
-/* 사이드바 열기/닫기 버튼은 Streamlit header 안에 있으므로 header를 숨기면 설정창 버튼까지 사라집니다. */
-header[data-testid="stHeader"] {
-    visibility: visible !important;
-    background: rgba(250, 252, 255, 0.72) !important;
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(229, 234, 241, 0.65);
-    z-index: 999999 !important;
-}
-
-header[data-testid="stHeader"] * {
-    visibility: visible !important;
-}
-
-/* 접힌 설정창 열기 버튼이 항상 보이도록 보정 */
-div[data-testid="stSidebarCollapsedControl"],
-div[data-testid="collapsedControl"] {
-    visibility: visible !important;
-    opacity: 1 !important;
-    display: flex !important;
-    z-index: 2147483646 !important;
-}
-
-div[data-testid="stSidebarCollapsedControl"] button,
-div[data-testid="collapsedControl"] button {
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: #FFFFFF !important;
-    color: #1D4ED8 !important;
-    border: 1px solid #D7E6F8 !important;
-    border-radius: 999px !important;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10) !important;
 }
 
 .stApp {
@@ -669,67 +636,8 @@ hr {
     border-color: #E5EAF1 !important;
 }
 
-/* 접힌 설정창 열기 버튼 툴팁
-   실제 위치는 apply_sidebar_open_hint()의 JS가 화살표 버튼 좌표를 읽어 바로 옆에 표시합니다. */
-#witti-sidebar-open-tooltip {
-    position: fixed;
-    display: none;
-    z-index: 2147483647;
-    pointer-events: none;
-    white-space: nowrap;
-    background: #172B4D;
-    color: #FFFFFF;
-    border-radius: 999px;
-    padding: 7px 11px;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1;
-    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
-}
-
-
-/* 모바일에서 Streamlit 기본 사이드바 버튼이 숨겨지는 경우를 대비한 설정 열기 버튼 */
-#witti-mobile-settings-launcher {
-    display: none;
-    position: fixed;
-    align-items: center;
-    gap: 5px;
-    z-index: 2147483647;
-    left: 12px;
-    top: 12px;
-    min-height: 34px;
-    padding: 8px 12px;
-    border-radius: 999px;
-    border: 1px solid #D7E6F8;
-    background: rgba(255, 255, 255, 0.96);
-    color: #123A5A;
-    -webkit-text-fill-color: #123A5A;
-    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-    font-size: 13px;
-    font-weight: 900;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-    cursor: pointer;
-    user-select: none;
-}
-
-@media (max-width: 768px) {
-    #witti-mobile-settings-launcher {
-        display: inline-flex !important;
-    }
-
-    div[data-testid="stSidebarCollapsedControl"],
-    div[data-testid="collapsedControl"] {
-        visibility: visible !important;
-        opacity: 1 !important;
-        display: flex !important;
-        position: fixed !important;
-        left: 12px !important;
-        top: 12px !important;
-        z-index: 2147483646 !important;
-    }
-
     .block-container {
-        padding-top: 3.35rem;
+        padding-top: 1.55rem;
         padding-left: 1rem;
         padding-right: 1rem;
         max-width: 100%;
@@ -1304,7 +1212,7 @@ WITTI_SITE_LABEL = "놀이 기록 자동화"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-02-uiux-notice-attachments-cache-v2"
+APP_VERSION = "2026-07-02-no-sidebar-settings-performance-stable"
 
 
 # =========================
@@ -2996,224 +2904,6 @@ def render_generated_phrase(idx: int, text: str):
         unsafe_allow_html=True,
     )
 
-def apply_sidebar_open_hint():
-    """접힌 사이드바 열기 버튼 바로 옆에 '설정 창 열기' 툴팁을 표시합니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const TOOLTIP_TEXT = '설정 창 열기';
-
-            function ensureTooltip() {
-                let tooltip = doc.getElementById('witti-sidebar-open-tooltip');
-                if (!tooltip) {
-                    tooltip = doc.createElement('div');
-                    tooltip.id = 'witti-sidebar-open-tooltip';
-                    tooltip.textContent = TOOLTIP_TEXT;
-                    tooltip.style.position = 'fixed';
-                    tooltip.style.display = 'none';
-                    tooltip.style.zIndex = '2147483647';
-                    tooltip.style.pointerEvents = 'none';
-                    tooltip.style.whiteSpace = 'nowrap';
-                    tooltip.style.background = '#16324F';
-                    tooltip.style.color = '#FFFFFF';
-                    tooltip.style.borderRadius = '999px';
-                    tooltip.style.padding = '7px 11px';
-                    tooltip.style.fontSize = '13px';
-                    tooltip.style.fontWeight = '700';
-                    tooltip.style.lineHeight = '1';
-                    tooltip.style.boxShadow = '0 8px 22px rgba(22,50,79,0.18)';
-                    doc.body.appendChild(tooltip);
-                }
-                return tooltip;
-            }
-
-            const tooltip = ensureTooltip();
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getCollapsedOpenButtons() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-
-                return Array.from(doc.querySelectorAll(selectors.join(',')))
-                    .filter((button) => {
-                        if (!isVisible(button)) return false;
-                        const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
-                        const parentTestId = button.closest('[data-testid]')?.getAttribute('data-testid') || '';
-                        return (
-                            parentTestId === 'stSidebarCollapsedControl' ||
-                            parentTestId === 'collapsedControl' ||
-                            label.includes('open sidebar')
-                        );
-                    });
-            }
-
-            function placeTooltipNextTo(button) {
-                const rect = button.getBoundingClientRect();
-                const gap = 8;
-                let left = rect.right + gap;
-                let top = rect.top + rect.height / 2;
-
-                tooltip.textContent = TOOLTIP_TEXT;
-                tooltip.style.display = 'block';
-                tooltip.style.left = `${left}px`;
-                tooltip.style.top = `${top}px`;
-                tooltip.style.transform = 'translateY(-50%)';
-
-                const tooltipRect = tooltip.getBoundingClientRect();
-                if (tooltipRect.right > win.innerWidth - 8) {
-                    left = Math.max(8, rect.left - tooltipRect.width - gap);
-                    tooltip.style.left = `${left}px`;
-                }
-            }
-
-            function hideTooltip() {
-                tooltip.style.display = 'none';
-            }
-
-            function attachHint() {
-                const buttons = getCollapsedOpenButtons();
-                buttons.forEach((button) => {
-                    if (button.dataset.wittiSidebarOpenHint === 'done') return;
-                    button.dataset.wittiSidebarOpenHint = 'done';
-                    button.setAttribute('title', TOOLTIP_TEXT);
-                    button.setAttribute('aria-label', TOOLTIP_TEXT);
-                    button.addEventListener('mouseenter', () => placeTooltipNextTo(button));
-                    button.addEventListener('mousemove', () => placeTooltipNextTo(button));
-                    button.addEventListener('mouseleave', hideTooltip);
-                    button.addEventListener('focus', () => placeTooltipNextTo(button));
-                    button.addEventListener('blur', hideTooltip);
-                    button.addEventListener('click', hideTooltip);
-                });
-            }
-
-            attachHint();
-            if (!win.__wittiSidebarOpenHintObserver) {
-                win.__wittiSidebarOpenHintObserver = new MutationObserver(attachHint);
-                win.__wittiSidebarOpenHintObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            setTimeout(attachHint, 200);
-            setTimeout(attachHint, 700);
-            setTimeout(attachHint, 1500);
-            setTimeout(attachHint, 3000);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-def apply_mobile_settings_launcher():
-    """모바일에서 기본 설정 버튼이 보이지 않을 때 사용할 고정 설정 버튼을 만듭니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const BUTTON_ID = 'witti-mobile-settings-launcher';
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function findSidebarOpenButton() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function findSidebarCloseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsOpen() {
-                const sidebar = doc.querySelector('section[data-testid="stSidebar"], aside[data-testid="stSidebar"], div[data-testid="stSidebar"]');
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                return rect.width > 120 && rect.right > 120;
-            }
-
-            function ensureLauncher() {
-                let button = doc.getElementById(BUTTON_ID);
-                if (!button) {
-                    button = doc.createElement('button');
-                    button.id = BUTTON_ID;
-                    button.type = 'button';
-                    button.textContent = '⚙️ 설정';
-                    button.setAttribute('aria-label', '설정 창 열기');
-                    button.addEventListener('click', function () {
-                        const openButton = findSidebarOpenButton();
-                        const closeButton = findSidebarCloseButton();
-                        if (!sidebarIsOpen() && openButton) {
-                            openButton.click();
-                        } else if (sidebarIsOpen() && closeButton) {
-                            closeButton.click();
-                        } else if (openButton) {
-                            openButton.click();
-                        }
-                    });
-                    doc.body.appendChild(button);
-                }
-                return button;
-            }
-
-            function updateLauncherVisibility() {
-                const button = ensureLauncher();
-                if (win.innerWidth <= 768) {
-                    button.style.display = 'inline-flex';
-                } else {
-                    button.style.display = 'none';
-                }
-            }
-
-            updateLauncherVisibility();
-            win.addEventListener('resize', updateLauncherVisibility);
-
-            if (!win.__wittiMobileSettingsLauncherObserver) {
-                win.__wittiMobileSettingsLauncherObserver = new MutationObserver(updateLauncherVisibility);
-                win.__wittiMobileSettingsLauncherObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            [200, 700, 1500, 3000].forEach((delay) => setTimeout(updateLauncherVisibility, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
 def apply_multiselect_korean_labels():
     """Streamlit/BaseWeb의 기본 영문 복수 선택 문구를 한국어로 보정합니다.
 
@@ -3260,133 +2950,6 @@ def apply_multiselect_korean_labels():
                 });
             }
             [150, 500, 1200, 2500].forEach((delay) => setTimeout(translateMultiselectLabels, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-def force_sidebar_collapsed_on_first_load():
-    """
-    페이지가 처음 열릴 때 사이드바가 보이면 자동으로 접습니다.
-    Streamlit이 브라우저에 이전 사이드바 열림 상태를 기억할 수 있어 공식 collapsed 옵션을 보완합니다.
-    사용자가 이후 직접 다시 열었을 때는 계속 강제로 닫지 않도록 초기 몇 초 동안만 작동합니다.
-    """
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-
-            if (win.__wittiSidebarDefaultCollapseStarted) {
-                return;
-            }
-            win.__wittiSidebarDefaultCollapseStarted = true;
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getSidebar() {
-                return doc.querySelector([
-                    'section[data-testid="stSidebar"]',
-                    'aside[data-testid="stSidebar"]',
-                    'div[data-testid="stSidebar"]'
-                ].join(','));
-            }
-
-            function getOpenSidebarButton() {
-                return Array.from(doc.querySelectorAll([
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]'
-                ].join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsCollapsed() {
-                if (getOpenSidebarButton()) return true;
-                const sidebar = getSidebar();
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                const style = win.getComputedStyle(sidebar);
-                return rect.width < 90 || rect.right < 90 || style.display === 'none' || style.visibility === 'hidden';
-            }
-
-            function findCollapseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]',
-                    'button[aria-label*="close sidebar"]',
-                    'button[title*="close sidebar"]',
-                    'button[aria-label*="collapse sidebar"]',
-                    'button[title*="collapse sidebar"]'
-                ];
-
-                for (const selector of selectors) {
-                    const button = Array.from(doc.querySelectorAll(selector)).find(isVisible);
-                    if (button) return button;
-                }
-
-                const sidebar = getSidebar();
-                if (!sidebar || !isVisible(sidebar)) return null;
-                const sidebarRect = sidebar.getBoundingClientRect();
-
-                const buttons = Array.from(sidebar.querySelectorAll('button')).filter(isVisible);
-                if (!buttons.length) return null;
-
-                const textMatch = buttons.find((button) => {
-                    const text = `${button.innerText || ''} ${button.textContent || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`;
-                    return text.includes('«') || text.includes('‹') || text.includes('<<') || text.toLowerCase().includes('close') || text.toLowerCase().includes('collapse');
-                });
-                if (textMatch) return textMatch;
-
-                // 접기 버튼은 보통 사이드바 오른쪽 위에 있으므로, 그 위치에 가장 가까운 작은 버튼을 고릅니다.
-                const upperSmallButtons = buttons
-                    .map((button) => ({ button, rect: button.getBoundingClientRect() }))
-                    .filter(({ rect }) => rect.top < 120 && rect.width <= 80 && rect.height <= 80)
-                    .sort((a, b) => Math.abs(a.rect.right - sidebarRect.right) - Math.abs(b.rect.right - sidebarRect.right));
-                return upperSmallButtons[0]?.button || null;
-            }
-
-            let attempts = 0;
-            const maxAttempts = 70;
-
-            function collapseIfNeeded() {
-                attempts += 1;
-                if (sidebarIsCollapsed()) {
-                    clearInterval(timer);
-                    return;
-                }
-
-                const sidebar = getSidebar();
-                const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
-                const button = findCollapseButton();
-
-                if (button && sidebarWidth > 120) {
-                    button.click();
-                    setTimeout(() => {
-                        if (sidebarIsCollapsed()) clearInterval(timer);
-                    }, 250);
-                    return;
-                }
-
-                if (attempts >= maxAttempts) {
-                    clearInterval(timer);
-                }
-            }
-
-            const timer = setInterval(collapseIfNeeded, 100);
-            [50, 150, 300, 600, 1000, 1800, 3000, 5000].forEach((delay) => setTimeout(collapseIfNeeded, delay));
         })();
         </script>
         """,
@@ -6174,33 +5737,15 @@ render_active_popup_if_needed()
 # =========================
 SHOW_DIARY_FEATURE = False
 
-with st.sidebar:
-    st.header("⚙️ 설정")
-    top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
+# =========================
+# 기본 실행값
+# =========================
+# 설정 사이드바를 제거하고, 기존 서비스 기본값을 코드에 고정합니다.
+# 사진 보정 메뉴의 A급 사진 선별은 업로드 사진 중 상위 10장을 표시합니다.
+top_k = 10
+# 숨겨 둔 이전 알림장 기능과의 호환을 위한 기본값입니다.
+max_summary_sentences = 6
 
-    # 알림장 기능이 숨김 상태일 때는 관련 설정도 사용자 화면에 보이지 않습니다.
-    if SHOW_DIARY_FEATURE:
-        max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
-    else:
-        max_summary_sentences = 6
-
-    st.divider()
-    st.markdown("### 🌿 이용 안내")
-    st.caption("☞ 사진 선별, 사진 기반 놀이 기록 생성, 사진 보정, 개인 기록 관리를 한 곳에서 사용할 수 있습니다.")
-    st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
-    st.markdown(
-        f"""
-        <div class="small-guide" style="margin-top:10px; padding:12px 14px;">
-        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-#force_sidebar_collapsed_on_first_load()
-#apply_sidebar_open_hint()
-#apply_mobile_settings_launcher()
 apply_multiselect_korean_labels()
 purge_expired_private_records_once_per_session()
 
