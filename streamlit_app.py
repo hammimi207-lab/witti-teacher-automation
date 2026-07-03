@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-# 교사의 발견_현장 업무 자동화 파일럿 서비스
+# 공지사항 편집 영역 확대 · 첨부파일(최대 5개) 기능 추가
+# 놀이 기록 자동화 플랫폼
 # 실행: streamlit run streamlit_app.py
 
 import base64
+import copy
 import hashlib
 import hmac
 import re
@@ -38,9 +40,29 @@ try:
 except Exception:
     OpenAI = None
 
+# Word 문서 다운로드용 라이브러리입니다.
+# Streamlit Cloud에서는 requirements.txt에 python-docx를 추가해야 합니다.
+try:
+    from docx import Document
+    from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, RGBColor
+except Exception:
+    Document = None
+    WD_ALIGN_VERTICAL = None
+    WD_TABLE_ALIGNMENT = None
+    WD_ALIGN_PARAGRAPH = None
+    OxmlElement = None
+    qn = None
+    Cm = None
+    Pt = None
+    RGBColor = None
+
 from manual_automation_app import rank_images
 
-st.set_page_config(page_title="교사의 발견 ｜ 업무 자동화 시스템", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="놀이 기록 자동화", page_icon="🌿", layout="wide")
 
 st.markdown("""
 
@@ -77,50 +99,30 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
     visibility: hidden;
 }
 
-/* 사이드바 열기/닫기 버튼은 Streamlit header 안에 있으므로 header를 숨기면 설정창 버튼까지 사라집니다. */
-header[data-testid="stHeader"] {
-    visibility: visible !important;
-    background: rgba(250, 252, 255, 0.72) !important;
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(229, 234, 241, 0.65);
-    z-index: 999999 !important;
-}
-
-header[data-testid="stHeader"] * {
-    visibility: visible !important;
-}
-
-/* 접힌 설정창 열기 버튼이 항상 보이도록 보정 */
-div[data-testid="stSidebarCollapsedControl"],
-div[data-testid="collapsedControl"] {
-    visibility: visible !important;
-    opacity: 1 !important;
-    display: flex !important;
-    z-index: 2147483646 !important;
-}
-
-div[data-testid="stSidebarCollapsedControl"] button,
-div[data-testid="collapsedControl"] button {
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: #FFFFFF !important;
-    color: #1D4ED8 !important;
-    border: 1px solid #D7E6F8 !important;
-    border-radius: 999px !important;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.10) !important;
-}
-
 .stApp {
     background:
         radial-gradient(circle at 12% 0%, rgba(219, 234, 254, 0.72) 0, rgba(219, 234, 254, 0) 34%),
         linear-gradient(180deg, #FAFCFF 0%, var(--witti-bg) 44%, #FFFFFF 100%);
 }
 
+/* 데스크톱은 검색 포털처럼 중앙 콘텐츠 폭을 제한해, 양옆에 최소 60px 이상의 숨 쉴 여백을 둡니다. */
 .block-container {
-    padding-top: 1.45rem;
-    padding-left: 2.2rem;
-    padding-right: 2.2rem;
-    max-width: 1180px;
+    width: min(1080px, calc(100% - 120px)) !important;
+    max-width: 1080px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+    padding-top: 1.6rem;
+    padding-bottom: 3rem;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* 769px 이상 화면에서는 항상 최소 60px 이상의 양옆 여백을 유지합니다. */
+@media (min-width: 769px) and (max-width: 1200px) {
+    .block-container {
+        width: calc(100% - 120px) !important;
+    }
 }
 
 h1, h2, h3, h4 {
@@ -647,70 +649,15 @@ hr {
     border-color: #E5EAF1 !important;
 }
 
-/* 접힌 설정창 열기 버튼 툴팁
-   실제 위치는 apply_sidebar_open_hint()의 JS가 화살표 버튼 좌표를 읽어 바로 옆에 표시합니다. */
-#witti-sidebar-open-tooltip {
-    position: fixed;
-    display: none;
-    z-index: 2147483647;
-    pointer-events: none;
-    white-space: nowrap;
-    background: #172B4D;
-    color: #FFFFFF;
-    border-radius: 999px;
-    padding: 7px 11px;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1;
-    box-shadow: 0 8px 22px rgba(22,50,79,0.18);
-}
-
-
-/* 모바일에서 Streamlit 기본 사이드바 버튼이 숨겨지는 경우를 대비한 설정 열기 버튼 */
-#witti-mobile-settings-launcher {
-    display: none;
-    position: fixed;
-    align-items: center;
-    gap: 5px;
-    z-index: 2147483647;
-    left: 12px;
-    top: 12px;
-    min-height: 34px;
-    padding: 8px 12px;
-    border-radius: 999px;
-    border: 1px solid #D7E6F8;
-    background: rgba(255, 255, 255, 0.96);
-    color: #123A5A;
-    -webkit-text-fill-color: #123A5A;
-    font-family: 'Pretendard', 'SUIT', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-    font-size: 13px;
-    font-weight: 900;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-    cursor: pointer;
-    user-select: none;
-}
-
-@media (max-width: 768px) {
-    #witti-mobile-settings-launcher {
-        display: inline-flex !important;
-    }
-
-    div[data-testid="stSidebarCollapsedControl"],
-    div[data-testid="collapsedControl"] {
-        visibility: visible !important;
-        opacity: 1 !important;
-        display: flex !important;
-        position: fixed !important;
-        left: 12px !important;
-        top: 12px !important;
-        z-index: 2147483646 !important;
-    }
-
     .block-container {
-        padding-top: 3.35rem;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-top: 1.55rem;
+        padding-bottom: 2rem;
         padding-left: 1rem;
         padding-right: 1rem;
-        max-width: 100%;
     }
 
     .app-hero {
@@ -932,17 +879,24 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 }
 
 /* 공지 본문에 붙여넣은 외부 링크 */
-.notice-rich-content .notice-inline-link {
+.notice-rich-content .notice-inline-link,
+.notice-rich-content a[href^="http://"],
+.notice-rich-content a[href^="https://"] {
     color: #0B63B6 !important;
     font-weight: 800;
-    text-decoration: underline;
+    text-decoration: underline !important;
     text-underline-offset: 2px;
     overflow-wrap: anywhere;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 3;
 }
-.notice-rich-content .notice-inline-link:hover {
+.notice-rich-content .notice-inline-link:hover,
+.notice-rich-content a[href^="http://"]:hover,
+.notice-rich-content a[href^="https://"]:hover {
     color: #063B75 !important;
 }
-
 
 
 /* 공지사항 블록 편집기 · 공개 보기 */
@@ -964,6 +918,381 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 </style>
 
 """, unsafe_allow_html=True)
+
+
+# =========================
+# UI/UX 계층 보정
+# - 색상 팔레트는 기존 값을 그대로 사용하고, 정보 구조·여백·크기만 정리합니다.
+# =========================
+st.markdown(
+    """
+    <style>
+    /* 대메뉴: 플랫폼의 중심 흐름을 명확히 보여 주는 카드형 내비게이션 */
+    div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+        display:flex !important;
+        align-items:center !important;
+        gap:8px !important;
+        padding:9px !important;
+        margin:4px 0 24px !important;
+        overflow-x:auto !important;
+        background:rgba(255,255,255,0.95) !important;
+        border:1px solid var(--witti-line) !important;
+        border-radius:20px !important;
+        box-shadow:0 10px 26px rgba(15, 23, 42, 0.07) !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+        flex:1 0 auto !important;
+        min-width:126px !important;
+        min-height:48px !important;
+        padding:11px 16px !important;
+        border:1px solid transparent !important;
+        border-radius:13px !important;
+        background:#F8FAFD !important;
+        color:#52657B !important;
+        font-size:14px !important;
+        font-weight:850 !important;
+        letter-spacing:-0.25px !important;
+        white-space:nowrap !important;
+        transition:all .16s ease !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"]:hover {
+        background:#EEF6FF !important;
+        border-color:#D8E9FF !important;
+        color:var(--witti-navy) !important;
+        transform:translateY(-1px);
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
+        border-color:#0B2A45 !important;
+        color:#FFFFFF !important;
+        box-shadow:0 8px 16px rgba(11,42,69,.18) !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] * {
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+    }
+
+    /* 소메뉴: 상위 메뉴보다 한 단계 가볍게, 선택 상태만 또렷하게 */
+    div[data-testid="stTabs"].witti-sub-tabs > div[role="tablist"] {
+        gap:5px !important;
+        padding:0 0 6px !important;
+        margin:2px 0 16px !important;
+        background:transparent !important;
+        border:0 !important;
+        border-bottom:1px solid #E2EAF3 !important;
+        border-radius:0 !important;
+        box-shadow:none !important;
+        overflow-x:auto !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+        min-height:34px !important;
+        padding:6px 10px !important;
+        border:0 !important;
+        border-radius:9px !important;
+        background:transparent !important;
+        color:#73839A !important;
+        font-size:13px !important;
+        font-weight:750 !important;
+        letter-spacing:-0.18px !important;
+        white-space:nowrap !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"]:hover {
+        background:#F2F7FD !important;
+        color:#174F80 !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:#EAF4FF !important;
+        color:#174F80 !important;
+        border:1px solid #CBE1F8 !important;
+        box-shadow:none !important;
+    }
+
+    /* 관리자 공지 관리: 조작 버튼은 문서 편집 도구처럼 작고 분명하게 */
+    button.witti-compact-action {
+        min-height:32px !important;
+        height:32px !important;
+        padding:5px 10px !important;
+        border-radius:9px !important;
+        font-size:12.5px !important;
+        font-weight:800 !important;
+        line-height:1.1 !important;
+        box-shadow:none !important;
+    }
+    button.witti-compact-action:not(.witti-compact-primary) {
+        background:#FFFFFF !important;
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+        border:1px solid #CFE0F0 !important;
+    }
+    button.witti-compact-action:not(.witti-compact-primary) * {
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+    }
+    button.witti-compact-primary {
+        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+        border-color:#0B2A45 !important;
+    }
+    div[data-testid="stButton"].witti-compact-action-wrap {
+        width:auto !important;
+        max-width:max-content !important;
+    }
+    .witti-notice-attachment-card {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:11px 12px;
+        margin-top:8px;
+        background:#FFFFFF;
+        border:1px solid #DCE8F5;
+        border-radius:12px;
+    }
+    .witti-notice-attachment-name { color:#173C62; font-size:14px; font-weight:800; word-break:break-word; }
+    .witti-notice-attachment-meta { color:#667085; font-size:12px; margin-top:3px; }
+    .witti-notice-attachment-error { color:#B42318; font-size:12px; margin-top:4px; }
+
+    @media (max-width:768px) {
+        div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+            padding:7px !important; gap:6px !important; border-radius:16px !important; margin-bottom:18px !important;
+        }
+        div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+            min-width:112px !important; min-height:43px !important; padding:9px 12px !important; font-size:13px !important;
+        }
+        div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+            min-height:32px !important; font-size:12.5px !important; padding:6px 9px !important;
+        }
+        .witti-notice-attachment-card { align-items:flex-start; flex-direction:column; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================
+# UI/UX 보정: 색상은 유지하고 메뉴의 정보 구조만 정돈합니다.
+# - 대메뉴는 카드형 탭
+# - 소메뉴는 가벼운 보조 탭
+# - 지속 MutationObserver를 사용하지 않아 로딩·브라우저 부담을 줄입니다.
+# =========================
+st.markdown(
+    """
+    <style>
+    .witti-menu-heading {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        margin:8px 0 8px;
+    }
+    .witti-menu-heading-title {
+        color:var(--witti-navy);
+        font-size:14px;
+        font-weight:900;
+        letter-spacing:-0.25px;
+    }
+    .witti-menu-heading-copy {
+        color:var(--witti-muted);
+        font-size:12.5px;
+        font-weight:600;
+    }
+
+    /* 대메뉴 */
+    div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+        display:flex !important;
+        align-items:stretch !important;
+        gap:8px !important;
+        padding:9px !important;
+        margin:0 0 24px !important;
+        overflow-x:auto !important;
+        background:rgba(255,255,255,0.96) !important;
+        border:1px solid var(--witti-line) !important;
+        border-radius:20px !important;
+        box-shadow:0 12px 28px rgba(15,23,42,.075) !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+        flex:1 0 132px !important;
+        min-width:132px !important;
+        min-height:50px !important;
+        padding:11px 15px !important;
+        border:1px solid #E0E8F2 !important;
+        border-radius:14px !important;
+        background:#F8FAFD !important;
+        color:#52657B !important;
+        font-size:14px !important;
+        font-weight:850 !important;
+        letter-spacing:-0.25px !important;
+        white-space:nowrap !important;
+        transition:transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"]:hover {
+        background:#EEF6FF !important;
+        border-color:#CBE1F8 !important;
+        color:var(--witti-navy) !important;
+        transform:translateY(-1px) !important;
+        box-shadow:0 6px 14px rgba(15,23,42,.07) !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:linear-gradient(135deg,#0B2A45 0%,#123A5A 58%,#1B4F72 100%) !important;
+        border-color:#0B2A45 !important;
+        color:#FFFFFF !important;
+        box-shadow:0 8px 16px rgba(11,42,69,.18) !important;
+    }
+    div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"][aria-selected="true"] * {
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+    }
+
+    /* 소메뉴: 대메뉴보다 한 단계 가볍게 보이도록 정리 */
+    div[data-testid="stTabs"].witti-sub-tabs > div[role="tablist"] {
+        display:flex !important;
+        gap:6px !important;
+        padding:0 0 7px !important;
+        margin:2px 0 18px !important;
+        background:transparent !important;
+        border:0 !important;
+        border-bottom:1px solid #E2EAF3 !important;
+        border-radius:0 !important;
+        box-shadow:none !important;
+        overflow-x:auto !important;
+        scrollbar-width:thin;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+        min-height:34px !important;
+        padding:6px 11px !important;
+        border:1px solid transparent !important;
+        border-radius:9px !important;
+        background:transparent !important;
+        color:#73839A !important;
+        font-size:13px !important;
+        font-weight:750 !important;
+        letter-spacing:-0.16px !important;
+        white-space:nowrap !important;
+        box-shadow:none !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"]:hover {
+        background:#F2F7FD !important;
+        color:#174F80 !important;
+    }
+    div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"][aria-selected="true"] {
+        background:#EAF4FF !important;
+        color:#174F80 !important;
+        border-color:#CBE1F8 !important;
+        box-shadow:none !important;
+    }
+
+    /* 공지 작성·관리 조작 버튼: 문서 편집 도구 크기로 축소 */
+    div[class*="st-key-notice_"] div[data-testid="stButton"] button,
+    div[class*="st-key-notice_"] div[data-testid="stDownloadButton"] button,
+    div[class*="st-key-public_notice_"] div[data-testid="stButton"] button {
+        min-height:32px !important;
+        height:32px !important;
+        padding:5px 10px !important;
+        border-radius:9px !important;
+        font-size:12.5px !important;
+        font-weight:800 !important;
+        line-height:1.1 !important;
+        box-shadow:none !important;
+    }
+    div[class*="st-key-notice_"] div[data-testid="stButton"] button:not([kind="primary"]) {
+        background:#FFFFFF !important;
+        border-color:#CFE0F0 !important;
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+    }
+    div[class*="st-key-notice_"] div[data-testid="stButton"] button:not([kind="primary"]) * {
+        color:#174F80 !important;
+        -webkit-text-fill-color:#174F80 !important;
+    }
+
+    .witti-notice-attachment-card {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:12px 13px;
+        margin-top:8px;
+        background:#FFFFFF;
+        border:1px solid #DCE8F5;
+        border-radius:12px;
+    }
+    .witti-notice-attachment-name { color:#173C62; font-size:14px; font-weight:800; word-break:break-word; }
+    .witti-notice-attachment-meta { color:#667085; font-size:12px; margin-top:3px; }
+    .witti-notice-attachment-error { color:#B42318; font-size:12px; margin-top:4px; }
+
+    @media (max-width:768px) {
+        .witti-menu-heading { margin-top:5px; }
+        .witti-menu-heading-copy { display:none; }
+        div[data-testid="stTabs"].witti-main-tabs > div[role="tablist"] {
+            gap:6px !important;
+            padding:7px !important;
+            border-radius:16px !important;
+            margin-bottom:18px !important;
+        }
+        div[data-testid="stTabs"].witti-main-tabs button[data-baseweb="tab"] {
+            flex:0 0 auto !important;
+            min-width:116px !important;
+            min-height:43px !important;
+            padding:9px 12px !important;
+            font-size:13px !important;
+        }
+        div[data-testid="stTabs"].witti-sub-tabs button[data-baseweb="tab"] {
+            min-height:32px !important;
+            padding:6px 9px !important;
+            font-size:12.5px !important;
+        }
+        .witti-notice-attachment-card { align-items:flex-start; flex-direction:column; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def install_navigation_hierarchy_styling():
+    """탭을 한 번만 표식해 대·소메뉴의 시각적 계층을 만듭니다.
+
+    이전처럼 MutationObserver로 문서 전체를 계속 감시하지 않습니다. 페이지가 만들어지는
+    초기 짧은 구간에만 몇 차례 확인하므로 브라우저 로딩 부담을 만들지 않습니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MAIN_LABELS = ['기록 요정', '사진 보정', '공지사항', '관리자'];
+
+            function decorate() {
+                const roots = Array.from(doc.querySelectorAll('div[data-testid="stTabs"]'));
+                roots.forEach((root) => {
+                    const tablist = root.querySelector('div[role="tablist"]');
+                    if (!tablist) return;
+                    const labels = Array.from(tablist.querySelectorAll('button[data-baseweb="tab"]'))
+                        .map((button) => String(button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim());
+                    const mainHits = MAIN_LABELS.filter((label) => labels.some((value) => value.includes(label)));
+                    if (mainHits.length >= 4) {
+                        root.classList.add('witti-main-tabs');
+                        root.classList.remove('witti-sub-tabs');
+                    } else {
+                        root.classList.add('witti-sub-tabs');
+                        root.classList.remove('witti-main-tabs');
+                    }
+                });
+            }
+
+            [0, 100, 300, 700, 1300, 2100].forEach((delay) => win.setTimeout(decorate, delay));
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 # =========================
@@ -1053,11 +1382,11 @@ TABLE_NAMES = {
 
 
 WITTI_SITE_URL = "https://witti.kr/"
-WITTI_SITE_LABEL = "교사의 발견 플랫폼"
+WITTI_SITE_LABEL = "놀이 기록 자동화"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
-WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
-WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-member-sidebar-notice-popup-merged-v1"
+WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
+WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
+APP_VERSION = "2026-07-03-member-service-sidebar-merged-v1"
 
 
 # =========================
@@ -1507,7 +1836,6 @@ def reset_member_password_by_email(email: str, new_password: str):
         raise RuntimeError(f"비밀번호를 재설정하지 못했습니다: {exc}")
 
 
-
 def private_log_metadata() -> dict | None:
     """로그인한 회원의 기록에만 1년 보관 정보를 붙입니다."""
     user_id = current_member_user_id()
@@ -1741,6 +2069,12 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
         _as_text_list(context.get("teacher_supports")),
         context.get("teacher_support_notes"),
     )
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    support_input_text = (
+        f"선택한 교사의 지원과 구체 지원 메모:\n{support_notes}"
+        if output_type == "놀이 이야기"
+        else "보육일지는 교사의 지원을 별도 선택하지 않습니다."
+    )
 
     prompt = f"""
 당신은 한국 어린이집·유치원 교사의 사진 기반 놀이 기록을 돕는 보조자입니다.
@@ -1748,15 +2082,13 @@ def analyze_play_photos(uploaded_files, context: dict | None = None) -> dict:
 
 [교사 입력]
 - 놀이명: {play_name or '미입력'}
-- 놀이를 통한 배움의 이해: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
 - 선택 교육과정 영역: {curriculum}
 - 만들 기록: {output_type}
-- 선택한 놀이 세부 구분과 실제 장면 메모:
+- 선택한 {component_label}과 실제 장면 메모:
 {detail_notes}
-- 선택한 교사의 지원과 구체 지원 메모:
-{support_notes}
+- {support_input_text}
 
 [사진과 놀이명 일치 점검]
 - 사진을 먼저 사실대로 읽고, 그다음 입력한 놀이명의 핵심 자료·행동·공간과 실제 사진 장면이 충분히 맞는지 점검하세요.
@@ -1895,15 +2227,19 @@ def create_play_session(
     parent_type: str = "",
     play_subcategory_notes: dict | None = None,
     teacher_support_notes: dict | None = None,
+    teacher_observed_situation: str = "",
+    next_play_support_plan: str = "",
 ) -> dict:
     """놀이 세션을 생성합니다.
 
-    새 상세 메모 컬럼은 별도 update로 저장해, 마이그레이션 실행 전에도 기존 핵심 흐름은 중단되지 않도록 합니다.
+    기존 play_goal 컬럼은 과거 기록 호환을 위해 빈 값으로만 유지합니다.
+    새로 추가한 교사 관찰 상황·다음 놀이 지원 계획은 별도 update로 저장해,
+    마이그레이션 전에도 사진 분석 기본 흐름이 멈추지 않도록 구성합니다.
     """
     payload = {
         "user_id": user_id,
         "play_name": play_name.strip(),
-        "play_goal": play_goal.strip(),
+        "play_goal": str(play_goal or "").strip(),
         "age_group": age_group,
         "child_alias": child_alias.strip(),
         "curriculum_areas": curriculum_areas,
@@ -1923,6 +2259,8 @@ def create_play_session(
         "parent_type": str(parent_type or "").strip() or None,
         "play_subcategory_notes": _as_note_dict(play_subcategory_notes),
         "teacher_support_notes": _as_note_dict(teacher_support_notes),
+        "teacher_observed_situation": str(teacher_observed_situation or "").strip() or None,
+        "next_play_support_plan": str(next_play_support_plan or "").strip() or None,
         "updated_at": _utc_now_iso(),
     }
     if session_id:
@@ -1930,10 +2268,29 @@ def create_play_session(
             supabase.table("play_sessions").update(optional_payload).eq("session_id", session_id).execute()
             session.update(optional_payload)
         except Exception:
-            # 새 마이그레이션이 아직 적용되지 않았다면, 화면 내 생성 흐름은 유지합니다.
+            # 새 마이그레이션이 아직 적용되지 않았다면, 화면 내 분석 흐름은 유지합니다.
             pass
     return session
 
+
+def update_play_session_teacher_context(
+    session_id: str,
+    teacher_observed_situation: str,
+    next_play_support_plan: str,
+):
+    """교사가 최종 생성 전에 입력한 관찰 상황·다음 지원 계획을 세션에 저장합니다."""
+    if not session_id:
+        return
+    payload = {
+        "teacher_observed_situation": str(teacher_observed_situation or "").strip() or None,
+        "next_play_support_plan": str(next_play_support_plan or "").strip() or None,
+        "updated_at": _utc_now_iso(),
+    }
+    try:
+        supabase.table("play_sessions").update(payload).eq("session_id", session_id).execute()
+    except Exception:
+        # 마이그레이션 전이라도 기록 생성은 계속할 수 있게 합니다.
+        pass
 
 def update_play_session_analysis(session_id: str, analysis_result: dict):
     if not session_id:
@@ -2066,74 +2423,373 @@ PARENT_TYPE_GUIDANCE = {
 }
 
 
+CURRICULUM_CORE_GUIDES_BY_AGE = {
+    "0세": {
+        "신체운동·건강": "감각 자극에 반응하고 몸을 움직이며 편안한 일과와 신체 경험의 기초를 쌓아가는 과정입니다.",
+        "의사소통": "시선, 표정, 울음, 옹알이와 말소리로 관심과 요구를 나타내는 경험과 연결됩니다.",
+        "사회관계": "교사와 친숙한 사람에게 안정감을 느끼고 또래가 있는 공간에 관심을 보이는 경험과 연결됩니다.",
+        "예술경험": "소리, 리듬, 색, 촉감에 감각적으로 반응하며 아름다움을 느끼는 경험과 연결됩니다.",
+        "자연탐구": "보고, 듣고, 만지는 감각 경험을 통해 주변 사물과 자연에 관심을 갖는 과정과 연결됩니다.",
+    },
+    "1세": {
+        "신체운동·건강": "감각과 신체를 활용해 움직임을 반복해서 시도하고 일과에 익숙해지는 경험과 연결됩니다.",
+        "의사소통": "몸짓, 말소리, 간단한 말로 관심과 요구를 나타내는 경험과 연결됩니다.",
+        "사회관계": "친숙한 사람과 안정적인 관계를 맺고 또래의 행동에 관심을 보이는 경험과 연결됩니다.",
+        "예술경험": "소리와 리듬, 미술 재료의 촉감과 모방 행동을 즐기는 경험과 연결됩니다.",
+        "자연탐구": "친숙한 사물과 자연을 감각으로 반복 탐색하며 특성과 변화를 알아가는 경험과 연결됩니다.",
+    },
+    "2세": {
+        "신체운동·건강": "몸의 움직임과 일상생활 습관을 함께 경험하며 건강하고 안전한 생활의 기초를 다지는 과정과 연결됩니다.",
+        "의사소통": "표정, 몸짓, 단어, 짧은 말로 요구와 느낌을 나타내고 말놀이와 이야기에 관심을 갖는 경험과 연결됩니다.",
+        "사회관계": "나와 다른 사람을 구별하고 또래 곁에서 또는 함께 놀이하며 다른 사람의 행동과 감정에 반응하는 경험과 연결됩니다.",
+        "예술경험": "노래, 리듬, 움직임, 미술 재료를 활용해 자신의 느낌을 표현해 보는 경험과 연결됩니다.",
+        "자연탐구": "주변 사물과 자연을 반복 탐색하고 같고 다름, 수량, 공간, 변화에 관심을 갖는 경험과 연결됩니다.",
+    },
+    "3세": {
+        "신체운동·건강": "기본 움직임을 즐기고 몸의 균형과 방향을 조절하며 안전한 놀이 방식을 경험하는 과정과 연결됩니다.",
+        "의사소통": "짧은 문장과 질문으로 생각과 느낌을 나타내고 그림책과 이야기 듣기에 관심을 보이는 경험과 연결됩니다.",
+        "사회관계": "나와 친구의 감정을 알아가고 친구 곁에서 함께 놀이하며 간단한 약속을 경험하는 과정과 연결됩니다.",
+        "예술경험": "소리, 움직임, 색, 모양을 즐기고 자신의 느낌을 자유롭게 표현하는 경험과 연결됩니다.",
+        "자연탐구": "주변 사물과 자연에 호기심을 보이고 같고 다름을 살펴보며 탐색하는 경험과 연결됩니다.",
+    },
+    "4세": {
+        "신체운동·건강": "몸의 움직임을 조절하고 도구와 공간을 활용하며 놀이 속 안전과 건강한 생활을 경험하는 과정과 연결됩니다.",
+        "의사소통": "자신의 생각과 이유를 말하고 이야기의 흐름을 듣고 묻고 답하며 표현을 확장하는 경험과 연결됩니다.",
+        "사회관계": "친구와 차례, 공유, 간단한 규칙을 경험하고 서로의 감정과 생각을 살피는 과정과 연결됩니다.",
+        "예술경험": "상상한 내용을 음악, 움직임, 미술, 극놀이 등 다양한 방식으로 표현하는 경험과 연결됩니다.",
+        "자연탐구": "주변 세계의 특징을 비교하고 변화에 관심을 가지며 궁금한 점을 탐색하는 경험과 연결됩니다.",
+    },
+    "5세": {
+        "신체운동·건강": "몸의 움직임을 계획적으로 조절하고 규칙 있는 놀이에 참여하며 안전한 생활 태도를 확장하는 과정과 연결됩니다.",
+        "의사소통": "경험을 회상해 이야기하고 자신의 생각을 이유와 함께 설명하며 듣기·말하기·읽기·쓰기에 관심을 넓히는 경험과 연결됩니다.",
+        "사회관계": "친구와 역할과 규칙을 조율하고 공동의 놀이를 만들어 가며 협력하는 과정과 연결됩니다.",
+        "예술경험": "표현 방법을 선택하고 계획하여 자신의 생각과 느낌을 창의적으로 나타내는 경험과 연결됩니다.",
+        "자연탐구": "자연과 생활 속 문제를 관찰, 비교, 예측하며 탐구하고 해결 방법을 시도하는 경험과 연결됩니다.",
+    },
+}
+
+RECORD_TYPE_CORE_GUIDANCE = {
+    "놀이 이야기": "사진과 교사의 관찰을 바탕으로 놀이가 관심에서 시작되어 탐색·표현·관계·확장으로 이어지는 흐름을 읽고, 교사의 지원과 다음 놀이를 연결해 기록합니다.",
+    "일지": "하루 중 실제로 있었던 일상생활·놀이·활동 장면을 선택해, 영유아가 무엇을 했는지와 그 안에서 드러난 배움을 차례대로 정리하는 기록입니다.",
+    "알림장": "가정과 공유할 수 있도록 관찰된 사실과 교사의 지원을 따뜻하고 분명한 문장으로 전달하는 기록입니다.",
+}
+
+PLAY_DETAIL_CORE_GUIDANCE = {
+    "영아": {
+        "관심의 시작": "영아가 사람·사물·자료·공간에 시선, 몸짓, 소리, 움직임으로 반응하고 스스로 다가가며 놀이가 시작되는 단서입니다.",
+        "탐색과 반복": "영아가 자료를 만지고 움직이고 되풀이하며 감각적 특성과 변화를 알아가는 과정입니다.",
+        "표현과 구성": "영아가 표정, 몸짓, 소리, 단어·짧은 말, 재료 조작으로 관심과 느낌을 나타내는 과정입니다.",
+        "관계와 상호작용": "교사 또는 또래가 있는 공간에서 반응을 주고받고, 함께 머무르며 놀이 경험을 넓혀가는 과정입니다.",
+        "확장과 심화": "관심을 보인 자료나 행동을 다시 선택하고 새로운 방식으로 이어가며 놀이 경험을 지속하는 과정입니다.",
+    },
+    "유아": {
+        "관심의 시작": "유아가 자신의 흥미와 선택을 바탕으로 자료·공간·또래에게 다가가며 놀이를 시작하는 단서입니다.",
+        "탐색과 반복": "자료의 특성과 관계를 살피고 비교·반복하며 자신만의 놀이 방법을 만들어 가는 과정입니다.",
+        "표현과 구성": "유아가 생각과 느낌을 말, 움직임, 미술, 구성, 역할놀이 등 다양한 방식으로 표현하고 구성하는 과정입니다.",
+        "관계와 상호작용": "친구와 생각·역할·차례를 나누고 반응을 조절하며 공동의 놀이 흐름을 만들어 가는 과정입니다.",
+        "확장과 심화": "기존 놀이에 새로운 자료·역할·규칙·질문을 더해 놀이의 의미와 방법을 넓혀가는 과정입니다.",
+    },
+}
+
+
+
+# 보육일지에서는 놀이의 단계가 아니라 하루의 실제 장면을 기준으로 기록합니다.
+# 0~2세는 2024 개정 표준보육과정의 일상·놀이 중심 관점,
+# 3~5세는 2019 개정 누리과정의 유아·놀이 중심 관점을 반영한 안내 문장입니다.
+DIARY_COMPONENT_OPTIONS = ["일상생활", "놀이", "활동"]
+
+DIARY_COMPONENT_CORE_GUIDANCE = {
+    "영아": {
+        "일상생활": "일과 속에서 먹기·쉬기·씻기·배변·정리처럼 반복되는 생활을 경험하며, 몸짓·표정·말소리·짧은 말로 자신의 요구를 나타내고 편안한 생활 리듬을 만들어 가는 과정입니다.",
+        "놀이": "관심 있는 사람·사물·자료에 스스로 다가가 보고, 만지고, 움직이고, 되풀이하며 감각적 특성과 변화를 알아가는 과정입니다.",
+        "활동": "교사가 마련한 동화·음악·미술·신체·감각 활동에 참여하며, 보고 듣고 움직이고 표현하는 경험을 넓혀가는 과정입니다.",
+    },
+    "유아": {
+        "일상생활": "일과 속에서 건강·안전·자조 행동을 경험하고, 자신과 다른 사람을 존중하며 공동생활에 필요한 약속과 생활 태도를 익혀가는 과정입니다.",
+        "놀이": "자신의 흥미에 따라 자료와 공간을 선택하고, 탐색·표현·구성·또래와의 상호작용을 통해 놀이의 방법과 의미를 확장하는 과정입니다.",
+        "활동": "동화·음악·미술·신체·자연 탐구 등 다양한 활동에 참여하며, 자신의 생각과 느낌을 표현하고 배움의 방법을 넓혀가는 과정입니다.",
+    },
+}
+
+DIARY_COMPONENT_NOTE_PLACEHOLDERS = {
+    "일상생활": "예: 점심시간에 스스로 숟가락을 잡고 반찬을 살펴본 뒤, 더 먹고 싶은 음식을 짧은 말과 몸짓으로 표현했습니다.",
+    "놀이": "예: 블록을 길게 이어 붙이고 친구가 만든 공간과 연결하며 놀이를 이어갔습니다.",
+    "활동": "예: 자연물을 만져 본 뒤 종이 위에 놓아 보고, 완성한 모습을 친구에게 보여 주었습니다.",
+}
+
+
+def diary_component_guidance_text(age_group: str, selected_components: list[str] | None) -> str:
+    subject_group = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    guide = DIARY_COMPONENT_CORE_GUIDANCE[subject_group]
+    rows = []
+    for item in selected_components or []:
+        if item in guide:
+            rows.append(f"- {item}: {guide[item]}")
+    return "\n".join(rows) if rows else "미선택"
+
+
+def render_diary_component_guidance(age_group: str, selected_components: list[str]):
+    if not selected_components:
+        return
+    framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+    st.markdown(f"**{framework} 관점의 보육일지 세부 구성 안내**")
+    for line in diary_component_guidance_text(age_group, selected_components).split("\n"):
+        st.caption(line)
+
+
+def curriculum_framework_label(age_group: str) -> str:
+    return "표준보육과정" if normalize_age(age_group) in ["0세", "1세", "2세"] else "누리과정"
+
+
+def curriculum_framework_short_label(age_group: str) -> str:
+    return "표준보육과정 연계" if normalize_age(age_group) in ["0세", "1세", "2세"] else "누리과정 연계"
+
+
+def play_detail_guidance_text(age_group: str, selected_details: list[str] | None) -> str:
+    subject_group = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    guide = PLAY_DETAIL_CORE_GUIDANCE[subject_group]
+    rows = []
+    for item in selected_details or []:
+        if item in guide:
+            rows.append(f"- {item}: {guide[item]}")
+    return "\n".join(rows) if rows else "미선택"
+
+
+def render_record_type_guidance(record_type: str, age_group: str):
+    if record_type == "일지":
+        framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+        st.info(
+            "**보육일지는 하루의 실제 장면을 차례대로 남기는 기록입니다.**\n\n"
+            "아래에서 **일상생활 · 놀이 · 활동** 중 기록할 장면을 고른 뒤, "
+            "각 장면에서 영유아가 무엇을 했는지 교사가 구체적으로 적어 주세요.\n\n"
+            f"선택한 {framework} 영역은 이후 **교육과정 연계**와 **영유아 관찰 및 평가**에 반영됩니다."
+        )
+        return
+
+    if record_type in RECORD_TYPE_CORE_GUIDANCE:
+        framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+        st.info(
+            f"**기록 유형 핵심 안내**\n\n"
+            f"{RECORD_TYPE_CORE_GUIDANCE[record_type]}\n\n"
+            f"{framework}의 놀이 중심·관찰 중심 원칙에 맞춰 사실과 교사의 판단을 구분해 기록합니다."
+        )
+
+def render_play_detail_guidance(age_group: str, selected_details: list[str]):
+    if not selected_details:
+        return
+    framework = curriculum_framework_label(age_group) if age_group and age_group != "- 선택 -" else "표준보육과정·누리과정"
+    st.markdown(f"**{framework} 관점의 놀이 세부 구분 핵심 설명**")
+    guide = play_detail_guidance_text(age_group, selected_details)
+    for line in guide.split("\n"):
+        st.caption(line)
+
+
+def _curriculum_fallback_links(age_group: str, curriculum_areas: list[str]) -> list[dict]:
+    age = normalize_age(age_group)
+    guides = CURRICULUM_CORE_GUIDES_BY_AGE.get(age, CURRICULUM_CORE_GUIDES_BY_AGE["2세"])
+    return [
+        {"area": str(area), "description": guides.get(str(area), "선택한 교육과정 영역의 경험과 연결해 살펴볼 수 있습니다.")}
+        for area in curriculum_areas or []
+    ]
+
+
+def _normalize_curriculum_links(value, age_group: str, selected_areas: list[str]) -> list[dict]:
+    by_area: dict[str, str] = {}
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            area = str(item.get("area") or "").strip()
+            description = str(item.get("description") or "").strip()
+            if area and description:
+                by_area[area] = description
+
+    fallback = {item["area"]: item["description"] for item in _curriculum_fallback_links(age_group, selected_areas)}
+    normalized = []
+    for area in selected_areas or []:
+        area_text = str(area).strip()
+        if not area_text:
+            continue
+        normalized.append({"area": area_text, "description": by_area.get(area_text) or fallback.get(area_text) or "선택한 영역의 경험과 연결해 살펴볼 수 있습니다."})
+    return normalized
+
+
+def _record_label(output_type: str) -> str:
+    return "놀이 이야기 기록 예시 (종합)" if output_type == "놀이 이야기" else "보육일지 기록 예시 (종합)"
+
+
+def _structured_record_plain_text(output: dict) -> str:
+    framework = str(output.get("framework_label") or "교육과정")
+    observation_label = str(output.get("observation_label") or "영유아 관찰 및 평가")
+    record_label = str(output.get("record_label") or "종합 기록")
+    links = output.get("curriculum_links") or []
+    link_text = "\n".join([f"- {item.get('area')}: {item.get('description')}" for item in links if isinstance(item, dict)]) or "- 선택한 교육과정 영역이 없습니다."
+    chunks = [
+        f"[{('사진 속 놀이 내용' if str(output.get('output_type') or '') == '놀이 이야기' else '사진 속 일상·놀이·활동 장면')}]\n{str(output.get('photo_play_content') or '').strip()}",
+        f"[교사가 관찰한 놀이 상황]\n{str(output.get('teacher_observed_situation') or '').strip()}",
+        f"[{framework}]\n{link_text}",
+        f"[{observation_label}]\n{str(output.get('observation_evaluation') or '').strip()}",
+    ]
+    next_plan = str(output.get("next_play_support_plan") or "").strip()
+    if next_plan:
+        chunks.append(f"[다음 놀이 지원 계획]\n{next_plan}")
+    chunks.append(f"[{record_label}]\n{str(output.get('integrated_record') or '').strip()}")
+    return "\n\n".join(chunks).strip()
+
+
 def generate_final_play_record(context: dict, edited_draft: str, revision_direction: str = "") -> dict:
-    """사진 1차 분석과 교사 수정 내용을 반영해 최종 놀이 이야기 또는 3개 작문 예시를 만듭니다."""
+    """놀이 이야기·일지는 과정 산출과 종합 기록을 함께 만들고, 알림장은 기존 3개 예시 방식을 유지합니다."""
     client = get_openai_client()
     if client is None:
         raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
 
     output_type = str(context.get("output_type") or "놀이 이야기")
     play_name = str(context.get("play_name") or "오늘의 놀이")
-    play_goal = str(context.get("play_goal") or "")
     age_group = str(context.get("age_group") or "")
     child_alias = str(context.get("child_alias") or "")
-    curriculum = curriculum_display_text(context.get("curriculum_areas"))
+    curriculum_areas = _as_text_list(context.get("curriculum_areas"))
+    curriculum = curriculum_display_text(curriculum_areas)
     play_subcategories = _as_text_list(context.get("play_subcategories"))
     teacher_supports = _as_text_list(context.get("teacher_supports"))
     detail_tags = ", ".join(play_subcategories) or "미선택"
     supports = ", ".join(teacher_supports) or "미선택"
     detail_notes = _selection_notes_display(play_subcategories, context.get("play_subcategory_notes"))
     support_notes = _selection_notes_display(teacher_supports, context.get("teacher_support_notes"))
-    parent_type = str(context.get("parent_type") or "일반형").strip()
-    if parent_type not in PARENT_TYPE_OPTIONS:
-        parent_type = "일반형"
-    parent_guidance = PARENT_TYPE_GUIDANCE[parent_type] if output_type == "알림장" else "해당 없음"
+    teacher_observed_situation = str(context.get("teacher_observed_situation") or revision_direction or "").strip()
+    next_play_support_plan = str(context.get("next_play_support_plan") or "").strip()
+    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+    photo_play_content = str(analysis.get("ai_caption") or "사진에서 확인되는 놀이 장면을 바탕으로 분석했습니다.").strip()
+    framework = curriculum_framework_label(age_group)
+    framework_title = curriculum_framework_short_label(age_group)
+    child_label = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_guidance = (
+        diary_component_guidance_text(age_group, play_subcategories)
+        if output_type == "일지"
+        else play_detail_guidance_text(age_group, play_subcategories)
+    )
+    support_input_block = (
+        f"- 교사의 지원: {supports}\n- 교사의 지원별 구체 내용:\n{support_notes}"
+        if output_type == "놀이 이야기"
+        else "- 보육일지는 별도의 '교사의 지원' 선택값을 입력하지 않습니다. 교사가 관찰한 놀이 상황과 사진 1차 분석에 실제로 적힌 지원 내용만 기록에 반영하세요."
+    )
 
-    if output_type == "놀이 이야기":
-        output_schema = """{\n  \"sections\": {\n    \"놀이 주제\": \"1~2문장\",\n    \"놀이에서 읽은 배움\": \"1~2문장\",\n    \"교사의 지원\": \"1~2문장\",\n    \"다음 놀이로 이어가기\": \"1~2문장\"\n  }\n}"""
-    else:
-        output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+    if output_type in ["놀이 이야기", "일지"]:
+        record_label = _record_label(output_type)
+        record_style = (
+            "놀이의 관심·탐색·표현·관계·교사 지원 흐름이 자연스럽게 이어지도록 6~9문장으로 작성하세요."
+            if output_type == "놀이 이야기"
+            else "보육일지 문체로, 선택한 일상생활·놀이·활동의 실제 장면과 그 안에서 드러난 배움이 분명히 나타나도록 6~9문장으로 작성하세요. '했음/보였음/지원하였음'처럼 공식 기록에 적합한 종결을 사용하세요."
+        )
+        output_schema = """{
+  \"curriculum_links\": [
+    {\"area\": \"선택한 영역명\", \"description\": \"사진과 교사 관찰에 근거한 1문장 연계 설명\"}
+  ],
+  \"observation_evaluation\": \"영아 또는 유아의 관심, 탐색, 표현, 관계, 배움의 변화를 교육과정에 근거해 3~5문장으로 정리\",
+  \"integrated_record\": \"종합 기록 6~9문장\"
+}"""
+        prompt = f"""
+당신은 한국 영유아교육 현장의 사진 기반 기록을 돕는 보조자입니다.
+사진 1차 분석과 교사가 직접 적은 관찰 상황을 바탕으로, 교사의 판단이 드러나는 과정형 기록을 작성하세요.
 
-    prompt = f"""
-당신은 한국 영유아교육 현장의 기록 문장을 돕는 보조자입니다.
-사진 분석으로 만든 1차 초안과 교사의 수정 내용을 바탕으로 최종 기록을 작성하세요.
-
-[놀이 정보]
+[기본 정보]
 - 놀이명: {play_name}
-- 놀이를 통한 배움의 이해: {play_goal or '미입력'}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
-- 교육과정 영역(복수): {curriculum}
-- 놀이 세부 구분(복수): {detail_tags}
-- 놀이 세부 구분별 실제 장면 메모:
-{detail_notes}
-- 교사의 지원(복수): {supports}
-- 교사의 지원별 구체 지원 메모:
-{support_notes}
 - 기록 유형: {output_type}
-- 보호자 유형(알림장에만 적용): {parent_type if output_type == '알림장' else '해당 없음'}
-- 알림장 문체 기준: {parent_guidance}
-
-[교사가 수정한 1차 초안]
+- {framework} 선택 영역: {curriculum}
+- 사진 속 놀이 내용: {photo_play_content}
+- 교사가 관찰한 놀이 상황(필수): {teacher_observed_situation}
+- {component_label}: {detail_tags}
+- {component_label}별 구체 장면:
+{detail_notes}
+{support_input_block}
+- {component_label}의 {framework} 관점 핵심 설명:
+{component_guidance}
+- 교사가 수정한 사진 1차 분석 결과:
 {edited_draft.strip()}
 
-[추가 수정 방향]
-{revision_direction.strip() or '없음'}
+[작성 기준]
+- 사진과 교사 관찰에 직접 드러난 사실만 사용하세요. 보이지 않은 대화·감정·사건·발달 상태를 지어내지 마세요.
+- curriculum_links에는 교사가 선택한 영역만 정확히 포함하고, 영역마다 사진·관찰 장면과 연결된 설명을 1문장씩 작성하세요.
+- 0~2세는 ‘영아’의 감각, 반응, 반복 탐색, 몸짓·말소리·짧은 말, 안정감의 언어를 사용하세요.
+- 3~5세는 ‘유아’의 흥미, 선택, 탐색, 표현, 또래와의 상호작용, 놀이 확장의 언어를 사용하세요.
+- observation_evaluation은 평가적 낙인이나 단정 없이, {child_label}의 관심·탐색·표현·관계·배움의 변화를 {framework} 관점에서 정리하세요.
+- {record_label}은 {record_style}
+- 기록 유형이 일지라면, 선택한 보육일지 세부 구성(일상생활·놀이·활동)과 교사가 적은 실제 장면을 중심으로 작성하고, 선택하지 않은 구성은 임의로 추가하지 마세요.
+- 기록 유형이 일지라면, 별도의 교사 지원 선택값이 없으므로 사진 1차 분석이나 교사 관찰에 실제로 적힌 지원 내용만 자연스럽게 반영하세요.
+- 다음 놀이 지원 계획은 AI가 새로 만들거나 바꾸지 않습니다. 별도 입력값이 있을 때 화면에서 원문 그대로 보여 줄 것입니다.
+- 아래 JSON 객체만 반환하세요.
 
-반드시 지킬 점:
-- 사진에 직접 드러나지 않은 대화·사건·정서·발달 수준을 지어내지 마세요.
-- 특정 아동의 진단, 비교, 평가를 하지 마세요.
-- 교육과정 영역은 교사가 선택한 항목을 맥락으로 연결하되 과도하게 나열하지 마세요.
-- 교사가 적은 구체 장면과 지원 메모는 사진·초안과 모순되지 않는 범위에서 우선 반영하세요.
-- 놀이 이야기는 네 개 섹션 전체가 합쳐 4~6문장 안팎이 되도록 간결하게 작성하세요.
-- 일지·알림장은 각각 서로 다른 문체의 예시 3개를 만들고, 각 예시는 3~5문장 이내로 작성하세요.
-- 아동 실명 대신 입력한 별칭 또는 '영아/유아' 같은 일반 표현을 사용하세요.
-- 알림장 결과에는 '예민형', '공격형', '불안형' 같은 보호자 분류 단어를 절대 쓰지 마세요.
-
-아래 JSON 형식만 반환하세요.
 {output_schema}
 """.strip()
 
+        response = client.responses.create(
+            model=get_openai_vision_model(),
+            input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+            max_output_tokens=1800,
+            store=False,
+        )
+        raw = str(getattr(response, "output_text", "") or "").strip()
+        payload = _parse_json_object(raw)
+        curriculum_links = _normalize_curriculum_links(payload.get("curriculum_links"), age_group, curriculum_areas)
+        observation_evaluation = str(payload.get("observation_evaluation") or "").strip()
+        integrated_record = str(payload.get("integrated_record") or "").strip()
+        if not observation_evaluation:
+            observation_evaluation = (
+                f"{child_alias.strip() or child_label}는 {teacher_observed_situation}의 과정에서 관심을 보인 자료와 행동을 반복해 살피며 놀이를 이어갔습니다. "
+                f"선택한 {framework} 영역의 경험이 사진과 교사 관찰 속에서 함께 드러났습니다."
+            )
+        if not integrated_record:
+            if output_type == "일지":
+                integrated_record = (
+                    f"{edited_draft.strip()} {teacher_observed_situation} "
+                    f"선택한 일상생활·놀이·활동 장면을 바탕으로 {child_label}의 반응과 배움을 기록하였음."
+                ).strip()
+            else:
+                integrated_record = (
+                    f"{edited_draft.strip()} {teacher_observed_situation} "
+                    f"교사는 {supports if supports != '미선택' else '영유아의 반응을 살피는 지원'}을 통해 놀이가 이어질 수 있도록 도왔습니다."
+                ).strip()
+        result = {
+            "output_type": output_type,
+            "photo_play_content": photo_play_content,
+            "teacher_observed_situation": teacher_observed_situation,
+            "framework_label": framework_title,
+            "observation_label": f"{child_label} 관찰 및 평가",
+            "curriculum_links": curriculum_links,
+            "observation_evaluation": age_sanitize(observation_evaluation, age_group),
+            "next_play_support_plan": next_play_support_plan,
+            "record_label": record_label,
+            "integrated_record": age_sanitize(integrated_record, age_group),
+            "sections": {},
+            "examples": [],
+        }
+        result["plain_text"] = _structured_record_plain_text(result)
+        return result
+
+    # 알림장은 기존 보호자 유형별 3개 예시 생성 방식을 유지합니다.
+    parent_type = str(context.get("parent_type") or "일반형").strip()
+    if parent_type not in PARENT_TYPE_OPTIONS:
+        parent_type = "일반형"
+    parent_guidance = PARENT_TYPE_GUIDANCE[parent_type]
+    output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+    prompt = f"""
+당신은 한국 영유아교육 현장의 알림장 문장을 돕는 보조자입니다.
+사진 분석 1차 결과와 교사의 관찰을 바탕으로 알림장 예시 3개를 작성하세요.
+
+- 놀이명: {play_name}
+- 연령: {age_group or '미입력'}
+- 아이 별칭: {child_alias or '미입력'}
+- 선택 교육과정 영역: {curriculum}
+- 교사가 수정한 사진 1차 분석 결과: {edited_draft.strip()}
+- 교사가 관찰한 놀이 상황: {teacher_observed_situation or '미입력'}
+- 보호자 유형에 따른 문체 기준: {parent_guidance}
+
+사진에 직접 드러나지 않은 사건·감정·발달 수준을 지어내지 말고, 각 예시는 3~5문장 이내로 작성하세요.
+결과에는 보호자 유형명 자체를 쓰지 마세요. 아래 JSON 형식만 반환하세요.
+{output_schema}
+""".strip()
     response = client.responses.create(
         model=get_openai_vision_model(),
         input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
@@ -2142,34 +2798,18 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     )
     raw = str(getattr(response, "output_text", "") or "").strip()
     payload = _parse_json_object(raw)
-    if output_type == "놀이 이야기":
-        sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
-        ordered = ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]
-        normalized = {name: str(sections.get(name) or "").strip() for name in ordered}
-        if not all(normalized.values()):
-            normalized = {
-                "놀이 주제": f"{play_name} 놀이에서 사진 속 장면과 교사가 정리한 관찰을 중심으로 놀이 흐름을 살펴보았습니다.",
-                "놀이에서 읽은 배움": f"{edited_draft.strip()} 선택한 {curriculum} 영역의 경험이 놀이 속에서 함께 드러났습니다.",
-                "교사의 지원": f"교사는 {supports if supports != '미선택' else '아이의 반응을 살피는 상호작용'}을 통해 놀이가 이어질 수 있도록 지원했습니다.",
-                "다음 놀이로 이어가기": "오늘 관심을 보인 자료와 표현을 다시 꺼내어 다음 탐색으로 연결해 볼 수 있습니다.",
-            }
-        plain = "\n\n".join(f"{name}\n{normalized[name]}" for name in ordered)
-        return {"output_type": output_type, "sections": normalized, "examples": [], "plain_text": plain}
-
     examples = payload.get("examples") if isinstance(payload.get("examples"), list) else []
     examples = [str(item).strip() for item in examples if str(item).strip()][:3]
     if len(examples) < 3:
+        subject = child_alias.strip() or ("영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아")
         base = edited_draft.strip()
-        subject = child_alias.strip() or ("영아" if age_group in ["0세", "1세", "2세"] else "유아")
-        tone_word = "일지" if output_type == "일지" else "알림장"
         examples = [
-            f"{base}\n\n{subject}의 관심과 반응을 중심으로 {tone_word}에 담았습니다.",
-            f"{play_name} 활동에서 관찰된 장면을 바탕으로 기록했습니다. {base}",
+            f"{base}\n\n{subject}의 관심과 반응을 중심으로 오늘의 모습을 전합니다.",
+            f"{play_name} 활동에서 관찰된 장면을 바탕으로 정리했습니다. {base}",
             f"오늘의 {play_name} 경험은 {curriculum} 영역과 연결해 살펴볼 수 있었습니다. {base}",
         ]
     plain = "\n\n".join(f"예시 {index + 1}\n{item}" for index, item in enumerate(examples))
     return {"output_type": output_type, "sections": {}, "examples": examples, "plain_text": plain}
-
 
 def save_generated_text(session_id: str, user_id: str, output_type: str, result_text: str, edited_text: str, source_text: str):
     payload = {
@@ -2339,10 +2979,10 @@ def render_member_information_page():
             st.caption("저장된 놀이 기록이 없습니다. 기록 요정에서 사진 분석을 시작해 주세요.")
         else:
             display = _format_kst_datetime_column(sessions_df)
-            cols = [c for c in ["작성일시", "play_name", "play_goal", "age_group", "child_alias", "record_type", "parent_type", "curriculum_areas", "play_subcategories", "teacher_supports", "photo_match_status", "photo_match_reason", "ai_summary"] if c in display.columns]
+            cols = [c for c in ["작성일시", "play_name", "age_group", "child_alias", "record_type", "parent_type", "curriculum_areas", "play_subcategories", "teacher_supports", "teacher_observed_situation", "next_play_support_plan", "photo_match_status", "photo_match_reason", "ai_summary"] if c in display.columns]
             display = display[cols].rename(columns={
-                "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭",
-                "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진 1차 분석",
+                "play_name": "놀이명", "age_group": "연령", "child_alias": "아이 별칭", "teacher_observed_situation": "교사가 관찰한 놀이 상황", "next_play_support_plan": "다음 놀이 지원 계획",
+                "record_type": "기록 유형", "curriculum_areas": "교육과정 영역", "ai_summary": "사진에 대한 1차 분석 결과",
             })
             st.dataframe(display, use_container_width=True, hide_index=True, height=360)
 
@@ -2438,231 +3078,10 @@ def render_generated_phrase(idx: int, text: str):
         unsafe_allow_html=True,
     )
 
-def apply_sidebar_open_hint():
-    """접힌 사이드바 열기 버튼 바로 옆에 '설정 창 열기' 툴팁을 표시합니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const TOOLTIP_TEXT = '설정 창 열기';
-
-            function ensureTooltip() {
-                let tooltip = doc.getElementById('witti-sidebar-open-tooltip');
-                if (!tooltip) {
-                    tooltip = doc.createElement('div');
-                    tooltip.id = 'witti-sidebar-open-tooltip';
-                    tooltip.textContent = TOOLTIP_TEXT;
-                    tooltip.style.position = 'fixed';
-                    tooltip.style.display = 'none';
-                    tooltip.style.zIndex = '2147483647';
-                    tooltip.style.pointerEvents = 'none';
-                    tooltip.style.whiteSpace = 'nowrap';
-                    tooltip.style.background = '#16324F';
-                    tooltip.style.color = '#FFFFFF';
-                    tooltip.style.borderRadius = '999px';
-                    tooltip.style.padding = '7px 11px';
-                    tooltip.style.fontSize = '13px';
-                    tooltip.style.fontWeight = '700';
-                    tooltip.style.lineHeight = '1';
-                    tooltip.style.boxShadow = '0 8px 22px rgba(22,50,79,0.18)';
-                    doc.body.appendChild(tooltip);
-                }
-                return tooltip;
-            }
-
-            const tooltip = ensureTooltip();
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getCollapsedOpenButtons() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-
-                return Array.from(doc.querySelectorAll(selectors.join(',')))
-                    .filter((button) => {
-                        if (!isVisible(button)) return false;
-                        const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
-                        const parentTestId = button.closest('[data-testid]')?.getAttribute('data-testid') || '';
-                        return (
-                            parentTestId === 'stSidebarCollapsedControl' ||
-                            parentTestId === 'collapsedControl' ||
-                            label.includes('open sidebar')
-                        );
-                    });
-            }
-
-            function placeTooltipNextTo(button) {
-                const rect = button.getBoundingClientRect();
-                const gap = 8;
-                let left = rect.right + gap;
-                let top = rect.top + rect.height / 2;
-
-                tooltip.textContent = TOOLTIP_TEXT;
-                tooltip.style.display = 'block';
-                tooltip.style.left = `${left}px`;
-                tooltip.style.top = `${top}px`;
-                tooltip.style.transform = 'translateY(-50%)';
-
-                const tooltipRect = tooltip.getBoundingClientRect();
-                if (tooltipRect.right > win.innerWidth - 8) {
-                    left = Math.max(8, rect.left - tooltipRect.width - gap);
-                    tooltip.style.left = `${left}px`;
-                }
-            }
-
-            function hideTooltip() {
-                tooltip.style.display = 'none';
-            }
-
-            function attachHint() {
-                const buttons = getCollapsedOpenButtons();
-                buttons.forEach((button) => {
-                    if (button.dataset.wittiSidebarOpenHint === 'done') return;
-                    button.dataset.wittiSidebarOpenHint = 'done';
-                    button.setAttribute('title', TOOLTIP_TEXT);
-                    button.setAttribute('aria-label', TOOLTIP_TEXT);
-                    button.addEventListener('mouseenter', () => placeTooltipNextTo(button));
-                    button.addEventListener('mousemove', () => placeTooltipNextTo(button));
-                    button.addEventListener('mouseleave', hideTooltip);
-                    button.addEventListener('focus', () => placeTooltipNextTo(button));
-                    button.addEventListener('blur', hideTooltip);
-                    button.addEventListener('click', hideTooltip);
-                });
-            }
-
-            attachHint();
-            if (!win.__wittiSidebarOpenHintObserver) {
-                win.__wittiSidebarOpenHintObserver = new MutationObserver(attachHint);
-                win.__wittiSidebarOpenHintObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            setTimeout(attachHint, 200);
-            setTimeout(attachHint, 700);
-            setTimeout(attachHint, 1500);
-            setTimeout(attachHint, 3000);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-
-
-def apply_mobile_settings_launcher():
-    """모바일에서 기본 설정 버튼이 보이지 않을 때 사용할 고정 설정 버튼을 만듭니다."""
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-            const BUTTON_ID = 'witti-mobile-settings-launcher';
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function findSidebarOpenButton() {
-                const selectors = [
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]',
-                    'button[aria-label*="open sidebar"]',
-                    'button[title*="open sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function findSidebarCloseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]'
-                ];
-                return Array.from(doc.querySelectorAll(selectors.join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsOpen() {
-                const sidebar = doc.querySelector('section[data-testid="stSidebar"], aside[data-testid="stSidebar"], div[data-testid="stSidebar"]');
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                return rect.width > 120 && rect.right > 120;
-            }
-
-            function ensureLauncher() {
-                let button = doc.getElementById(BUTTON_ID);
-                if (!button) {
-                    button = doc.createElement('button');
-                    button.id = BUTTON_ID;
-                    button.type = 'button';
-                    button.textContent = '⚙️ 설정';
-                    button.setAttribute('aria-label', '설정 창 열기');
-                    button.addEventListener('click', function () {
-                        const openButton = findSidebarOpenButton();
-                        const closeButton = findSidebarCloseButton();
-                        if (!sidebarIsOpen() && openButton) {
-                            openButton.click();
-                        } else if (sidebarIsOpen() && closeButton) {
-                            closeButton.click();
-                        } else if (openButton) {
-                            openButton.click();
-                        }
-                    });
-                    doc.body.appendChild(button);
-                }
-                return button;
-            }
-
-            function updateLauncherVisibility() {
-                const button = ensureLauncher();
-                if (win.innerWidth <= 768) {
-                    button.style.display = 'inline-flex';
-                } else {
-                    button.style.display = 'none';
-                }
-            }
-
-            updateLauncherVisibility();
-            win.addEventListener('resize', updateLauncherVisibility);
-
-            if (!win.__wittiMobileSettingsLauncherObserver) {
-                win.__wittiMobileSettingsLauncherObserver = new MutationObserver(updateLauncherVisibility);
-                win.__wittiMobileSettingsLauncherObserver.observe(doc.body, { childList: true, subtree: true, attributes: true });
-            }
-            [200, 700, 1500, 3000].forEach((delay) => setTimeout(updateLauncherVisibility, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
 def apply_multiselect_korean_labels():
-    """Streamlit/BaseWeb의 기본 영문 복수 선택 문구를 한국어로 보정합니다.
+    """기본 영문 복수 선택 문구를 한국어로 가볍게 보정합니다.
 
-    위젯별 placeholder도 함께 지정하지만, 브라우저·Streamlit 버전에 따라
-    기본 문구가 다시 나타나는 경우를 대비해 문서 레벨에서 한 번 더 바꿉니다.
+    페이지 전체를 지속 감시하지 않고 초기 화면이 완성되는 짧은 구간에만 몇 차례 적용합니다.
     """
     components.html(
         """
@@ -2680,7 +3099,6 @@ def apply_multiselect_korean_labels():
                 const nodes = [];
                 let node;
                 while ((node = walker.nextNode())) nodes.push(node);
-
                 nodes.forEach((textNode) => {
                     const value = textNode.nodeValue || '';
                     const trimmed = value.trim();
@@ -2692,145 +3110,7 @@ def apply_multiselect_korean_labels():
                 });
             }
 
-            translateMultiselectLabels();
-            if (!win.__wittiMultiselectKoreanObserver) {
-                win.__wittiMultiselectKoreanObserver = new MutationObserver(translateMultiselectLabels);
-                win.__wittiMultiselectKoreanObserver.observe(doc.body, {
-                    childList: true,
-                    subtree: true,
-                    characterData: true,
-                    attributes: true,
-                    attributeFilter: ['placeholder']
-                });
-            }
-            [150, 500, 1200, 2500].forEach((delay) => setTimeout(translateMultiselectLabels, delay));
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-
-def force_sidebar_collapsed_on_first_load():
-    """
-    페이지가 처음 열릴 때 사이드바가 보이면 자동으로 접습니다.
-    Streamlit이 브라우저에 이전 사이드바 열림 상태를 기억할 수 있어 공식 collapsed 옵션을 보완합니다.
-    사용자가 이후 직접 다시 열었을 때는 계속 강제로 닫지 않도록 초기 몇 초 동안만 작동합니다.
-    """
-    components.html(
-        """
-        <script>
-        (function () {
-            const win = window.parent;
-            const doc = win.document;
-
-            if (win.__wittiSidebarDefaultCollapseStarted) {
-                return;
-            }
-            win.__wittiSidebarDefaultCollapseStarted = true;
-
-            function isVisible(el) {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                const style = win.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-            }
-
-            function getSidebar() {
-                return doc.querySelector([
-                    'section[data-testid="stSidebar"]',
-                    'aside[data-testid="stSidebar"]',
-                    'div[data-testid="stSidebar"]'
-                ].join(','));
-            }
-
-            function getOpenSidebarButton() {
-                return Array.from(doc.querySelectorAll([
-                    'div[data-testid="stSidebarCollapsedControl"] button',
-                    'div[data-testid="collapsedControl"] button',
-                    'button[aria-label*="Open sidebar"]',
-                    'button[title*="Open sidebar"]'
-                ].join(','))).find(isVisible) || null;
-            }
-
-            function sidebarIsCollapsed() {
-                if (getOpenSidebarButton()) return true;
-                const sidebar = getSidebar();
-                if (!sidebar) return false;
-                const rect = sidebar.getBoundingClientRect();
-                const style = win.getComputedStyle(sidebar);
-                return rect.width < 90 || rect.right < 90 || style.display === 'none' || style.visibility === 'hidden';
-            }
-
-            function findCollapseButton() {
-                const selectors = [
-                    'button[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar"]',
-                    'button[title*="Close sidebar"]',
-                    'button[aria-label*="Collapse sidebar"]',
-                    'button[title*="Collapse sidebar"]',
-                    'button[aria-label*="close sidebar"]',
-                    'button[title*="close sidebar"]',
-                    'button[aria-label*="collapse sidebar"]',
-                    'button[title*="collapse sidebar"]'
-                ];
-
-                for (const selector of selectors) {
-                    const button = Array.from(doc.querySelectorAll(selector)).find(isVisible);
-                    if (button) return button;
-                }
-
-                const sidebar = getSidebar();
-                if (!sidebar || !isVisible(sidebar)) return null;
-                const sidebarRect = sidebar.getBoundingClientRect();
-
-                const buttons = Array.from(sidebar.querySelectorAll('button')).filter(isVisible);
-                if (!buttons.length) return null;
-
-                const textMatch = buttons.find((button) => {
-                    const text = `${button.innerText || ''} ${button.textContent || ''} ${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`;
-                    return text.includes('«') || text.includes('‹') || text.includes('<<') || text.toLowerCase().includes('close') || text.toLowerCase().includes('collapse');
-                });
-                if (textMatch) return textMatch;
-
-                // 접기 버튼은 보통 사이드바 오른쪽 위에 있으므로, 그 위치에 가장 가까운 작은 버튼을 고릅니다.
-                const upperSmallButtons = buttons
-                    .map((button) => ({ button, rect: button.getBoundingClientRect() }))
-                    .filter(({ rect }) => rect.top < 120 && rect.width <= 80 && rect.height <= 80)
-                    .sort((a, b) => Math.abs(a.rect.right - sidebarRect.right) - Math.abs(b.rect.right - sidebarRect.right));
-                return upperSmallButtons[0]?.button || null;
-            }
-
-            let attempts = 0;
-            const maxAttempts = 70;
-
-            function collapseIfNeeded() {
-                attempts += 1;
-                if (sidebarIsCollapsed()) {
-                    clearInterval(timer);
-                    return;
-                }
-
-                const sidebar = getSidebar();
-                const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
-                const button = findCollapseButton();
-
-                if (button && sidebarWidth > 120) {
-                    button.click();
-                    setTimeout(() => {
-                        if (sidebarIsCollapsed()) clearInterval(timer);
-                    }, 250);
-                    return;
-                }
-
-                if (attempts >= maxAttempts) {
-                    clearInterval(timer);
-                }
-            }
-
-            const timer = setInterval(collapseIfNeeded, 100);
-            [50, 150, 300, 600, 1000, 1800, 3000, 5000].forEach((delay) => setTimeout(collapseIfNeeded, delay));
+            [0, 120, 350, 800, 1500].forEach((delay) => win.setTimeout(translateMultiselectLabels, delay));
         })();
         </script>
         """,
@@ -2848,7 +3128,6 @@ def render_result_card(text: str, css_class: str = "result-card-blue"):
 
 def _response_data(response):
     return getattr(response, "data", []) or []
-
 
 
 # =========================
@@ -2884,10 +3163,17 @@ def _normalize_popup_position(value: str | None) -> str:
 
 
 def _validate_popup_link_url(value: str | None) -> tuple[bool, str]:
-    """팝업 링크는 외부 이동이 가능한 http/https 주소만 저장합니다."""
-    url = str(value or "").strip()
+    """팝업 링크는 외부 이동이 가능한 http/https 주소만 저장합니다.
+
+    복사·붙여넣기 과정에서 함께 들어오는 공백·제로폭 문자·HTML 엔티티를 정리해
+    저장값과 실제 클릭 주소가 달라지는 문제를 예방합니다.
+    """
+    url = html.unescape(str(value or ""))
+    url = url.replace("\u200b", "").replace("\ufeff", "").strip()
     if not url:
         return True, ""
+    if any(ch.isspace() for ch in url):
+        return False, "링크 주소에는 줄바꿈이나 공백을 넣을 수 없습니다. 주소만 다시 붙여넣어 주세요."
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return False, "링크 주소는 https:// 또는 http://로 시작하는 완전한 주소로 입력해 주세요."
@@ -3146,17 +3432,6 @@ def render_active_popup_if_needed():
                 }
             }
 
-            function openPopupLink(url) {
-                const safeUrl = safeHttpUrl(url);
-                if (!safeUrl) return;
-                // 이미지 클릭은 부모 Streamlit 화면에서 직접 처리합니다.
-                // 일부 모바일·인앱 브라우저에서 <a target="_blank">가 무시되는 문제를 보완합니다.
-                const opened = win.open(safeUrl, '_blank', 'noopener,noreferrer');
-                if (!opened) {
-                    win.location.assign(safeUrl);
-                }
-            }
-
             function revisionKey(popup) {
                 return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || '');
             }
@@ -3306,91 +3581,72 @@ def render_active_popup_if_needed():
 
             removeCurrent();
             if (!Array.isArray(popups) || !popups.length) return;
-
-            // 우선순위는 load_visible_popups()에서 표시 순서만 정합니다.
-            // 조건을 만족하는 모든 팝업을 유지하고, X를 누르면 다음 팝업으로 자연스럽게 이어갑니다.
-            const popupQueue = popups.filter((item) => (
-                item && safeHttpUrl(item.image_signed_url) && !wasDismissed(item)
-            ));
-            if (!popupQueue.length) return;
+            const popup = popups.find((item) => item && safeHttpUrl(item.image_signed_url) && !wasDismissed(item));
+            if (!popup) return;
 
             ensureStyle();
+            const root = doc.createElement('section');
+            root.id = ROOT_ID;
+            root.className = String(popup.popup_position || 'center');
+            root.setAttribute('role', 'dialog');
+            root.setAttribute('aria-modal', 'false');
+            root.setAttribute('aria-label', String(popup.title || '서비스 안내 이미지'));
 
-            function showPopupAt(index) {
-                let nextIndex = index;
-                while (nextIndex < popupQueue.length && wasDismissed(popupQueue[nextIndex])) {
-                    nextIndex += 1;
-                }
-                if (nextIndex >= popupQueue.length) {
-                    removeCurrent();
-                    return;
-                }
-
-                removeCurrent();
-                const popup = popupQueue[nextIndex];
-                const root = doc.createElement('section');
-                root.id = ROOT_ID;
-                root.className = String(popup.popup_position || 'center');
-                root.setAttribute('role', 'dialog');
-                root.setAttribute('aria-modal', 'false');
-                root.setAttribute('aria-label', String(popup.title || '서비스 안내 이미지'));
-
-                const imageUrl = safeHttpUrl(popup.image_signed_url);
-                const linkUrl = safeHttpUrl(popup.link_url);
-                const image = doc.createElement('img');
-                image.className = 'witti-popup-image';
-                image.src = imageUrl;
-                image.alt = String(popup.image_alt_text || popup.title || '팝업 안내 이미지');
-                if (linkUrl) {
-                    const imageLink = doc.createElement('a');
-                    imageLink.className = 'witti-popup-image-link';
-                    imageLink.href = linkUrl;
-                    imageLink.target = '_blank';
-                    imageLink.rel = 'noopener noreferrer';
-                    imageLink.setAttribute('aria-label', '팝업 이미지 링크 열기');
-                    imageLink.setAttribute('title', '이미지를 클릭하면 연결된 페이지가 열립니다.');
-                    imageLink.addEventListener('click', function (event) {
+            const imageUrl = safeHttpUrl(popup.image_signed_url);
+            const linkUrl = safeHttpUrl(popup.link_url);
+            const image = doc.createElement('img');
+            image.className = 'witti-popup-image';
+            image.src = imageUrl;
+            image.alt = String(popup.image_alt_text || popup.title || '팝업 안내 이미지');
+            if (linkUrl) {
+                const imageLink = doc.createElement('a');
+                imageLink.className = 'witti-popup-image-link';
+                imageLink.href = linkUrl;
+                imageLink.target = '_blank';
+                imageLink.rel = 'noopener noreferrer';
+                imageLink.setAttribute('aria-label', '팝업 이미지 링크 열기');
+                imageLink.setAttribute('title', '이미지를 클릭하면 연결된 페이지가 열립니다.');
+                // 링크는 JavaScript로 가로채지 않고 브라우저의 기본 <a> 동작을 사용합니다.
+                // 이렇게 해야 모바일·인앱 브라우저에서도 사용자 클릭으로 인식되어
+                // 새 창 또는 해당 브라우저의 링크 화면으로 안정적으로 이동합니다.
+                imageLink.addEventListener('click', function (event) {
+                    if (!safeHttpUrl(linkUrl)) {
                         event.preventDefault();
-                        event.stopPropagation();
-                        openPopupLink(linkUrl);
-                    });
-                    imageLink.appendChild(image);
-                    root.appendChild(imageLink);
-                } else {
-                    root.appendChild(image);
-                }
-
-                const dismissRow = doc.createElement('label');
-                dismissRow.className = 'witti-popup-dismiss-row';
-                const dismissCheckbox = doc.createElement('input');
-                dismissCheckbox.type = 'checkbox';
-                dismissCheckbox.setAttribute('aria-label', '오늘 하루 이 창을 다시 열지 않습니다.');
-                const dismissText = doc.createElement('span');
-                dismissText.textContent = '오늘 하루 이 창을 다시 열지 않습니다.';
-                dismissRow.appendChild(dismissCheckbox);
-                dismissRow.appendChild(dismissText);
-                root.appendChild(dismissRow);
-
-                const closeButton = doc.createElement('button');
-                closeButton.type = 'button';
-                closeButton.className = 'witti-popup-close';
-                closeButton.setAttribute('aria-label', '팝업 닫기');
-                closeButton.textContent = '×';
-                closeButton.addEventListener('click', function () {
-                    // 체크했을 때만 해당 팝업을 오늘 하루 숨깁니다.
-                    if (dismissCheckbox.checked) {
-                        markTodayDismissed(popup);
                     }
-                    root.remove();
-                    // X만 누른 경우에도 현재 방문 흐름 안에서는 다음 활성 팝업으로 넘어갑니다.
-                    showPopupAt(nextIndex + 1);
                 });
-                root.appendChild(closeButton);
-
-                doc.body.appendChild(root);
+                imageLink.appendChild(image);
+                root.appendChild(imageLink);
+            } else {
+                root.appendChild(image);
             }
 
-            showPopupAt(0);
+            const dismissRow = doc.createElement('label');
+            dismissRow.className = 'witti-popup-dismiss-row';
+            const dismissCheckbox = doc.createElement('input');
+            dismissCheckbox.type = 'checkbox';
+            dismissCheckbox.setAttribute('aria-label', '오늘 하루 이 창을 다시 열지 않습니다.');
+            const dismissText = doc.createElement('span');
+            dismissText.textContent = '오늘 하루 이 창을 다시 열지 않습니다.';
+            dismissRow.appendChild(dismissCheckbox);
+            dismissRow.appendChild(dismissText);
+            root.appendChild(dismissRow);
+
+            const closeButton = doc.createElement('button');
+            closeButton.type = 'button';
+            closeButton.className = 'witti-popup-close';
+            closeButton.setAttribute('aria-label', '팝업 닫기');
+            closeButton.textContent = '×';
+            closeButton.addEventListener('click', function () {
+                // X는 현재 보이는 팝업만 닫습니다.
+                // 체크박스를 선택했을 때에만 한국 시간 기준 오늘 하루 동안 다시 표시하지 않습니다.
+                if (dismissCheckbox.checked) {
+                    markTodayDismissed(popup);
+                }
+                root.remove();
+            });
+            root.appendChild(closeButton);
+
+            doc.body.appendChild(root);
         })();
         </script>
     """
@@ -3399,7 +3655,6 @@ def render_active_popup_if_needed():
         height=0,
         width=0,
     )
-
 
 
 def render_public_notice_page():
@@ -3592,9 +3847,17 @@ def render_admin_popup_manager():
             label += " [숨김]"
         options[label] = row
 
+    # 저장 직후에는 방금 편집한 팝업을 다시 불러와 링크·이미지를 바로 확인할 수 있게 합니다.
+    pending_popup_select = st.session_state.pop("_popup_editor_select_after_save", None)
+    if pending_popup_select in options:
+        st.session_state["popup_editor_select"] = pending_popup_select
+
     selected_label = st.selectbox("작성·편집할 팝업", list(options.keys()), key="popup_editor_select")
     existing = options[selected_label] or {}
     record_id = existing.get("id")
+    # 기존 링크는 편집 화면의 위젯 상태가 비어 있더라도 보존합니다.
+    # 삭제는 아래의 전용 체크박스를 선택했을 때만 허용합니다.
+    existing_link_url = str(existing.get("link_url") or "").strip()
     token = f"popup_{record_id or 'new'}"
     existing_position = _normalize_popup_position(existing.get("popup_position"))
     position_labels = list(POPUP_POSITION_OPTIONS.keys())
@@ -3663,11 +3926,17 @@ def render_admin_popup_manager():
         )
         link_url = st.text_input(
             "이미지 클릭 연결 링크 (선택)",
-            value=str(existing.get("link_url") or ""),
+            value=existing_link_url,
             max_chars=1000,
             key=f"{token}_link_url",
             placeholder="https://witti.kr/...",
-            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 새 창으로 이동합니다.",
+            help="입력하면 방문자가 팝업 이미지를 클릭했을 때 연결된 페이지가 열립니다. 링크를 지우려면 아래 체크박스를 사용해 주세요.",
+        )
+        remove_existing_link = st.checkbox(
+            "현재 연결 링크를 삭제합니다.",
+            value=False,
+            disabled=not bool(existing_link_url),
+            key=f"{token}_remove_link",
         )
         popup_position_label = st.selectbox(
             "팝업 표시 위치",
@@ -3680,7 +3949,16 @@ def render_admin_popup_manager():
         submitted = st.form_submit_button("팝업 저장", use_container_width=True)
 
     if submitted:
-        valid_link, normalized_link_or_message = _validate_popup_link_url(link_url)
+        # 기존 링크가 있는 편집 화면에서 위젯값이 빈 값으로 돌아가도 링크가 사라지지 않도록 합니다.
+        # 실제 삭제는 '현재 연결 링크를 삭제합니다'를 체크했을 때만 수행합니다.
+        if remove_existing_link:
+            effective_link_url = ""
+        elif str(link_url or "").strip():
+            effective_link_url = str(link_url or "").strip()
+        else:
+            effective_link_url = existing_link_url
+
+        valid_link, normalized_link_or_message = _validate_popup_link_url(effective_link_url)
         has_existing_image = bool(existing.get("image_path"))
         will_have_image = bool(popup_image is not None or (has_existing_image and not remove_existing_image))
         if not title.strip():
@@ -3726,11 +4004,33 @@ def render_admin_popup_manager():
                 if not record_id:
                     payload["created_by"] = "admin"
 
-                _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                saved_popup = _save_platform_content(PLATFORM_POPUP_TABLE, record_id, payload)
+                saved_popup_id = saved_popup.get("id") if isinstance(saved_popup, dict) else record_id
+
+                # 저장 직후 DB 값을 다시 읽어 링크 보존 여부를 확인합니다.
+                # 일부 이전 코드·브라우저 위젯 상태가 빈 값을 넘기며 링크를 지우는 문제를 이중으로 막습니다.
+                if saved_popup_id:
+                    verified_rows = _response_data(
+                        supabase.table(PLATFORM_POPUP_TABLE)
+                        .select("id, link_url")
+                        .eq("id", int(saved_popup_id))
+                        .limit(1)
+                        .execute()
+                    )
+                    if verified_rows:
+                        saved_link_url = str(verified_rows[0].get("link_url") or "").strip()
+                        if saved_link_url != normalized_link_or_message:
+                            supabase.table(PLATFORM_POPUP_TABLE).update(
+                                {"link_url": normalized_link_or_message}
+                            ).eq("id", int(saved_popup_id)).execute()
+
+                    # 저장 뒤에도 같은 팝업을 계속 편집할 수 있도록, 다음 렌더링에서 선택할 항목을 예약합니다.
+                    st.session_state["_popup_editor_select_after_save"] = f"#{saved_popup_id} · {title.strip()[:60]}"
+
                 if old_path and (uploaded_image_meta or remove_existing_image):
                     delete_platform_popup_image_by_values(old_bucket, old_path)
                 st.session_state.pop("dismissed_platform_popup_ids", None)
-                st.success("이미지 전용 방문 팝업을 저장했습니다.")
+                st.success("이미지 전용 방문 팝업을 저장했습니다. 연결 링크도 함께 저장되었습니다." if normalized_link_or_message else "이미지 전용 방문 팝업을 저장했습니다.")
                 st.rerun()
             except Exception as exc:
                 if uploaded_image_meta:
@@ -3830,7 +4130,6 @@ def save_phrase_log(record_type, play_keyword, age_group, curriculum_area, devel
     }
     supabase.table("phrase_logs").insert(payload).execute()
     return True
-
 
 
 def load_table(table_name, include_deleted=False):
@@ -4012,8 +4311,8 @@ def render_menu_card(title: str, description: str, chips: list[str] | None = Non
 st.markdown(f"""
 <!-- APP_VERSION: {APP_VERSION} -->
 <div class="app-hero">
-    <div class="app-eyebrow">🌿 교사의 발견</div>
-    <h1>현장 업무 자동화 파일럿 서비스</h1>
+    <div class="app-eyebrow">🌿 놀이 기록 자동화</div>
+    <h1>놀이 기록 자동화</h1>
     <p>사진 선별, 놀이 이야기와 기록 문구 생성, 사진 보정, 기록 관리를 한 화면에서 정리할 수 있도록 구성했습니다.</p>
     <div class="hero-links">
         <a class="hero-link" href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">🔗 {WITTI_SITE_LABEL}</a>
@@ -4021,7 +4320,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 
 # =========================
@@ -4033,6 +4331,23 @@ st.markdown(f"""
 NOTICE_IMAGE_BUCKET = "platform-notice-images"
 NOTICE_IMAGE_SIGNED_URL_TTL_SECONDS = 60 * 60
 MAX_NOTICE_IMAGE_BYTES = 10 * 1024 * 1024
+
+# 공지사항 첨부파일은 본문 이미지와 분리된 private Storage 버킷에 저장합니다.
+# 한 공지당 최대 5개, 파일 1개당 최대 20MB로 제한합니다.
+NOTICE_ATTACHMENT_BUCKET = "platform-notice-attachments"
+NOTICE_ATTACHMENT_SIGNED_URL_TTL_SECONDS = 60 * 60
+MAX_NOTICE_ATTACHMENT_COUNT = 5
+MAX_NOTICE_ATTACHMENT_BYTES = 20 * 1024 * 1024
+NOTICE_ATTACHMENT_MIME_BY_EXTENSION = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".hwp": "application/x-hwp",
+    ".hwpx": "application/vnd.hancom.hwpx",
+}
+NOTICE_ATTACHMENT_ALLOWED_TYPES = ["jpg", "jpeg", "png", "webp", "pdf", "hwp", "hwpx"]
 NOTICE_TEXT_STYLE_OPTIONS = ["노멀", "헤딩 1", "헤딩 2", "헤딩 3", "헤딩 4", "헤딩 5"]
 NOTICE_TEXT_STYLE_TAGS = {"노멀": "p", "헤딩 1": "h1", "헤딩 2": "h2", "헤딩 3": "h3", "헤딩 4": "h4", "헤딩 5": "h5"}
 NOTICE_TEXT_COLOR_OPTIONS = {"기본색": "", "남색": "#172B4D", "파랑": "#1D4ED8", "초록": "#188B55", "주황": "#B54708", "빨강": "#B42318", "보라": "#6941C6", "회색": "#475467"}
@@ -4052,6 +4367,19 @@ st.markdown(
     .notice-media-card { background:#FFFFFF; border:1px solid #E1EAF3; border-radius:14px; padding:12px; margin:10px 0; }
     .notice-media-card-title { color:#174F80; font-size:13px; font-weight:900; margin-bottom:7px; }
     .notice-inline-tip { color:#667085; font-size:12.5px; line-height:1.55; margin-top:5px; }
+    .notice-preview-frame {
+        max-height:360px; overflow-y:auto; background:#FFFFFF; border:1px solid #E1EAF3;
+        border-radius:14px; padding:16px 18px; margin-top:6px;
+    }
+    .notice-attachments { margin:18px 0 4px; padding:14px; background:#F8FBFF; border:1px solid #DCEBFF; border-radius:14px; }
+    .notice-attachments-title { color:#174F80; font-size:14px; font-weight:900; margin-bottom:8px; }
+    .notice-attachment-link {
+        display:flex; align-items:center; gap:8px; color:#174F80 !important; background:#FFFFFF;
+        border:1px solid #DCE8F5; border-radius:10px; padding:10px 12px; margin-top:8px;
+        text-decoration:none !important; font-size:14px; font-weight:700;
+    }
+    .notice-attachment-link:hover { background:#F1F8FF; border-color:#A9CFF5; }
+    .notice-attachment-meta { color:#667085; font-size:12px; font-weight:500; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -4131,6 +4459,100 @@ def create_platform_notice_signed_url(image_bucket: str | None, image_path: str 
         return ""
 
 
+
+def _notice_attachment_extension(uploaded_file) -> str:
+    suffix = Path(str(getattr(uploaded_file, "name", "") or "")).suffix.lower()
+    if suffix not in NOTICE_ATTACHMENT_MIME_BY_EXTENSION:
+        raise ValueError("첨부파일은 JPG, PNG, WEBP, PDF, HWP, HWPX 형식만 업로드할 수 있습니다.")
+    return suffix
+
+
+def _make_notice_attachment_storage_path(uploaded_file, now_utc: datetime | None = None) -> str:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    suffix = _notice_attachment_extension(uploaded_file)
+    return f"attachments/{now_utc.strftime('%Y')}/{now_utc.strftime('%m')}/{uuid.uuid4().hex}{suffix}"
+
+
+def _get_notice_attachment_bytes_and_mime(uploaded_file) -> tuple[bytes, str, str]:
+    if uploaded_file is None:
+        raise ValueError("첨부할 파일을 선택해 주세요.")
+    file_bytes = uploaded_file.getvalue()
+    if len(file_bytes) > MAX_NOTICE_ATTACHMENT_BYTES:
+        raise ValueError(f"'{uploaded_file.name}' 파일이 20MB를 초과합니다.")
+    suffix = _notice_attachment_extension(uploaded_file)
+    mime_type = NOTICE_ATTACHMENT_MIME_BY_EXTENSION[suffix]
+    return file_bytes, mime_type, suffix
+
+
+def upload_platform_notice_attachment(uploaded_file) -> dict:
+    file_bytes, mime_type, suffix = _get_notice_attachment_bytes_and_mime(uploaded_file)
+    file_path = _make_notice_attachment_storage_path(uploaded_file)
+    supabase.storage.from_(NOTICE_ATTACHMENT_BUCKET).upload(
+        file_path,
+        file_bytes,
+        file_options={"content-type": mime_type, "upsert": "false"},
+    )
+    return {
+        "attachment_bucket": NOTICE_ATTACHMENT_BUCKET,
+        "attachment_path": file_path,
+        "attachment_original_file_name": str(getattr(uploaded_file, "name", "") or f"attachment{suffix}"),
+        "attachment_mime_type": mime_type,
+        "attachment_size_bytes": len(file_bytes),
+    }
+
+
+def delete_platform_notice_attachment_by_values(bucket_name: str | None, attachment_path: str | None):
+    path = str(attachment_path or "").strip()
+    if not path:
+        return
+    try:
+        supabase.storage.from_(str(bucket_name or NOTICE_ATTACHMENT_BUCKET)).remove([path])
+    except Exception:
+        pass
+
+
+def create_platform_notice_attachment_signed_url(attachment_bucket: str | None, attachment_path: str | None) -> str:
+    path = str(attachment_path or "").strip()
+    if not path:
+        return ""
+    try:
+        response = supabase.storage.from_(str(attachment_bucket or NOTICE_ATTACHMENT_BUCKET)).create_signed_url(
+            path,
+            NOTICE_ATTACHMENT_SIGNED_URL_TTL_SECONDS,
+        )
+        if isinstance(response, dict):
+            return str(response.get("signedURL") or response.get("signedUrl") or response.get("signed_url") or "")
+        return str(
+            getattr(response, "signedURL", "")
+            or getattr(response, "signedUrl", "")
+            or getattr(response, "signed_url", "")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _attachment_icon(mime_type: str, file_name: str = "") -> str:
+    suffix = Path(str(file_name or "")).suffix.lower()
+    mime = str(mime_type or "").lower()
+    if mime.startswith("image/") or suffix in {".jpg", ".jpeg", ".png", ".webp"}:
+        return "🖼️"
+    if mime == "application/pdf" or suffix == ".pdf":
+        return "📄"
+    return "📝"
+
+
+def _format_attachment_size(value) -> str:
+    try:
+        size = int(value or 0)
+    except Exception:
+        size = 0
+    if size <= 0:
+        return ""
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f}MB"
+    return f"{max(1, size // 1024)}KB"
+
 def _new_notice_text_block(text: str = "") -> dict:
     # 기존 공지 호환용으로만 유지합니다.
     return {
@@ -4172,12 +4594,13 @@ def _new_notice_image_block() -> dict:
     }
 
 
-def _new_notice_document(body: str = "", assets: list[dict] | None = None) -> dict:
+def _new_notice_document(body: str = "", assets: list[dict] | None = None, attachments: list[dict] | None = None) -> dict:
     return {
         "block_id": uuid.uuid4().hex,
         "type": NOTICE_DOCUMENT_TYPE,
         "body": str(body or ""),
         "assets": list(assets or []),
+        "attachments": list(attachments or []),
     }
 
 
@@ -4202,7 +4625,9 @@ def _normalize_notice_block(raw_block) -> dict:
     if block.get("type") == NOTICE_DOCUMENT_TYPE:
         block["body"] = str(block.get("body") or "")
         assets = block.get("assets")
+        attachments = block.get("attachments")
         block["assets"] = [dict(item) for item in assets if isinstance(item, dict)] if isinstance(assets, list) else []
+        block["attachments"] = [dict(item) for item in attachments if isinstance(item, dict)] if isinstance(attachments, list) else []
     if block.get("text_style") not in NOTICE_TEXT_STYLE_OPTIONS:
         block["text_style"] = "노멀"
     if block.get("text_color") not in NOTICE_TEXT_COLOR_OPTIONS:
@@ -4237,6 +4662,29 @@ def _normalize_notice_asset(asset: dict, index: int = 0) -> dict:
         normalized["_uploaded_file"] = source.get("_uploaded_file")
     return normalized
 
+
+
+def _normalize_notice_attachment(attachment: dict, index: int = 0) -> dict:
+    source = dict(attachment or {})
+    attachment_id = str(source.get("attachment_id") or f"file_{index + 1}_{uuid.uuid4().hex[:6]}")
+    normalized = {
+        "attachment_id": attachment_id,
+        "attachment_bucket": str(source.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET),
+        "attachment_path": str(source.get("attachment_path") or ""),
+        "attachment_original_file_name": str(source.get("attachment_original_file_name") or ""),
+        "attachment_mime_type": str(source.get("attachment_mime_type") or ""),
+        "attachment_size_bytes": source.get("attachment_size_bytes"),
+        "remove_attachment": bool(source.get("remove_attachment") or False),
+    }
+    if source.get("_uploaded_file") is not None:
+        normalized["_uploaded_file"] = source.get("_uploaded_file")
+    return normalized
+
+
+def _new_document_attachment(document: dict) -> dict:
+    existing = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    serial = len(existing) + 1
+    return _normalize_notice_attachment({"attachment_id": f"file_{serial}_{uuid.uuid4().hex[:6]}"}, serial)
 
 def _legacy_blocks_to_document(blocks: list[dict]) -> dict:
     parts: list[str] = []
@@ -4367,11 +4815,13 @@ NOTICE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}›»”’"
 
 
 def _render_notice_text_with_links(text: str) -> str:
-    """공지 본문의 안전한 링크 렌더러입니다.
+    """공지 본문 속 URL을 안전한 실제 링크로 변환합니다.
 
-    - 붙여넣은 https:// / http:// 주소를 바로 클릭 가능한 링크로 바꿉니다.
-    - [표시 문구](https://주소) 형식도 지원합니다.
-    - 본문은 HTML 이스케이프를 유지해 스크립트 삽입을 막습니다.
+    - https:// 또는 http:// 주소를 자동 링크로 변환
+    - [표시 문구](https://주소) 형식 지원
+    - HTML은 이스케이프해 스크립트 삽입을 차단
+    - data-witti-external-url 속성을 함께 넣어 Streamlit/인앱 브라우저에서도
+      별도 클릭 처리기가 URL을 확실히 열 수 있게 함
     """
     source = str(text or "")
     if not source:
@@ -4385,7 +4835,7 @@ def _render_notice_text_with_links(text: str) -> str:
         raw_url = match.group(2) if match.group(2) is not None else match.group("url")
         raw_url = str(raw_url or "")
 
-        # 문장 끝 마침표·괄호는 링크 밖에 남깁니다.
+        # 문장 끝 마침표·괄호는 링크 바깥에 남깁니다.
         trailing = ""
         if match.group(1) is None:
             while raw_url and raw_url[-1] in NOTICE_URL_TRAILING_PUNCTUATION:
@@ -4397,7 +4847,9 @@ def _render_notice_text_with_links(text: str) -> str:
             visible_label = str(label or raw_url)
             href = html.escape(normalized_url, quote=True)
             parts.append(
-                f"<a class='notice-inline-link' href='{href}' target='_blank' rel='noopener noreferrer'>"
+                "<a class='notice-inline-link' "
+                f"href='{href}' data-witti-external-url='{href}' "
+                "target='_blank' rel='noopener noreferrer'>"
                 f"{html.escape(visible_label)}</a>"
             )
             if trailing:
@@ -4408,6 +4860,69 @@ def _render_notice_text_with_links(text: str) -> str:
 
     parts.append(html.escape(source[cursor:]))
     return "".join(parts).replace("\n", "<br>")
+
+
+def install_notice_link_click_handler():
+    """공지 링크가 Streamlit·모바일 인앱 브라우저에서도 직접 열리도록 보강합니다.
+
+    표준 <a> 링크를 우선 사용하되, Streamlit expander 또는 일부 인앱 브라우저가
+    클릭을 가로채는 경우를 대비해 부모 문서에 이벤트 위임 처리기를 한 번 등록합니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MARKER = '__wittiNoticeExternalLinkHandlerInstalled';
+            if (win[MARKER]) return;
+            win[MARKER] = true;
+
+            function normalizeHttpUrl(value) {
+                try {
+                    const url = new URL(String(value || '').trim());
+                    return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
+                } catch (error) {
+                    return '';
+                }
+            }
+
+            doc.addEventListener('click', function (event) {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                const anchor = target.closest('a.notice-inline-link, .notice-rich-content a[href]');
+                if (!anchor) return;
+
+                const url = normalizeHttpUrl(
+                    anchor.getAttribute('data-witti-external-url') || anchor.getAttribute('href') || ''
+                );
+                if (!url) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                let opened = null;
+                try {
+                    opened = win.open(url, '_blank', 'noopener,noreferrer');
+                } catch (error) {
+                    opened = null;
+                }
+
+                // 인앱 브라우저에서 새 창 열기가 막히면 현재 창에서라도 링크로 이동합니다.
+                if (!opened) {
+                    try {
+                        win.location.assign(url);
+                    } catch (error) {
+                        win.location.href = url;
+                    }
+                }
+            }, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def _render_plain_notice_paragraph(lines: list[str]) -> str:
@@ -4509,11 +5024,171 @@ def build_notice_blocks_html(blocks: list[dict]) -> str:
     return _build_notice_document_html(document.get("body"), document.get("assets") or [])
 
 
-def render_notice_blocks(blocks: list[dict]):
+def _build_notice_attachments_html(blocks: list[dict]) -> str:
+    document = _get_notice_document(blocks)
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    rendered: list[str] = []
+    for index, raw_attachment in enumerate(attachments):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        signed_url = create_platform_notice_attachment_signed_url(
+            attachment.get("attachment_bucket"),
+            attachment.get("attachment_path"),
+        )
+        if not signed_url:
+            continue
+        file_name = str(attachment.get("attachment_original_file_name") or "첨부파일")
+        file_name_html = html.escape(file_name)
+        icon = _attachment_icon(str(attachment.get("attachment_mime_type") or ""), file_name)
+        size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+        meta_html = f"<span class='notice-attachment-meta'>{html.escape(size_text)}</span>" if size_text else ""
+        rendered.append(
+            f"<a class='notice-attachment-link' href='{html.escape(signed_url, quote=True)}' "
+            f"data-witti-external-url='{html.escape(signed_url, quote=True)}' "
+            "target='_blank' rel='noopener noreferrer' download>"
+            f"<span>{icon}</span><span>{file_name_html} {meta_html}</span></a>"
+        )
+    if not rendered:
+        return ""
+    return "<div class='notice-attachments'><div class='notice-attachments-title'>첨부파일</div>" + "".join(rendered) + "</div>"
+
+
+def _get_notice_attachment_bytes(bucket_name: str | None, attachment_path: str | None) -> bytes:
+    """Signed URL 생성이 실패해도 첨부파일 목록과 다운로드가 사라지지 않도록 서버에서 직접 읽습니다."""
+    path = str(attachment_path or "").strip()
+    if not path:
+        return b""
+    try:
+        response = supabase.storage.from_(str(bucket_name or NOTICE_ATTACHMENT_BUCKET)).download(path)
+        if isinstance(response, bytes):
+            return response
+        if isinstance(response, bytearray):
+            return bytes(response)
+        return bytes(response or b"")
+    except Exception:
+        return b""
+
+
+def _collect_notice_attachments(blocks: list[dict], source_record: dict | None = None) -> list[dict]:
+    """공지 문서에 저장된 첨부파일을 안정적으로 모읍니다.
+
+    새 문서형(content_blocks 안 attachments)뿐 아니라, 이전 보수본에서 남을 수 있는
+    루트 attachments / attachment_files / notice_attachments 구조도 읽습니다.
+    저장 형식이 섞여 있어도 공개 화면에서 파일 목록이 사라지지 않게 하기 위한 호환 함수입니다.
+    """
+    candidates: list[object] = []
+    document = _get_notice_document(blocks)
+    if isinstance(document, dict):
+        raw_document_attachments = document.get("attachments")
+        if isinstance(raw_document_attachments, list):
+            candidates.extend(raw_document_attachments)
+
+    if isinstance(source_record, dict):
+        for field_name in ("attachments", "attachment_files", "notice_attachments"):
+            raw_value = source_record.get(field_name)
+            if isinstance(raw_value, str):
+                try:
+                    raw_value = json.loads(raw_value)
+                except Exception:
+                    raw_value = None
+            if isinstance(raw_value, list):
+                candidates.extend(raw_value)
+
+    collected: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for index, raw_attachment in enumerate(candidates):
+        if not isinstance(raw_attachment, dict):
+            continue
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        path = str(attachment.get("attachment_path") or "").strip()
+        file_name = str(attachment.get("attachment_original_file_name") or "").strip()
+        if not path and not file_name:
+            continue
+        identity = (
+            str(attachment.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET),
+            path or file_name,
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        collected.append(attachment)
+    return collected
+
+
+def render_notice_attachment_section(
+    blocks: list[dict],
+    key_prefix: str = "public_notice",
+    source_record: dict | None = None,
+):
+    """공지 본문과 별개로 첨부파일을 항상 표시합니다.
+
+    저장된 파일의 경로가 있으면 signed URL 또는 서버 다운로드로 연결합니다. 경로가 없는
+    이전 미완료 첨부는 파일명이라도 표시해, 관리자에게 어떤 공지를 다시 저장해야 하는지
+    숨기지 않고 알려 줍니다.
+    """
+    visible = _collect_notice_attachments(blocks, source_record=source_record)
+    if not visible:
+        return
+
+    st.markdown("#### 첨부파일")
+    for index, attachment in enumerate(visible, start=1):
+        file_name = str(attachment.get("attachment_original_file_name") or f"첨부파일 {index}")
+        mime_type = str(attachment.get("attachment_mime_type") or "application/octet-stream")
+        icon = _attachment_icon(mime_type, file_name)
+        size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+        attachment_key = f"{key_prefix}_{attachment.get('attachment_id') or index}"
+        path = str(attachment.get("attachment_path") or "").strip()
+        signed_url = (
+            create_platform_notice_attachment_signed_url(
+                attachment.get("attachment_bucket"), path
+            )
+            if path else ""
+        )
+
+        with st.container(border=True):
+            left, right = st.columns([5, 1.55])
+            with left:
+                st.markdown(f"**{icon} {file_name}**")
+                if size_text:
+                    st.caption(size_text)
+                if not path:
+                    st.caption("이전 저장 과정에서 파일 경로가 남지 않았습니다. 관리자에서 첨부파일을 다시 추가한 뒤 공지사항 저장을 눌러 주세요.")
+                elif not signed_url:
+                    st.caption("열기 링크를 준비하지 못했습니다. 아래 다운로드 버튼을 사용할 수 있는지 확인해 주세요.")
+            with right:
+                if signed_url:
+                    st.link_button("열기", signed_url, key=f"{attachment_key}_open", use_container_width=True)
+                elif path:
+                    data = _get_notice_attachment_bytes(
+                        attachment.get("attachment_bucket"), path
+                    )
+                    if data:
+                        st.download_button(
+                            "다운로드",
+                            data=data,
+                            file_name=file_name,
+                            mime=mime_type,
+                            key=f"{attachment_key}_download",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.caption("파일을 불러오지 못했습니다.")
+
+
+def render_notice_blocks(
+    blocks: list[dict],
+    key_prefix: str = "notice",
+    source_record: dict | None = None,
+):
     rendered = build_notice_blocks_html(blocks)
     if rendered:
         st.markdown(f"<div class='notice-rich-content'>{rendered}</div>", unsafe_allow_html=True)
-    else:
+    attachments = _collect_notice_attachments(blocks, source_record=source_record)
+    render_notice_attachment_section(blocks, key_prefix=key_prefix, source_record=source_record)
+    if not rendered and not attachments:
         st.caption("등록된 공지 내용이 없습니다.")
 
 
@@ -4648,6 +5323,84 @@ def _render_document_asset_manager(token: str, document: dict):
         document["assets"] = active_assets
 
 
+
+def _render_document_attachment_manager(token: str, document: dict):
+    attachments = document.get("attachments") if isinstance(document.get("attachments"), list) else []
+    active_attachments = [
+        _normalize_notice_attachment(item, index)
+        for index, item in enumerate(attachments)
+        if not bool((item or {}).get("remove_attachment"))
+    ]
+
+    st.markdown("#### 첨부파일")
+    st.caption("공지마다 최대 5개까지 업로드할 수 있습니다. JPG·PNG·WEBP 이미지, PDF, 한글(HWP·HWPX) 파일을 지원하며 파일 1개당 최대 20MB입니다.")
+
+    remaining = max(0, MAX_NOTICE_ATTACHMENT_COUNT - len(active_attachments))
+    if remaining <= 0:
+        st.info("첨부파일은 최대 5개까지 등록할 수 있습니다. 기존 파일을 삭제하면 새 파일을 추가할 수 있습니다.")
+    else:
+        selected_files = st.file_uploader(
+            f"첨부파일 선택 · 남은 수 {remaining}개",
+            type=NOTICE_ATTACHMENT_ALLOWED_TYPES,
+            accept_multiple_files=True,
+            key=f"{token}_attachment_upload",
+            help="이미지, PDF, 한글(HWP·HWPX) 파일을 최대 5개까지 선택할 수 있습니다.",
+        )
+        if st.button("첨부파일 목록에 추가", key=f"{token}_attachment_add", use_container_width=False):
+            selected_files = list(selected_files or [])
+            if not selected_files:
+                st.warning("추가할 첨부파일을 먼저 선택해 주세요.")
+            elif len(selected_files) > remaining:
+                st.warning(f"현재 공지에는 {remaining}개만 더 추가할 수 있습니다.")
+            else:
+                validated: list[dict] = []
+                try:
+                    for uploaded_file in selected_files:
+                        file_bytes, mime_type, _ = _get_notice_attachment_bytes_and_mime(uploaded_file)
+                        attachment = _new_document_attachment(document)
+                        attachment.update({
+                            "attachment_original_file_name": str(getattr(uploaded_file, "name", "") or "첨부파일"),
+                            "attachment_mime_type": mime_type,
+                            "attachment_size_bytes": len(file_bytes),
+                            "_uploaded_file": uploaded_file,
+                        })
+                        validated.append(attachment)
+                    document.setdefault("attachments", []).extend(validated)
+                    st.rerun()
+                except Exception as exc:
+                    st.warning(str(exc))
+
+    if not attachments:
+        return
+
+    with st.expander(f"등록할 첨부파일 관리 · {len(active_attachments)}개", expanded=True):
+        kept: list[dict] = []
+        for index, raw_attachment in enumerate(list(attachments)):
+            attachment = _normalize_notice_attachment(raw_attachment, index)
+            attachment_id = attachment["attachment_id"]
+            file_name = attachment.get("attachment_original_file_name") or "첨부파일"
+            icon = _attachment_icon(attachment.get("attachment_mime_type") or "", file_name)
+            size_text = _format_attachment_size(attachment.get("attachment_size_bytes"))
+            state_text = "저장 전 파일" if attachment.get("_uploaded_file") is not None else "저장된 파일"
+            with st.container(border=True):
+                left, right = st.columns([5, 1.7])
+                with left:
+                    st.markdown(f"**{icon} {file_name}**")
+                    st.caption(" · ".join([item for item in [state_text, size_text] if item]))
+                    signed = create_platform_notice_attachment_signed_url(
+                        attachment.get("attachment_bucket"), attachment.get("attachment_path")
+                    )
+                    if signed:
+                        st.link_button("첨부파일 열기", signed, use_container_width=False)
+                with right:
+                    attachment["remove_attachment"] = st.checkbox(
+                        "삭제", value=bool(attachment.get("remove_attachment") or False),
+                        key=f"{token}_{attachment_id}_remove_attachment"
+                    )
+                if not attachment.get("remove_attachment"):
+                    kept.append(attachment)
+        document["attachments"] = kept
+
 def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
     # 함수명은 기존 관리자 호출과의 호환을 위해 유지합니다.
     document = _initialize_notice_editor(token, existing)
@@ -4655,23 +5408,28 @@ def render_notice_block_editor(token: str, existing: dict) -> list[dict]:
     if body_key not in st.session_state:
         st.session_state[body_key] = str(document.get("body") or "")
     st.markdown("#### 공지 본문 편집")
+    st.caption("본문 작성 영역을 넓히고, 미리보기는 접어서 확인할 수 있도록 조정했습니다.")
     _render_document_toolbar(token, document)
     document["body"] = st.text_area(
         "본문",
         key=body_key,
-        height=440,
+        height=680,
         max_chars=8000,
         placeholder="공지 내용을 입력해 주세요.\n\n제목은 # 제목처럼, 나눔 줄은 ---처럼 본문 안에서 바로 쓸 수 있습니다.",
     )
     _render_document_asset_manager(token, document)
-    st.markdown("#### 미리보기")
-    render_notice_blocks([document])
+    _render_document_attachment_manager(token, document)
+    with st.expander("미리보기 열기", expanded=False):
+        st.caption("저장 전 게시 화면을 확인할 수 있습니다. 긴 공지도 편집 영역을 가리지 않도록 높이를 제한했습니다.")
+        with st.container(height=360, border=True):
+            render_notice_blocks([document], key_prefix=f"notice_preview_{token}")
     return [document]
 
 
 def _clean_notice_blocks_for_storage(blocks: list[dict]) -> list[dict]:
     document = _get_notice_document(blocks)
     clean_assets: list[dict] = []
+    clean_attachments: list[dict] = []
     for index, raw_asset in enumerate(document.get("assets") or []):
         asset = _normalize_notice_asset(raw_asset, index)
         if asset.get("remove_image"):
@@ -4685,11 +5443,25 @@ def _clean_notice_blocks_for_storage(blocks: list[dict]) -> list[dict]:
                 "image_mime_type", "image_size_bytes", "image_alt_text", "image_caption", "image_link_url",
             ]
         })
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        if not str(attachment.get("attachment_path") or "").strip():
+            continue
+        clean_attachments.append({
+            key: attachment.get(key)
+            for key in [
+                "attachment_id", "attachment_bucket", "attachment_path", "attachment_original_file_name",
+                "attachment_mime_type", "attachment_size_bytes",
+            ]
+        })
     return [{
         "block_id": str(document.get("block_id") or uuid.uuid4().hex),
         "type": NOTICE_DOCUMENT_TYPE,
         "body": str(document.get("body") or ""),
         "assets": clean_assets,
+        "attachments": clean_attachments,
     }]
 
 
@@ -4704,11 +5476,25 @@ def _notice_image_refs(blocks: list[dict]) -> set[tuple[str, str]]:
     return refs
 
 
-def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
+
+def _notice_attachment_refs(blocks: list[dict]) -> set[tuple[str, str]]:
+    document = _get_notice_document(blocks)
+    refs: set[tuple[str, str]] = set()
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        path = str(attachment.get("attachment_path") or "").strip()
+        if path and not attachment.get("remove_attachment"):
+            refs.add((str(attachment.get("attachment_bucket") or NOTICE_ATTACHMENT_BUCKET), path))
+    return refs
+
+def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     document = _get_notice_document(blocks)
     body = str(document.get("body") or "")
     prepared_assets: list[dict] = []
-    uploaded_metas: list[dict] = []
+    prepared_attachments: list[dict] = []
+    uploaded_image_metas: list[dict] = []
+    uploaded_attachment_metas: list[dict] = []
+
     for index, raw_asset in enumerate(document.get("assets") or []):
         asset = _normalize_notice_asset(raw_asset, index)
         if asset.get("remove_image"):
@@ -4716,7 +5502,7 @@ def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], lis
         new_upload = raw_asset.get("_uploaded_file") if isinstance(raw_asset, dict) else None
         if new_upload is not None:
             meta = upload_platform_notice_image(new_upload)
-            uploaded_metas.append(meta)
+            uploaded_image_metas.append(meta)
             asset.update(meta)
         valid, normalized = _validate_popup_link_url(str(asset.get("image_link_url") or ""))
         if not valid:
@@ -4727,8 +5513,26 @@ def _prepare_notice_blocks_for_save(blocks: list[dict]) -> tuple[list[dict], lis
         if marker not in body:
             continue
         prepared_assets.append(asset)
-    prepared_document = _new_notice_document(body, prepared_assets)
-    return _clean_notice_blocks_for_storage([prepared_document]), uploaded_metas
+
+    for index, raw_attachment in enumerate(document.get("attachments") or []):
+        attachment = _normalize_notice_attachment(raw_attachment, index)
+        if attachment.get("remove_attachment"):
+            continue
+        new_upload = raw_attachment.get("_uploaded_file") if isinstance(raw_attachment, dict) else None
+        if new_upload is not None:
+            meta = upload_platform_notice_attachment(new_upload)
+            uploaded_attachment_metas.append(meta)
+            attachment.update(meta)
+        if not str(attachment.get("attachment_path") or "").strip():
+            file_name = str(attachment.get("attachment_original_file_name") or "첨부파일")
+            raise ValueError(f"'{file_name}' 첨부파일의 저장 경로를 만들지 못했습니다. 파일을 목록에서 삭제한 뒤 다시 추가해 주세요.")
+        prepared_attachments.append(attachment)
+
+    if len(prepared_attachments) > MAX_NOTICE_ATTACHMENT_COUNT:
+        raise ValueError(f"공지사항 첨부파일은 최대 {MAX_NOTICE_ATTACHMENT_COUNT}개까지 등록할 수 있습니다.")
+
+    prepared_document = _new_notice_document(body, prepared_assets, prepared_attachments)
+    return _clean_notice_blocks_for_storage([prepared_document]), uploaded_image_metas, uploaded_attachment_metas
 
 
 def _clear_notice_editor_state(token: str):
@@ -4736,13 +5540,24 @@ def _clear_notice_editor_state(token: str):
     body_key = f"{token}_document_body"
     st.session_state.pop(body_key, None)
     for key in list(st.session_state.keys()):
-        if key.startswith(f"{token}_quick_") or key.startswith(f"{token}_callout_") or key.startswith(f"{token}_image_"):
+        if (
+            key.startswith(f"{token}_quick_")
+            or key.startswith(f"{token}_callout_")
+            or key.startswith(f"{token}_image_")
+            or key.startswith(f"{token}_attachment_")
+        ):
             st.session_state.pop(key, None)
     for raw_asset in document.get("assets", []) if isinstance(document, dict) else []:
         asset_id = str(raw_asset.get("asset_id") or "") if isinstance(raw_asset, dict) else ""
         if asset_id:
             for key in list(st.session_state.keys()):
                 if key.startswith(f"{token}_{asset_id}_"):
+                    st.session_state.pop(key, None)
+    for raw_attachment in document.get("attachments", []) if isinstance(document, dict) else []:
+        attachment_id = str(raw_attachment.get("attachment_id") or "") if isinstance(raw_attachment, dict) else ""
+        if attachment_id:
+            for key in list(st.session_state.keys()):
+                if key.startswith(f"{token}_{attachment_id}_"):
                     st.session_state.pop(key, None)
 
 
@@ -4762,21 +5577,36 @@ def render_active_notice_banner():
 
 
 def render_public_notice_page():
-    render_menu_card("📢 공지사항", "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.", ["운영 안내", "점검 안내", "중요 공지"])
+    render_menu_card(
+        "📢 공지사항",
+        "서비스 이용 전 알아두면 좋은 안내와 운영 소식을 확인할 수 있습니다.",
+        ["운영 안내", "점검 안내", "중요 공지"],
+    )
     notices = load_visible_notices()
     if not notices:
         st.caption("현재 게시 중인 공지사항이 없습니다.")
         return
+
     for index, notice in enumerate(notices):
         level = str(notice.get("notice_level") or "일반")
         icon = _content_level_icon(level)
         title = str(notice.get("title") or "공지사항")
         created_at = _format_kst_display(notice.get("published_at") or notice.get("created_at"))
         pin_mark = "📌 " if _as_bool(notice.get("is_pinned")) else ""
-        with st.expander(f"{pin_mark}{icon} {title}", expanded=(index == 0 and _as_bool(notice.get("is_pinned")))):
+        blocks = _notice_blocks_from_record(notice)
+        attachment_count = len(_collect_notice_attachments(blocks, source_record=notice))
+        attachment_badge = f" · 📎 {attachment_count}" if attachment_count else ""
+        with st.expander(
+            f"{pin_mark}{icon} {title}{attachment_badge}",
+            expanded=(index == 0 and _as_bool(notice.get("is_pinned"))),
+        ):
             if created_at:
                 st.caption(f"{_content_level_label(level)} · {created_at}")
-            render_notice_blocks(_notice_blocks_from_record(notice))
+            render_notice_blocks(
+                blocks,
+                key_prefix=f"public_notice_{notice.get('id') or index}",
+                source_record=notice,
+            )
 
 
 def render_admin_notice_manager():
@@ -4843,7 +5673,9 @@ def render_admin_notice_manager():
             else:
                 status_label = "예약·기간 종료"
 
-            preview_text = _notice_plain_text_from_blocks(_notice_blocks_from_record(row))
+            row_blocks = _notice_blocks_from_record(row)
+            attachment_count = len(_collect_notice_attachments(row_blocks, source_record=row))
+            preview_text = _notice_plain_text_from_blocks(row_blocks)
             preview_text = re.sub(r"\s+", " ", preview_text).strip()
             if len(preview_text) > 95:
                 preview_text = preview_text[:95].rstrip() + "…"
@@ -4855,13 +5687,15 @@ def render_admin_notice_manager():
                     if st.button(
                         f"{_content_level_icon(level)} #{row_id} · {title_value}",
                         key=f"notice_open_title_{row_id}",
-                        use_container_width=True,
+                        use_container_width=False,
                     ):
                         _reset_notice_form_state(row_id)
                         st.session_state[target_key] = int(row_id)
                         st.rerun()
                     if preview_text:
                         st.caption(preview_text)
+                    if attachment_count:
+                        st.caption(f"📎 첨부파일 {attachment_count}개")
                     modified_at = _format_kst_display(row.get("updated_at") or row.get("created_at"))
                     meta = f"{_content_level_label(level)} · {modified_at or '-'}"
                     if _as_bool(row.get("is_pinned")):
@@ -4872,14 +5706,14 @@ def render_admin_notice_manager():
                     if row.get("display_start_at") or row.get("display_end_at"):
                         st.caption("게시 기간 설정됨")
                 with action_col:
-                    if st.button("내용 수정", key=f"notice_open_edit_{row_id}", use_container_width=True):
+                    if st.button("내용 수정", key=f"notice_open_edit_{row_id}", use_container_width=False):
                         _reset_notice_form_state(row_id)
                         st.session_state[target_key] = int(row_id)
                         st.rerun()
 
     top_col, status_col = st.columns([2, 6])
     with top_col:
-        if st.button("＋ 새 공지 작성", key="notice_open_new", use_container_width=True):
+        if st.button("＋ 새 공지 작성", key="notice_open_new", use_container_width=False):
             _reset_notice_form_state(None)
             st.session_state.pop(target_key, None)
             st.rerun()
@@ -4942,9 +5776,9 @@ def render_admin_notice_manager():
 
     save_col, reset_col = st.columns([3, 1])
     with save_col:
-        save_clicked = st.button("공지사항 저장", key=f"{token}_save", use_container_width=True)
+        save_clicked = st.button("공지사항 저장", key=f"{token}_save", use_container_width=False)
     with reset_col:
-        if record_id and st.button("저장 전 내용 되돌리기", key=f"{token}_reset", use_container_width=True):
+        if record_id and st.button("저장 전 내용 되돌리기", key=f"{token}_reset", use_container_width=False):
             _reset_notice_form_state(record_id)
             st.rerun()
 
@@ -4956,11 +5790,19 @@ def render_admin_notice_manager():
         else:
             old_blocks = _notice_blocks_from_record(existing)
             uploaded_metas: list[dict] = []
+            uploaded_attachment_metas: list[dict] = []
             try:
-                prepared_blocks, uploaded_metas = _prepare_notice_blocks_for_save(blocks)
+                prepared_blocks, uploaded_metas, uploaded_attachment_metas = _prepare_notice_blocks_for_save(blocks)
                 plain_content = _notice_plain_text_from_blocks(prepared_blocks)
-                if not plain_content:
-                    raise ValueError("공지 본문 또는 이미지를 하나 이상 입력해 주세요.")
+                prepared_document = _get_notice_document(prepared_blocks)
+                attachment_names = [
+                    str(_normalize_notice_attachment(item, index).get("attachment_original_file_name") or "첨부파일")
+                    for index, item in enumerate(prepared_document.get("attachments") or [])
+                ]
+                if not plain_content and not attachment_names:
+                    raise ValueError("공지 본문, 이미지 또는 첨부파일을 하나 이상 입력해 주세요.")
+                if not plain_content and attachment_names:
+                    plain_content = "첨부파일: " + ", ".join(attachment_names)
                 if len(plain_content) > 5000:
                     raise ValueError("공지 본문의 텍스트 길이가 5,000자를 초과했습니다. 내용을 줄여 주세요.")
 
@@ -4987,6 +5829,8 @@ def render_admin_notice_manager():
                 saved = _save_platform_content(PLATFORM_NOTICE_TABLE, record_id, payload)
                 for bucket_name, path in _notice_image_refs(old_blocks) - _notice_image_refs(prepared_blocks):
                     delete_platform_notice_image_by_values(bucket_name, path)
+                for bucket_name, path in _notice_attachment_refs(old_blocks) - _notice_attachment_refs(prepared_blocks):
+                    delete_platform_notice_attachment_by_values(bucket_name, path)
                 _reset_notice_form_state(record_id)
 
                 # 새 공지는 저장 직후 방금 만든 공지를 바로 편집 상태로 유지합니다.
@@ -5002,6 +5846,8 @@ def render_admin_notice_manager():
             except Exception as exc:
                 for meta in uploaded_metas:
                     delete_platform_notice_image_by_values(meta.get("image_bucket"), meta.get("image_path"))
+                for meta in uploaded_attachment_metas:
+                    delete_platform_notice_attachment_by_values(meta.get("attachment_bucket"), meta.get("attachment_path"))
                 st.error("공지사항을 저장하지 못했습니다.")
                 st.caption(str(exc))
 
@@ -5043,7 +5889,6 @@ def render_admin_notice_manager():
                     st.rerun()
 
 
-
 # 공지사항을 관리자 데이터 관리 화면에서 영구 삭제할 때, 연결된 공지 이미지도 함께 정리합니다.
 _hard_delete_record_base = hard_delete_record
 
@@ -5059,56 +5904,99 @@ def hard_delete_record(table_name, record_id):
             .execute()
         )
         if rows:
-            for bucket_name, path in _notice_image_refs(_notice_blocks_from_record(rows[0])):
+            notice_blocks = _notice_blocks_from_record(rows[0])
+            for bucket_name, path in _notice_image_refs(notice_blocks):
                 delete_platform_notice_image_by_values(bucket_name, path)
+            for bucket_name, path in _notice_attachment_refs(notice_blocks):
+                delete_platform_notice_attachment_by_values(bucket_name, path)
     except Exception:
         pass
     supabase.table(PLATFORM_NOTICE_TABLE).delete().eq("id", int(record_id)).execute()
 
 
+def install_notice_editor_copy_guard():
+    """공지 본문 입력 중 Ctrl/Cmd+C가 앱 전역 단축키로 해석되지 않게 합니다.
+
+    기본 복사 동작은 막지 않고 이벤트 전파만 차단하므로 Windows Ctrl+C와 Mac Cmd+C 모두
+    텍스트 영역에서 정상 복사됩니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const win = window.parent;
+            const doc = win.document;
+            const MARKER = '__wittiNoticeEditorCopyGuardInstalled';
+            if (win[MARKER]) return;
+            win[MARKER] = true;
+
+            function isEditableTarget(target) {
+                if (!target) return false;
+                const tag = String(target.tagName || '').toLowerCase();
+                return tag === 'textarea' || tag === 'input' || target.isContentEditable === true;
+            }
+
+            function guardCopy(event) {
+                const key = String(event.key || '').toLowerCase();
+                if (!(event.ctrlKey || event.metaKey) || key !== 'c') return;
+                if (!isEditableTarget(doc.activeElement)) return;
+                // preventDefault()는 호출하지 않습니다. 브라우저의 복사 기능은 그대로 유지합니다.
+                event.stopImmediatePropagation();
+                event.stopPropagation();
+            }
+
+            win.addEventListener('keydown', guardCopy, true);
+            win.addEventListener('keyup', guardCopy, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 # 첫 화면의 고정 공지와 방문 팝업은 관리자에서 작성·게시합니다.
+# 공지 본문 링크는 Streamlit 및 모바일 인앱 브라우저에서도 직접 열리도록 한 번 등록합니다.
+install_notice_editor_copy_guard()
+install_notice_link_click_handler()
 render_active_notice_banner()
 render_active_popup_if_needed()
 
 # =========================
 # 공개 기능 설정
-# - 알림장 기능은 코드와 기존 기록을 보존한 채 사용자 화면에서는 숨깁니다.
-# - 메인 메뉴는 기록요정 / 사진 보정 / 공지사항 / 관리자 4개로 운영합니다.
+# - False: 알림장 기능은 코드와 기존 기록을 보존한 채 사용자 화면에서 숨깁니다.
+# - True: 기존 알림장 탭을 다시 노출합니다.
 # =========================
 SHOW_DIARY_FEATURE = False
 
-# 회원 서비스는 페이지 상단이 아니라 설정창(사이드바) 상단에만 배치합니다.
-# member_sidebar_slot에는 아래에서 회원 기능 정의가 끝난 뒤 실제 화면을 렌더링합니다.
-with st.sidebar:
-    member_sidebar_slot = st.empty()
-    st.divider()
-    st.header("⚙️ 설정")
-    top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
+# =========================
+# 기본 실행값
+# =========================
+# 사진 보정 메뉴의 A급 사진 선별은 업로드 사진 중 상위 10장으로 고정합니다.
+# 회원 서비스만 기본 Streamlit 사이드바에 배치하며, 강제 제어 JavaScript는 사용하지 않습니다.
+top_k = 10
+# 숨겨 둔 이전 알림장 기능과의 호환을 위한 기본값입니다.
+max_summary_sentences = 6
 
-    if SHOW_DIARY_FEATURE:
-        max_summary_sentences = st.slider("알림장 요약 문장 수", min_value=1, max_value=10, value=6)
-    else:
-        max_summary_sentences = 6
-
-    st.divider()
-    st.markdown("### 🌿 이용 안내")
-    st.caption("☞ 사진 선별, 사진 기반 놀이 기록 생성, 사진 보정, 공지사항을 한 곳에서 사용할 수 있습니다.")
-    st.caption("☞ 업로드한 사진과 입력한 내용은 서비스 기능 실행을 위해서만 사용됩니다.")
-    st.markdown(
-        f"""
-        <div class="small-guide" style="margin-top:10px; padding:12px 14px;">
-        🔗 {WITTI_SITE_LABEL}: <a href="{WITTI_SITE_URL}" target="_blank" rel="noopener noreferrer">{WITTI_SITE_URL}</a><br>
-        ✉️ {WITTI_CONTACT_LABEL}: <strong>{WITTI_CONTACT_EMAIL}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-force_sidebar_collapsed_on_first_load()
-apply_sidebar_open_hint()
-apply_mobile_settings_launcher()
 apply_multiselect_korean_labels()
 purge_expired_private_records_once_per_session()
+
+st.markdown(
+    """
+    <div class="witti-menu-heading">
+        <div class="witti-menu-heading-title">서비스 메뉴</div>
+        <div class="witti-menu-heading-copy">필요한 업무를 선택해 이어서 진행하세요.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# 메인 메뉴는 업무 기능 네 개만 표시합니다. 회원 서비스는 기본 Streamlit 사이드바 상단에서 이용합니다.
+tab_labels = ["🧚‍♀️ 기록 요정", "✨ 사진 보정", "📢 공지사항", "🔐 관리자"]
+tabs = st.tabs(tab_labels)
+tab2, tab3, tab_notice, tab7 = tabs
+# 대메뉴와 소메뉴의 계층만 짧게 표식합니다. 지속 DOM 감시는 하지 않습니다.
+install_navigation_hierarchy_styling()
 
 work_dir = Path(tempfile.mkdtemp())
 input_image_dir = work_dir / "input_images"
@@ -5119,7 +6007,7 @@ def send_verification_email(to_email, code):
     sender_email = st.secrets["email"]["sender"]
     app_password = st.secrets["email"]["password"]
 
-    subject = "[교사의 발견] 이메일 인증번호 안내"
+    subject = "[놀이 기록 자동화] 이메일 인증번호 안내"
 
     body = f"""
 <html>
@@ -5140,7 +6028,7 @@ def send_verification_email(to_email, code):
 ">
 
     <div style="font-size:28px; font-weight:700; margin-bottom:12px; color:#1f2c4f;">
-        🌿 교사의 발견
+        🌿 놀이 기록 자동화
     </div>
 
     <div style="font-size:20px; font-weight:600; margin-bottom:24px;">
@@ -5149,7 +6037,7 @@ def send_verification_email(to_email, code):
 
     <div style="font-size:16px; line-height:1.8; margin-bottom:28px;">
         안녕하세요.<br>
-        교사의 발견 이메일 인증번호를 안내드립니다.<br><br>
+        놀이 기록 자동화 이메일 인증번호를 안내드립니다.<br><br>
         아래 인증번호를 입력해 인증을 완료해 주세요.
     </div>
 
@@ -5193,17 +6081,17 @@ def send_verification_email(to_email, code):
         server.send_message(message)
 
 
-
 # =========================
 # 설정창(사이드바) 회원 서비스
-# - 메인 메뉴에서는 제거하고, 설정창 상단에서만 사용합니다.
+# - 메인 메뉴에서는 제거하고, 기본 Streamlit 사이드바 상단에서만 사용합니다.
 # - 기존 Supabase Auth + subscribers 구조를 그대로 사용합니다.
 # - 라디오·탭 선택 UI 없이 버튼 흐름으로만 전환합니다.
+# - 이전의 사이드바 강제 접기·모바일 버튼·DOM 감시 JavaScript는 다시 넣지 않습니다.
 # =========================
 st.markdown(
     """
     <style>
-    .account-portal {
+    section[data-testid="stSidebar"] .account-portal {
         background: rgba(255,255,255,0.96);
         border: 1px solid #E5EAF1;
         border-radius: 16px;
@@ -5211,9 +6099,19 @@ st.markdown(
         margin: 0 0 10px 0;
         box-shadow: none;
     }
-    .account-portal-title { color:#172B4D; font-size:18px; font-weight:900; margin:0 0 4px 0; }
-    .account-portal-desc { color:#667085; font-size:13px; line-height:1.6; margin:0; }
-    .account-side-note {
+    section[data-testid="stSidebar"] .account-portal-title {
+        color:#172B4D;
+        font-size:18px;
+        font-weight:900;
+        margin:0 0 4px 0;
+    }
+    section[data-testid="stSidebar"] .account-portal-desc {
+        color:#667085;
+        font-size:13px;
+        line-height:1.6;
+        margin:0;
+    }
+    section[data-testid="stSidebar"] .account-side-note {
         background:#F8FBFF;
         border:1px solid #DCEBFF;
         border-radius:14px;
@@ -5288,6 +6186,10 @@ def _render_sidebar_login_view():
             st.rerun()
         else:
             st.warning(message)
+            auth_detail = str(st.session_state.get("_last_auth_error_detail") or "").strip()
+            if auth_detail:
+                with st.expander("오류 확인용 상세 정보", expanded=False):
+                    st.code(auth_detail, language="text")
 
 
 def _render_sidebar_signup_view():
@@ -5342,7 +6244,7 @@ def _render_sidebar_signup_view():
         key="sidebar_signup_privacy",
     )
     mailing_agree = st.checkbox(
-        "교사의 발견 소식과 자료 안내 메일 수신에 동의합니다.",
+        f"{WITTI_SITE_LABEL} 소식과 자료 안내 메일 수신에 동의합니다.",
         key="sidebar_signup_mailing",
     )
 
@@ -5500,7 +6402,7 @@ def _render_sidebar_my_page_view():
         current_position = "기타"
     position = st.selectbox("직책", position_options, index=position_options.index(current_position), key="sidebar_mypage_position")
     mailing = st.checkbox(
-        "교사의 발견 소식과 자료 안내 메일 수신",
+        f"{WITTI_SITE_LABEL} 소식과 자료 안내 메일 수신",
         value=_as_bool(profile.get("mailing_agree")),
         key="sidebar_mypage_mailing",
     )
@@ -5553,7 +6455,7 @@ def _render_member_portal_action_buttons(logged_in: bool):
 
 
 def render_sidebar_member_portal():
-    """회원 메뉴를 설정창 상단에 고정하고, 로그인 상태에 따라 화면만 바꿉니다."""
+    """회원 메뉴를 설정창 상단에 배치하고, 로그인 상태에 따라 화면만 바꿉니다."""
     view = _member_portal_current_view()
     logged_in = member_is_logged_in()
 
@@ -5606,14 +6508,9 @@ def render_sidebar_member_portal():
             st.rerun()
 
 
-# 회원 서비스의 실제 위치는 사이드바 상단 슬롯입니다.
-with member_sidebar_slot.container():
+# 회원 서비스는 사이드바의 가장 위에만 배치합니다. 강제 접기·열기 코드는 사용하지 않습니다.
+with st.sidebar:
     render_sidebar_member_portal()
-
-# 페이지 접속 시 바로 보이는 대메뉴는 네 개만 유지합니다.
-tab_labels = ["🧚 기록 요정", "✨ 사진 보정", "📢 공지사항", "🔐 관리자"]
-tabs = st.tabs(tab_labels)
-tab2, tab3, tab_notice, tab7 = tabs
 
 # =========================
 # TAB 2. 기록 요정
@@ -7164,7 +8061,6 @@ def get_child_action_options(age: str | None) -> list[str]:
     return ["- 선택 -"]
 
 
-
 # =========================
 # 놀이 이야기 생성
 # =========================
@@ -7527,7 +8423,7 @@ def reset_tab2_inputs_once():
     이 함수는 앱 갱신 후 첫 렌더링에서만 기존 기록 요정 입력값을 지우고,
     사용자가 이후 선택한 값은 정상적으로 유지되게 합니다.
     """
-    reset_flag = "_tab2_initial_values_cleared_20260630_v6"
+    reset_flag = "_tab2_initial_values_cleared_20260702_v7"
     if st.session_state.get(reset_flag):
         return
 
@@ -7554,12 +8450,77 @@ def reset_tab2_inputs_once():
         "photo_child_action",
         "photo_child_action_custom",
         "wizard_parent_type",
+        "wizard_play_goal",
+        "wizard_diary_components",
+        "wizard_teacher_observed_situation",
+        "wizard_next_play_support_plan",
     ]
 
     for key in keys_to_clear:
         st.session_state.pop(key, None)
 
     st.session_state[reset_flag] = True
+
+
+# 기록요정 입력값은 탭 이동 중에는 유지하되, 실제 분석·생성이 완료된 뒤에는 다음 기록을 위해 비웁니다.
+# 결과 화면은 별도 완료 스냅샷으로 보존하므로, 입력창을 초기화해도 Word 다운로드와 결과 확인은 가능합니다.
+WIZARD_ENTRY_STATE_KEYS = [
+    "wizard_play_name",
+    "wizard_age_group",
+    "wizard_child_alias",
+    "wizard_curriculum_areas",
+    "wizard_record_type",
+    "wizard_parent_type",
+    "wizard_play_subcategories",
+    "wizard_teacher_supports",
+    "wizard_diary_components",
+    "wizard_play_photo_uploader",
+    "wizard_recommendation_count",
+    "wizard_photo_analysis_agree",
+]
+WIZARD_DYNAMIC_PREFIXES = (
+    "wizard_play_detail_note_",
+    "wizard_diary_component_note_",
+    "wizard_teacher_support_note_",
+)
+WIZARD_ANALYSIS_STATE_KEYS = [
+    "wizard_session_id",
+    "wizard_context",
+    "wizard_selected_photo_names",
+    "wizard_analysis_result",
+    "wizard_initial_draft",
+    "wizard_teacher_observed_situation",
+    "wizard_next_play_support_plan",
+    "wizard_final_output",
+]
+
+
+def _clear_wizard_entry_state():
+    for key in WIZARD_ENTRY_STATE_KEYS:
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith(WIZARD_DYNAMIC_PREFIXES):
+            st.session_state.pop(key, None)
+
+
+def apply_pending_wizard_cleanup():
+    """위젯이 만들어지기 전에만 실행해 Streamlit 상태 변경 오류를 피합니다."""
+    if st.session_state.pop("_wizard_clear_entry_after_analysis", False):
+        _clear_wizard_entry_state()
+    if st.session_state.pop("_wizard_clear_after_final", False):
+        _clear_wizard_entry_state()
+        for key in WIZARD_ANALYSIS_STATE_KEYS:
+            st.session_state.pop(key, None)
+
+
+def _store_completed_wizard_snapshot(context: dict, analysis: dict, initial_draft: str, selected_photo_names: list[str], output: dict):
+    st.session_state["wizard_completed_snapshot"] = {
+        "context": copy.deepcopy(context or {}),
+        "analysis": copy.deepcopy(analysis or {}),
+        "initial_draft": str(initial_draft or ""),
+        "selected_photo_names": list(selected_photo_names or []),
+        "output": copy.deepcopy(output or {}),
+    }
 
 
 PLAY_STORY_DETAIL_OPTIONS = [
@@ -7588,49 +8549,84 @@ def _note_widget_key(prefix: str, option: str) -> str:
 
 
 def render_selected_note_inputs(selected: list[str], note_kind: str) -> dict[str, str]:
-    """선택된 놀이 세부 구분·교사 지원마다 실제 장면을 적는 입력란을 그립니다."""
+    """선택된 구성마다 교사가 실제 장면 또는 구체 지원을 적도록 합니다.
+
+    놀이 이야기: 놀이 세부 구분과 교사의 지원별 메모가 필수입니다.
+    보육일지: 일상생활·놀이·활동별 실제 장면 메모가 필수입니다.
+    """
     notes: dict[str, str] = {}
     if not selected:
         return notes
 
-    is_play_detail = note_kind == "play_detail"
-    title = "선택한 놀이 세부 구분별 실제 장면" if is_play_detail else "선택한 교사 지원별 구체 지원 내용"
-    st.caption(f"{title}을 적어 주세요. 사진과 관찰에 근거한 표현일수록 최종 문장이 정확해집니다.")
+    if note_kind == "play_detail":
+        title = "선택한 놀이 세부 구분별 실제 장면"
+        placeholders = PLAY_DETAIL_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_play_detail_note"
+        label_suffix = "장면 설명 (필수)"
+    elif note_kind == "diary_component":
+        title = "선택한 보육일지 세부 구성별 실제 장면"
+        placeholders = DIARY_COMPONENT_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_diary_component_note"
+        label_suffix = "세부 설명 (필수)"
+    else:
+        title = "선택한 교사 지원별 구체 지원 내용"
+        placeholders = TEACHER_SUPPORT_NOTE_PLACEHOLDERS
+        key_prefix = "wizard_teacher_support_note"
+        label_suffix = "구체 지원 (필수)"
 
-    placeholders = PLAY_DETAIL_NOTE_PLACEHOLDERS if is_play_detail else TEACHER_SUPPORT_NOTE_PLACEHOLDERS
-    key_prefix = "wizard_play_detail_note" if is_play_detail else "wizard_teacher_support_note"
-    label_suffix = "장면 설명" if is_play_detail else "구체 지원"
+    st.caption(f"{title}은 **필수 입력**입니다. 사진과 실제 관찰에 근거해 적을수록 최종 기록이 정확해집니다.")
 
     for option in selected:
-        left, right = st.columns([1.25, 2.75])
-        with left:
-            st.markdown(f"**{option}**")
-        with right:
-            value = st.text_input(
-                f"{option} {label_suffix}",
-                placeholder=placeholders.get(option, "사진에서 확인되는 실제 장면이나 교사의 지원을 적어 주세요."),
-                key=_note_widget_key(key_prefix, option),
-            )
-            if value.strip():
-                notes[option] = value.strip()
+        st.markdown(f"**{option}**")
+        value = st.text_area(
+            f"{option} {label_suffix}",
+            placeholder=placeholders.get(option, "사진에서 확인되는 실제 장면이나 교사의 지원을 적어 주세요."),
+            height=84,
+            key=_note_widget_key(key_prefix, option),
+        )
+        if value.strip():
+            notes[option] = value.strip()
     return notes
-
 
 def render_final_play_output(output: dict):
     output_type = str(output.get("output_type") or "")
-    if output_type == "놀이 이야기":
-        sections = output.get("sections") or {}
-        for title in ["놀이 주제", "놀이에서 읽은 배움", "교사의 지원", "다음 놀이로 이어가기"]:
-            st.markdown(f"#### {title}")
-            render_result_card(str(sections.get(title) or ""), "result-card-gray")
-    else:
-        for index, example in enumerate(output.get("examples") or [], start=1):
-            st.markdown(f"#### {output_type} 예시 {index}")
-            render_result_card(str(example), "result-card-gray")
+    if output_type in ["놀이 이야기", "일지"]:
+        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
+        st.markdown(f"#### {photo_section_title}")
+        render_result_card(str(output.get("photo_play_content") or ""), "result-card-gray")
 
+        st.markdown("#### 교사가 관찰한 놀이 상황")
+        render_result_card(str(output.get("teacher_observed_situation") or ""), "result-card-gray")
+
+        st.markdown(f"#### {output.get('framework_label') or '교육과정 연계'}")
+        link_rows = output.get("curriculum_links") or []
+        if link_rows:
+            curriculum_df = pd.DataFrame(link_rows).rename(columns={"area": "영역", "description": "내용"})
+            st.dataframe(curriculum_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("선택한 교육과정 영역의 연계 설명이 없습니다.")
+
+        st.markdown(f"#### {output.get('observation_label') or '영유아 관찰 및 평가'}")
+        render_result_card(str(output.get("observation_evaluation") or ""), "result-card-gray")
+
+        next_plan = str(output.get("next_play_support_plan") or "").strip()
+        if next_plan:
+            st.markdown("#### 다음 놀이 지원 계획")
+            st.caption("교사가 입력한 계획을 원문 그대로 표시합니다.")
+            render_result_card(next_plan, "result-card-gray")
+
+        st.markdown(f"#### {output.get('record_label') or '종합 기록'}")
+        render_result_card(str(output.get("integrated_record") or ""), "result-card-gray")
+        return
+
+    for index, example in enumerate(output.get("examples") or [], start=1):
+        st.markdown(f"#### {output_type} 예시 {index}")
+        render_result_card(str(example), "result-card-gray")
 
 def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
-    play_details = _selection_notes_display(
+    output_type = str(context.get("output_type") or "")
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_details = _selection_notes_display(
         _as_text_list(context.get("play_subcategories")),
         context.get("play_subcategory_notes"),
     )
@@ -7639,31 +8635,335 @@ def build_record_download_text(context: dict, first_draft: str, output: dict) ->
         context.get("teacher_support_notes"),
     )
     analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-    return (
-        "교사의 발견 | 사진 기반 놀이 기록\n\n"
+    base = (
+        "놀이 기록 자동화 | 사진 기반 기록\n\n"
         f"놀이명: {context.get('play_name') or '-'}\n"
-        f"놀이를 통한 배움의 이해: {context.get('play_goal') or '-'}\n"
         f"연령: {context.get('age_group') or '-'}\n"
         f"아이 별칭: {context.get('child_alias') or '-'}\n"
         f"교육과정 영역: {curriculum_display_text(context.get('curriculum_areas'))}\n"
-        f"기록 유형: {context.get('output_type') or '-'}\n"
+        f"기록 유형: {output_type or '-'}\n"
         f"보호자 유형: {context.get('parent_type') or '-'}\n\n"
-        f"[놀이 세부 구분과 실제 장면]\n{play_details}\n\n"
-        f"[교사의 지원과 구체 지원]\n{support_details}\n\n"
+        f"[{component_label}과 실제 장면]\n{component_details}\n\n"
+    )
+    if output_type == "놀이 이야기":
+        base += f"[교사의 지원과 구체 지원]\n{support_details}\n\n"
+    base += (
         f"[사진-놀이명 점검]\n"
         f"상태: {analysis.get('photo_match_status') or '-'}\n"
         f"사유: {analysis.get('photo_match_reason') or '-'}\n\n"
-        f"[교사가 수정한 1차 정보]\n{first_draft.strip()}\n\n"
-        f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
+        f"[사진에 대한 1차 분석 결과]\n{first_draft.strip()}\n\n"
     )
+    return base + f"[최종 생성 결과]\n{output.get('plain_text') or ''}\n"
+
+
+# =========================
+# Word 문서 다운로드
+# =========================
+WORD_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+WORD_FONT_NAME = "맑은 고딕"
+
+
+def _docx_set_east_asia_font(run_or_style, font_name: str = WORD_FONT_NAME):
+    """한글이 Word에서 안정적으로 보이도록 동아시아 글꼴을 함께 지정합니다."""
+    if qn is None:
+        return
+    try:
+        element = getattr(run_or_style, "_element", None)
+        if element is None:
+            return
+        rpr = element.get_or_add_rPr()
+        rfonts = rpr.rFonts
+        if rfonts is None:
+            rfonts = OxmlElement("w:rFonts")
+            rpr.append(rfonts)
+        rfonts.set(qn("w:ascii"), font_name)
+        rfonts.set(qn("w:hAnsi"), font_name)
+        rfonts.set(qn("w:eastAsia"), font_name)
+    except Exception:
+        pass
+
+
+def _docx_style_run(run, *, font_size: float = 10.5, bold: bool = False, color: str | None = None):
+    run.font.name = WORD_FONT_NAME
+    _docx_set_east_asia_font(run, WORD_FONT_NAME)
+    if Pt is not None:
+        run.font.size = Pt(font_size)
+    run.bold = bold
+    if color and RGBColor is not None:
+        try:
+            run.font.color.rgb = RGBColor.from_string(color)
+        except Exception:
+            pass
+
+
+def _docx_set_cell_shading(cell, fill: str):
+    if OxmlElement is None or qn is None:
+        return
+    try:
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = tc_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tc_pr.append(shd)
+        shd.set(qn("w:fill"), fill)
+        shd.set(qn("w:val"), "clear")
+    except Exception:
+        pass
+
+
+def _docx_set_cell_text(cell, text: str, *, bold: bool = False, color: str | None = None, font_size: float = 10.2):
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.paragraph_format.space_after = Pt(0) if Pt is not None else 0
+    lines = str(text or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            paragraph.add_run().add_break()
+        run = paragraph.add_run(line)
+        _docx_style_run(run, font_size=font_size, bold=bold, color=color)
+    if WD_ALIGN_VERTICAL is not None:
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+
+def _docx_add_heading(doc, text: str, level: int = 2):
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(13 if Pt is not None else 0)
+    paragraph.paragraph_format.space_after = Pt(6 if Pt is not None else 0)
+    run = paragraph.add_run(text)
+    _docx_style_run(run, font_size=13.5 if level == 2 else 12, bold=True, color="163A5F")
+    return paragraph
+
+
+def _docx_add_body(doc, text: str, *, font_size: float = 10.6):
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_after = Pt(5 if Pt is not None else 0)
+    paragraph.paragraph_format.line_spacing = 1.55
+    lines = str(text or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            paragraph.add_run().add_break()
+        run = paragraph.add_run(line)
+        _docx_style_run(run, font_size=font_size)
+    return paragraph
+
+
+def _docx_add_metadata_table(doc, rows: list[tuple[str, str]]):
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    if WD_TABLE_ALIGNMENT is not None:
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for label, value in rows:
+        cells = table.add_row().cells
+        _docx_set_cell_shading(cells[0], "EAF3FB")
+        _docx_set_cell_text(cells[0], label, bold=True, color="163A5F")
+        _docx_set_cell_text(cells[1], value or "-")
+    doc.add_paragraph()
+    return table
+
+
+def _docx_add_two_column_table(doc, headers: tuple[str, str], rows: list[tuple[str, str]]):
+    table = doc.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+    if WD_TABLE_ALIGNMENT is not None:
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    header_cells = table.rows[0].cells
+    for cell, text in zip(header_cells, headers):
+        _docx_set_cell_shading(cell, "1F4E78")
+        _docx_set_cell_text(cell, text, bold=True, color="FFFFFF")
+    for left, right in rows:
+        cells = table.add_row().cells
+        _docx_set_cell_text(cells[0], left or "-")
+        _docx_set_cell_text(cells[1], right or "-")
+    doc.add_paragraph()
+    return table
+
+
+def _docx_add_highlight_box(doc, title: str, body: str, *, fill: str = "F2F7FC"):
+    table = doc.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    cell = table.cell(0, 0)
+    _docx_set_cell_shading(cell, fill)
+    cell.text = ""
+    title_p = cell.paragraphs[0]
+    title_p.paragraph_format.space_after = Pt(4 if Pt is not None else 0)
+    title_run = title_p.add_run(title)
+    _docx_style_run(title_run, font_size=11.1, bold=True, color="163A5F")
+    body_p = cell.add_paragraph()
+    body_p.paragraph_format.line_spacing = 1.5
+    lines = str(body or "-").splitlines() or ["-"]
+    for index, line in enumerate(lines):
+        if index:
+            body_p.add_run().add_break()
+        body_run = body_p.add_run(line)
+        _docx_style_run(body_run, font_size=10.5)
+    doc.add_paragraph()
+    return table
+
+
+def _docx_selection_note_rows(selected, notes) -> list[tuple[str, str]]:
+    selected_values = _as_text_list(selected)
+    note_map = _as_note_dict(notes)
+    return [(item, note_map.get(item) or "미입력") for item in selected_values]
+
+
+def build_record_word_document(
+    context: dict,
+    first_draft: str,
+    output: dict,
+    selected_photo_names: list[str] | None = None,
+) -> bytes:
+    """기록요정 결과를 문서형 Word 파일로 정리합니다.
+
+    생성 과정과 최종 기록을 한 파일에 담되, 교사가 현장에서 바로 열람·인쇄할 수 있도록
+    제목·기본정보·표·섹션·강조 박스 중심으로 구성합니다.
+    """
+    if Document is None:
+        raise RuntimeError("Word 다운로드 구성요소가 설치되지 않았습니다. requirements.txt에 python-docx를 추가해 주세요.")
+
+    doc = Document()
+    section = doc.sections[0]
+    if Cm is not None:
+        section.top_margin = Cm(1.7)
+        section.bottom_margin = Cm(1.7)
+        section.left_margin = Cm(1.8)
+        section.right_margin = Cm(1.8)
+
+    # 문서 전체 기본 글꼴
+    for style_name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
+        try:
+            style = doc.styles[style_name]
+            style.font.name = WORD_FONT_NAME
+            _docx_set_east_asia_font(style, WORD_FONT_NAME)
+        except Exception:
+            pass
+    try:
+        doc.styles["Normal"].font.size = Pt(10.5)
+    except Exception:
+        pass
+
+    output_type = str(context.get("output_type") or output.get("output_type") or "기록")
+    play_name = str(context.get("play_name") or "오늘의 기록").strip()
+    age_group = str(context.get("age_group") or "-").strip()
+    child_alias = str(context.get("child_alias") or "-").strip()
+    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정")
+    created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+
+    # 문서 제목
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    title_p.paragraph_format.space_after = Pt(4 if Pt is not None else 0)
+    title_run = title_p.add_run("놀이 기록 자동화")
+    _docx_style_run(title_run, font_size=19, bold=True, color="163A5F")
+
+    subtitle_p = doc.add_paragraph()
+    subtitle_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    subtitle_p.paragraph_format.space_after = Pt(14 if Pt is not None else 0)
+    subtitle_run = subtitle_p.add_run(f"{output_type} 기록 문서")
+    _docx_style_run(subtitle_run, font_size=13.5, bold=True, color="4B647B")
+
+    # 기본 정보
+    _docx_add_heading(doc, "기록 기본 정보")
+    metadata_rows = [
+        ("놀이명", play_name or "-"),
+        ("기록 유형", output_type),
+        ("연령", age_group),
+        ("아이 별칭", child_alias),
+        ("교육과정 영역", curriculum_display_text(context.get("curriculum_areas"))),
+        ("생성일시", created_at),
+    ]
+    if output_type == "알림장":
+        metadata_rows.insert(4, ("보호자 유형", str(context.get("parent_type") or "일반형")))
+    _docx_add_metadata_table(doc, metadata_rows)
+
+    # 입력 과정 요약
+    _docx_add_heading(doc, "기록 생성 과정")
+    selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
+    if selected_photo_names:
+        _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
+
+    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+    match_status = str(analysis.get("photo_match_status") or "-").strip()
+    match_reason = str(analysis.get("photo_match_reason") or "-").strip()
+    _docx_add_highlight_box(doc, "사진-놀이명 점검", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
+
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
+    if component_rows:
+        _docx_add_heading(doc, f"{component_label}과 실제 장면")
+        _docx_add_two_column_table(doc, (component_label, "교사가 입력한 실제 장면"), component_rows)
+
+    if output_type == "놀이 이야기":
+        support_rows = _docx_selection_note_rows(context.get("teacher_supports"), context.get("teacher_support_notes"))
+        if support_rows:
+            _docx_add_heading(doc, "교사의 지원과 구체 지원")
+            _docx_add_two_column_table(doc, ("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
+
+    _docx_add_heading(doc, "사진에 대한 1차 분석 결과")
+    _docx_add_body(doc, first_draft.strip() or "-")
+
+    # 알림장은 3개 예시 중심으로 출력합니다.
+    if output_type == "알림장":
+        observed = str(context.get("teacher_observed_situation") or "").strip()
+        if observed:
+            _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
+            _docx_add_body(doc, observed)
+        _docx_add_heading(doc, "알림장 기록 예시")
+        examples = output.get("examples") or []
+        for index, example in enumerate(examples, start=1):
+            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="F2F7FC")
+    else:
+        # 놀이 이야기·보육일지 과정형 기록
+        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
+        _docx_add_heading(doc, photo_section_title)
+        _docx_add_body(doc, str(output.get("photo_play_content") or "-"))
+
+        _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
+        _docx_add_body(doc, str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"))
+
+        _docx_add_heading(doc, f"{framework} 연계")
+        curriculum_rows = []
+        for item in output.get("curriculum_links") or []:
+            if isinstance(item, dict):
+                curriculum_rows.append((str(item.get("area") or "-"), str(item.get("description") or "-")))
+        if curriculum_rows:
+            _docx_add_two_column_table(doc, ("영역", "내용"), curriculum_rows)
+        else:
+            _docx_add_body(doc, "선택한 교육과정 영역의 연계 설명이 없습니다.")
+
+        _docx_add_heading(doc, str(output.get("observation_label") or "영유아 관찰 및 평가"))
+        _docx_add_body(doc, str(output.get("observation_evaluation") or "-"))
+
+        next_plan = str(output.get("next_play_support_plan") or "").strip()
+        if next_plan:
+            _docx_add_heading(doc, "다음 놀이 지원 계획")
+            _docx_add_highlight_box(doc, "교사가 입력한 지원 계획", next_plan, fill="F6FBF5")
+
+        _docx_add_heading(doc, str(output.get("record_label") or "종합 기록"))
+        _docx_add_highlight_box(doc, "최종 기록", str(output.get("integrated_record") or "-"), fill="EDF5FC")
+
+    # 푸터: 별도 유의 문단을 마지막 페이지에 밀어 넣지 않도록 푸터에 간결히 표시합니다.
+    footer = section.footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
+    footer_run = footer.add_run("놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다.")
+    _docx_style_run(footer_run, font_size=8.3, color="667085")
+
+    doc.core_properties.title = f"{play_name}_{output_type}"
+    doc.core_properties.subject = "놀이 기록 자동화 결과"
+    doc.core_properties.author = "놀이 기록 자동화"
+
+    output_buffer = io.BytesIO()
+    doc.save(output_buffer)
+    output_buffer.seek(0)
+    return output_buffer.getvalue()
 
 
 with tab2:
+    apply_pending_wizard_cleanup()
     reset_tab2_inputs_once()
     render_menu_card(
         "🧚‍♀️ 사진 기반 놀이 기록 만들기",
-        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 교사가 1차 정보를 수정한 뒤 놀이 이야기·일지·알림장으로 다시 생성할 수 있습니다.",
-        ["사진 자동 추천", "사진-놀이명 점검", "1차 정보 생성", "교사 수정", "다시 생성", "기록 다운로드"]
+        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 사진 분석 결과와 교사의 관찰을 바탕으로 놀이 이야기·보육일지를 과정과 함께 생성합니다.",
+        ["사진 자동 추천", "사진-놀이명 점검", "사진 1차 분석", "교사 관찰", "과정 산출", "기록 다운로드"]
     )
 
     if not member_is_logged_in():
@@ -7671,13 +8971,6 @@ with tab2:
     else:
         st.markdown("### 1. 놀이 기본 정보")
         play_name = st.text_input("놀이명", placeholder="예: 블록으로 만든 우리 동네", key="wizard_play_name")
-        play_goal = st.text_area(
-            "놀이를 통한 배움의 이해",
-            placeholder="예: 영유아의 흥미와 관심에서 시작된 놀이가 즐거운 경험으로 이어진 상황을 이해하고, 스스로 선택하고 시도하는 과정이 놀이 배움으로 연결되도록 지원하고자 합니다.",
-            help="영유아의 흥미와 관심이 어떤 놀이 경험으로 이어졌는지, 교사가 자율성과 배움을 어떻게 지원하고자 하는지 적어 주세요.",
-            height=110,
-            key="wizard_play_goal",
-        )
         info_col1, info_col2 = st.columns(2)
         with info_col1:
             age_group = st.selectbox("연령", ["- 선택 -", "0세", "1세", "2세", "3세", "4세", "5세"], key="wizard_age_group")
@@ -7687,11 +8980,11 @@ with tab2:
         if age_group in ["0세", "1세", "2세"]:
             curriculum_options = STANDARD_AREAS
             curriculum_label = "표준보육과정 영역 (복수 선택)"
-            curriculum_help = "0~2세는 표준보육과정 5개 영역 중 필요한 항목을 복수로 선택합니다."
+            curriculum_help = "0~2세는 표준보육과정 영역 중 사진과 관찰 장면에 실제로 연결되는 항목을 복수로 선택합니다."
         elif age_group in ["3세", "4세", "5세"]:
             curriculum_options = NURI_AREAS
             curriculum_label = "누리과정 영역 (복수 선택)"
-            curriculum_help = "3~5세는 누리과정 5개 영역 중 필요한 항목을 복수로 선택합니다."
+            curriculum_help = "3~5세는 누리과정 영역 중 사진과 관찰 장면에 실제로 연결되는 항목을 복수로 선택합니다."
         else:
             curriculum_options = []
             curriculum_label = "표준보육과정·누리과정 영역 (복수 선택)"
@@ -7708,6 +9001,8 @@ with tab2:
         st.caption(curriculum_help)
 
         record_type = st.selectbox("놀이 기록 유형", ["- 선택 -", "놀이 이야기", "일지", "알림장"], key="wizard_record_type")
+        render_record_type_guidance(record_type, age_group)
+
         play_subcategories: list[str] = []
         teacher_supports: list[str] = []
         play_subcategory_notes: dict[str, str] = {}
@@ -7731,6 +9026,7 @@ with tab2:
                 key="wizard_play_subcategories",
                 placeholder="선택해 주세요.",
             )
+            render_play_detail_guidance(age_group, play_subcategories)
             play_subcategory_notes = render_selected_note_inputs(play_subcategories, "play_detail")
 
             teacher_supports = st.multiselect(
@@ -7740,7 +9036,23 @@ with tab2:
                 placeholder="선택해 주세요.",
             )
             teacher_support_notes = render_selected_note_inputs(teacher_supports, "teacher_support")
-            st.caption("선택값과 교사가 적은 실제 장면·구체 지원은 ‘놀이에서 읽은 배움’과 ‘교사의 지원’ 결과에 함께 반영됩니다.")
+            st.caption("선택한 놀이 세부 구분과 교사의 지원은 각각 구체 설명을 입력해야 합니다. 입력 내용은 교육과정 연계, 관찰 및 평가, 종합 기록에 반영됩니다.")
+
+        elif record_type == "일지":
+            st.markdown("#### 보육일지 세부 구성")
+            play_subcategories = st.multiselect(
+                "기록할 장면 선택 (복수 선택)",
+                DIARY_COMPONENT_OPTIONS,
+                key="wizard_diary_components",
+                placeholder="선택해 주세요.",
+                help="하루 기록에 실제로 포함할 일상생활·놀이·활동 장면만 선택해 주세요.",
+            )
+            render_diary_component_guidance(age_group, play_subcategories)
+            play_subcategory_notes = render_selected_note_inputs(play_subcategories, "diary_component")
+            # 보육일지는 별도의 교사 지원 선택값을 두지 않습니다.
+            teacher_supports = []
+            teacher_support_notes = {}
+            st.caption("선택한 일상생활·놀이·활동 장면마다 실제로 관찰한 내용을 입력해 주세요. 입력 내용은 교육과정 연계, 영유아 관찰 및 평가, 보육일지 기록 예시에 반영됩니다.")
 
         st.markdown("### 2. 사진 등록 및 자동 추천")
         uploaded_play_photos = st.file_uploader(
@@ -7757,10 +9069,10 @@ with tab2:
         )
 
         if st.button("사진 자동 추천 및 1차 정보 만들기", key="wizard_start_analysis"):
+            missing_detail_notes = [option for option in play_subcategories if not _as_note_dict(play_subcategory_notes).get(option, "").strip()]
+            missing_support_notes = [option for option in teacher_supports if not _as_note_dict(teacher_support_notes).get(option, "").strip()]
             if not play_name.strip():
                 st.warning("놀이명을 입력해 주세요.")
-            elif not play_goal.strip():
-                st.warning("놀이를 통한 배움의 이해를 입력해 주세요.")
             elif age_group == "- 선택 -":
                 st.warning("연령을 선택해 주세요.")
             elif not child_alias.strip():
@@ -7771,6 +9083,17 @@ with tab2:
                 st.warning("놀이 기록 유형을 선택해 주세요.")
             elif record_type == "알림장" and parent_type == "- 선택 -":
                 st.warning("알림장에 적용할 보호자 유형을 선택해 주세요.")
+            elif record_type == "놀이 이야기" and not play_subcategories:
+                st.warning("놀이 세부 구분을 한 개 이상 선택해 주세요.")
+            elif record_type == "일지" and not play_subcategories:
+                st.warning("보육일지 세부 구성에서 일상생활·놀이·활동 중 한 개 이상 선택해 주세요.")
+            elif record_type == "놀이 이야기" and not teacher_supports:
+                st.warning("교사의 지원을 한 개 이상 선택해 주세요.")
+            elif missing_detail_notes:
+                detail_label = "보육일지 세부 구성" if record_type == "일지" else "놀이 세부 구분"
+                st.warning(f"선택한 {detail_label}의 실제 장면 설명을 모두 입력해 주세요: " + ", ".join(missing_detail_notes))
+            elif record_type == "놀이 이야기" and missing_support_notes:
+                st.warning("선택한 교사의 지원의 구체 지원 내용을 모두 입력해 주세요: " + ", ".join(missing_support_notes))
             elif not uploaded_play_photos:
                 st.warning("놀이 사진을 한 장 이상 등록해 주세요.")
             elif len(uploaded_play_photos) < MIN_RECOMMENDED_PLAY_PHOTO_COUNT:
@@ -7782,7 +9105,6 @@ with tab2:
             else:
                 context = {
                     "play_name": play_name,
-                    "play_goal": play_goal,
                     "age_group": age_group,
                     "child_alias": child_alias,
                     "curriculum_areas": curriculum_areas,
@@ -7792,8 +9114,11 @@ with tab2:
                     "play_subcategory_notes": play_subcategory_notes,
                     "teacher_supports": teacher_supports,
                     "teacher_support_notes": teacher_support_notes,
+                    "teacher_observed_situation": "",
+                    "next_play_support_plan": "",
                 }
                 session_id = ""
+                analysis_completed = False
                 try:
                     with st.spinner("사진을 선별하고 비공개로 저장한 뒤, 놀이 장면을 분석하고 있습니다."):
                         recommended_files, quality_scores = select_recommended_play_photos(
@@ -7803,7 +9128,7 @@ with tab2:
                         session = create_play_session(
                             current_member_user_id(),
                             play_name,
-                            play_goal,
+                            "",
                             age_group,
                             child_alias,
                             curriculum_areas,
@@ -7832,10 +9157,12 @@ with tab2:
                     st.session_state["wizard_selected_photo_names"] = [str(getattr(file, "name", "")) for file in recommended_files]
                     st.session_state["wizard_analysis_result"] = analysis
                     st.session_state["wizard_initial_draft"] = analysis.get("draft") or ""
+                    st.session_state["wizard_teacher_observed_situation"] = ""
+                    st.session_state["wizard_next_play_support_plan"] = ""
                     st.session_state.pop("wizard_final_output", None)
-                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
+                    st.session_state.pop("wizard_completed_snapshot", None)
+                    analysis_completed = True
                 except Exception as exc:
-                    # 세션 생성 뒤 어느 단계에서든 실패하면 원본 파일과 메타데이터가 남지 않게 정리합니다.
                     if session_id:
                         delete_photos_for_session(session_id)
                         try:
@@ -7844,11 +9171,16 @@ with tab2:
                             pass
                     st.error("사진 추천·저장 또는 1차 분석을 완료하지 못했습니다.")
                     st.caption(str(exc))
+                if analysis_completed:
+                    # 분석 결과와 입력 맥락은 별도 session_state에 보존하고, 상단 입력폼만 비웁니다.
+                    st.session_state["_wizard_clear_entry_after_analysis"] = True
+                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
+                    st.rerun()
 
         analysis = st.session_state.get("wizard_analysis_result") or {}
         context = st.session_state.get("wizard_context") or {}
         if analysis and context:
-            st.markdown("### 3. 사진 1차 분석 정보")
+            st.markdown("### 3. 사진에 대한 1차 분석 결과")
             selected_names = st.session_state.get("wizard_selected_photo_names") or []
             st.caption("자동 추천 사진: " + ", ".join(selected_names))
 
@@ -7856,14 +9188,12 @@ with tab2:
             photo_match_reason = str(analysis.get("photo_match_reason") or "").strip()
             if photo_match_status == "확인 필요":
                 st.warning(
-                    "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. "
-                    "사진 또는 놀이명을 다시 확인해 주세요.\n\n"
+                    "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. 사진 또는 놀이명을 다시 확인해 주세요.\n\n"
                     + (photo_match_reason or "사진 속 핵심 자료·행동을 다시 확인해 주세요.")
                 )
             elif photo_match_status == "판단 어려움":
                 st.info(
-                    "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. "
-                    "사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
+                    "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. 사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
                     + (photo_match_reason or "사진 속 핵심 자료·행동이 일부만 보입니다.")
                 )
             else:
@@ -7872,20 +9202,48 @@ with tab2:
             if analysis.get("ai_caption"):
                 st.info(analysis.get("ai_caption"))
             st.text_area(
-                "교사가 수정하는 1차 정보 (4~6문장)",
+                "사진에 대한 1차 분석 결과 (교사가 수정 가능)",
                 height=210,
                 key="wizard_initial_draft",
                 help="사진 분석으로 만든 초안입니다. 실제 관찰 내용과 기관의 기록 원칙에 맞게 교사가 수정해 주세요.",
             )
-            revision_direction = st.text_area("수정 방향 (선택)", placeholder="예: 교사의 지원은 자료 지원보다 상호작용 지원 중심으로 표현해 주세요.", height=85, key="wizard_revision_direction")
-            if st.button("수정 방향 반영해 최종 문장 다시 생성", key="wizard_regenerate"):
+            if "wizard_teacher_observed_situation" not in st.session_state and context.get("teacher_observed_situation"):
+                st.session_state["wizard_teacher_observed_situation"] = str(context.get("teacher_observed_situation") or "")
+            if "wizard_next_play_support_plan" not in st.session_state and context.get("next_play_support_plan"):
+                st.session_state["wizard_next_play_support_plan"] = str(context.get("next_play_support_plan") or "")
+            teacher_observed_situation = st.text_area(
+                "교사가 관찰한 놀이 상황 (필수 입력)",
+                placeholder="예: 영아들이 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다.",
+                height=120,
+                key="wizard_teacher_observed_situation",
+                help="사진에서 확인한 장면에 교사가 실제로 관찰한 놀이 흐름, 말과 행동, 관계 장면을 적어 주세요.",
+            )
+            next_play_support_plan = st.text_area(
+                "다음 놀이 지원 계획 (선택)",
+                placeholder="예: 가격표와 메뉴판을 추가로 제공해 가게 놀이가 글자와 수 개념 탐색으로 이어지도록 지원합니다.",
+                height=100,
+                key="wizard_next_play_support_plan",
+                help="입력하면 최종 결과에 교사가 작성한 문장을 그대로 표시합니다. 입력하지 않으면 결과에 표시하지 않습니다.",
+            )
+            if st.button("교사가 관찰한 놀이 상황을 반영해 최종 기록 생성", key="wizard_regenerate"):
                 edited_draft = str(st.session_state.get("wizard_initial_draft") or "").strip()
                 if not edited_draft:
-                    st.warning("교사가 수정한 1차 정보를 입력해 주세요.")
+                    st.warning("사진에 대한 1차 분석 결과를 확인하고 수정해 주세요.")
+                elif not teacher_observed_situation.strip():
+                    st.warning("교사가 관찰한 놀이 상황은 필수 입력입니다.")
                 else:
+                    final_generation_completed = False
                     try:
-                        with st.spinner("교사가 수정한 방향을 반영해 최종 기록을 만들고 있습니다."):
-                            output = generate_final_play_record(context, edited_draft, revision_direction)
+                        context["teacher_observed_situation"] = teacher_observed_situation.strip()
+                        context["next_play_support_plan"] = next_play_support_plan.strip()
+                        st.session_state["wizard_context"] = context
+                        update_play_session_teacher_context(
+                            str(st.session_state.get("wizard_session_id") or ""),
+                            teacher_observed_situation,
+                            next_play_support_plan,
+                        )
+                        with st.spinner("사진 1차 분석 결과와 교사의 관찰을 반영해 과정형 기록을 만들고 있습니다."):
+                            output = generate_final_play_record(context, edited_draft)
                             save_generated_text(
                                 str(st.session_state.get("wizard_session_id") or ""),
                                 current_member_user_id(),
@@ -7894,20 +9252,61 @@ with tab2:
                                 edited_draft,
                                 str(analysis.get("draft") or ""),
                             )
+                        _store_completed_wizard_snapshot(
+                            context=context,
+                            analysis=analysis,
+                            initial_draft=edited_draft,
+                            selected_photo_names=st.session_state.get("wizard_selected_photo_names") or [],
+                            output=output,
+                        )
                         st.session_state["wizard_final_output"] = output
-                        st.success("최종 기록을 만들었습니다.")
+                        st.session_state["_wizard_clear_after_final"] = True
+                        final_generation_completed = True
                     except Exception as exc:
                         st.error("최종 기록을 만들지 못했습니다.")
                         st.caption(str(exc))
+                    if final_generation_completed:
+                        st.success("사진 분석, 교사 관찰, 교육과정 연계, 종합 기록을 생성했습니다.")
+                        st.rerun()
 
-        output = st.session_state.get("wizard_final_output") or {}
-        if output and context:
-            st.markdown("### 4. 최종 생성 결과")
+        completed_snapshot = st.session_state.get("wizard_completed_snapshot") or {}
+        completed_output = completed_snapshot.get("output") if isinstance(completed_snapshot, dict) else {}
+        completed_context = completed_snapshot.get("context") if isinstance(completed_snapshot, dict) else {}
+        completed_draft = completed_snapshot.get("initial_draft") if isinstance(completed_snapshot, dict) else ""
+        completed_photo_names = completed_snapshot.get("selected_photo_names") if isinstance(completed_snapshot, dict) else []
+        output = completed_output or st.session_state.get("wizard_final_output") or {}
+        output_context = completed_context or context
+        if output and output_context:
+            st.markdown("### 4. 과정과 최종 기록")
             render_final_play_output(output)
-            download_text = build_record_download_text(context, str(st.session_state.get("wizard_initial_draft") or ""), output)
-            safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(context.get("play_name") or "놀이기록"))[:40]
-            st.download_button("기록 다운로드", data=download_text.encode("utf-8"), file_name=f"{safe_title}_놀이기록.txt", mime="text/plain", key="wizard_record_download")
+            safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", str(output_context.get("play_name") or "놀이기록"))[:40]
+            try:
+                word_document = build_record_word_document(
+                    output_context,
+                    str(completed_draft or st.session_state.get("wizard_initial_draft") or ""),
+                    output,
+                    list(completed_photo_names or st.session_state.get("wizard_selected_photo_names") or []),
+                )
+                st.download_button(
+                    "Word 문서 다운로드",
+                    data=word_document,
+                    file_name=f"{safe_title}_{str(output_context.get('output_type') or '놀이기록')}_기록.docx",
+                    mime=WORD_MIME_TYPE,
+                    key="wizard_record_download_docx",
+                )
+                st.caption("기본 정보, 사진 분석 과정, 교육과정 연계, 관찰·평가, 최종 기록이 보기 편한 Word 문서로 저장됩니다.")
+            except Exception as exc:
+                st.error("Word 문서를 만들지 못했습니다. requirements.txt에 python-docx가 설치되어 있는지 확인해 주세요.")
+                st.caption(str(exc))
 
+            if st.button("새 기록 작성", key="wizard_start_new_record", use_container_width=False):
+                # 결과 화면을 닫고, 다음 기록을 위해 입력·분석 상태를 함께 정리합니다.
+                st.session_state.pop("wizard_completed_snapshot", None)
+                st.session_state.pop("wizard_final_output", None)
+                for state_key in WIZARD_ANALYSIS_STATE_KEYS:
+                    st.session_state.pop(state_key, None)
+                _clear_wizard_entry_state()
+                st.rerun()
 
 # =========================
 # TAB 3. 사진 보정
@@ -8224,6 +9623,7 @@ if SHOW_DIARY_FEATURE:
 with tab_notice:
     render_public_notice_page()
 
+
 # =========================
 # TAB 7. 관리자
 # =========================
@@ -8302,11 +9702,11 @@ with tab7:
                     "id": "번호", "created_at": "생성일시", "updated_at": "수정일시", "user_id": "회원 UID",
                     "username": "아이디", "platform_member_id": "기존 회원 ID", "subscriber_name": "가입자 성명", "display_name": "표시 이름", "role": "권한",
                     "email": "이메일", "institution_name": "기관명", "institution_group": "기관 구분", "institution_type": "기관 유형", "position": "직책",
-                    "play_name": "놀이명", "play_goal": "놀이를 통한 배움의 이해", "age_group": "연령", "child_alias": "아이 별칭", "curriculum_areas": "교육과정 영역",
-                    "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진 1차 분석",
+                    "play_name": "놀이명", "age_group": "연령", "child_alias": "아이 별칭", "teacher_observed_situation": "교사가 관찰한 놀이 상황", "next_play_support_plan": "다음 놀이 지원 계획", "curriculum_areas": "교육과정 영역",
+                    "record_type": "기록 유형", "parent_type": "보호자 유형", "play_subcategories": "놀이 세부 구분", "play_subcategory_notes": "놀이 세부 구분별 장면", "teacher_supports": "교사의 지원", "teacher_support_notes": "교사의 구체 지원", "photo_match_status": "사진-놀이명 점검", "photo_match_reason": "점검 사유", "ai_summary": "사진에 대한 1차 분석 결과",
                     "session_id": "세션 ID", "file_path": "Storage 경로", "original_file_name": "파일명", "mime_type": "형식", "size_bytes": "파일 크기",
                     "quality_score": "추천 점수", "selection_reason": "추천 이유", "ai_caption": "사진 설명", "output_type": "생성 유형",
-                    "result_text": "생성 결과", "edited_text": "교사 수정 초안", "source_text": "원본 1차 초안", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
+                    "result_text": "생성 결과", "edited_text": "교사가 수정한 1차 분석 결과", "source_text": "원본 사진 1차 분석 결과", "expires_at": "자동 삭제 예정일", "deleted": "삭제 여부",
                 }
 
                 st.markdown("### 현재 활성 기록")
