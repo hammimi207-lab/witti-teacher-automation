@@ -1454,7 +1454,7 @@ WITTI_SITE_LABEL = "교사의 발견"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-member-service-fixed-sidebar-popup-grid-doc-preview-v2"
+APP_VERSION = "2026-07-03-member-modal-individual-popups-type-specific-word-v3"
 
 
 # =========================
@@ -1504,6 +1504,7 @@ def clear_member_session():
         "member_platform_id",
         "member_access_token",
         "member_refresh_token",
+        "member_management_modal_open",
     ]:
         st.session_state.pop(key, None)
 
@@ -2747,8 +2748,38 @@ def _structured_record_plain_text(output: dict) -> str:
     return "\n\n".join(chunks).strip()
 
 
+def _normalize_recommended_emojis(value) -> list[str]:
+    if isinstance(value, list):
+        raw_items = [str(item).strip() for item in value]
+    elif isinstance(value, str):
+        raw_items = [item.strip() for item in re.split(r"[,\s]+", value)]
+    else:
+        raw_items = []
+    normalized = []
+    for item in raw_items:
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized[:8]
+
+
+def _fallback_recommended_emojis(play_name: str) -> list[str]:
+    source = str(play_name or "")
+    keyword_map = [
+        ("자연", ["🌿", "🍃", "🌼", "✨", "😊", "💛"]),
+        ("블록", ["🧱", "✨", "🌱", "😊", "💛", "🌼"]),
+        ("미술", ["🎨", "🖍️", "✨", "😊", "🌼", "💛"]),
+        ("음악", ["🎵", "🎶", "✨", "😊", "🌈", "💛"]),
+        ("물", ["💧", "🫧", "🌈", "😊", "✨", "💛"]),
+        ("바깥", ["🌤️", "🍃", "🌿", "😊", "✨", "💛"]),
+    ]
+    for keyword, emojis in keyword_map:
+        if keyword in source:
+            return emojis
+    return ["🌿", "✨", "😊", "🌼", "💛", "🍀"]
+
+
 def generate_final_play_record(context: dict, edited_draft: str, revision_direction: str = "") -> dict:
-    """놀이 이야기·일지는 과정 산출과 종합 기록을 함께 만들고, 알림장은 기존 3개 예시 방식을 유지합니다."""
+    """놀이 이야기·일지는 과정형 기록을, 알림장은 보호자 전달형 문장과 추천 이모지를 만듭니다."""
     client = get_openai_client()
     if client is None:
         raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
@@ -2875,36 +2906,49 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
             "integrated_record": age_sanitize(integrated_record, age_group),
             "sections": {},
             "examples": [],
+            "recommended_emojis": [],
         }
         result["plain_text"] = _structured_record_plain_text(result)
         return result
 
-    # 알림장은 기존 보호자 유형별 3개 예시 생성 방식을 유지합니다.
+    # 알림장은 보호자에게 바로 전달할 수 있는 가볍고 친근한 문장으로 별도 생성합니다.
     parent_type = str(context.get("parent_type") or "일반형").strip()
     if parent_type not in PARENT_TYPE_OPTIONS:
         parent_type = "일반형"
     parent_guidance = PARENT_TYPE_GUIDANCE[parent_type]
-    output_schema = """{\n  \"examples\": [\"서로 다른 문체의 완결된 예시 1\", \"예시 2\", \"예시 3\"]\n}"""
+    output_schema = """{
+  \"examples\": [\"보호자에게 전달할 완결된 알림장 문구 1\", \"문구 2\", \"문구 3\"],
+  \"recommended_emojis\": [\"본문에 가볍게 활용할 이모지 1개\", \"이모지 2개\", \"이모지 3개\", \"이모지 4개\", \"이모지 5개\", \"이모지 6개\"]
+}"""
     prompt = f"""
-당신은 한국 영유아교육 현장의 알림장 문장을 돕는 보조자입니다.
-사진 분석 1차 결과와 교사의 관찰을 바탕으로 알림장 예시 3개를 작성하세요.
+당신은 한국 어린이집·유치원 교사가 보호자에게 보내는 알림장 문장을 돕는 보조자입니다.
+아래의 사진 분석과 교사 관찰을 바탕으로, 실제 알림장에 바로 옮겨 적을 수 있는 따뜻하고 읽기 쉬운 문장 3개를 작성하세요.
 
-- 놀이명: {play_name}
+[기본 정보]
+- 오늘의 놀이명: {play_name}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
-- 선택 교육과정 영역: {curriculum}
+- 사진 속 놀이 내용: {photo_play_content}
 - 교사가 수정한 사진 1차 분석 결과: {edited_draft.strip()}
 - 교사가 관찰한 놀이 상황: {teacher_observed_situation or '미입력'}
-- 보호자 유형에 따른 문체 기준: {parent_guidance}
+- 보호자 유형에 따른 전달 기준: {parent_guidance}
 
-사진에 직접 드러나지 않은 사건·감정·발달 수준을 지어내지 말고, 각 예시는 3~5문장 이내로 작성하세요.
-결과에는 보호자 유형명 자체를 쓰지 마세요. 아래 JSON 형식만 반환하세요.
+[알림장 작성 원칙]
+- 보호자에게 말하듯 부드럽고 친근한 어투를 사용하세요.
+- 첫 문장은 오늘의 놀이 또는 아이의 흥미에서 자연스럽게 시작하고, 본문은 3~4문장으로 읽기 쉽게 구성하세요.
+- 교육과정 명칭, 전문 평가 용어, ‘관찰 및 평가’ 같은 교사용 표현은 본문에 쓰지 마세요.
+- 사진과 교사 입력에서 확인되는 사실만 사용하고, 사진에 없는 대화·감정·발달 수준을 지어내지 마세요.
+- 단정, 비교, 지시형 문장을 피하고 보호자가 편안히 읽을 수 있게 마무리하세요.
+- 본문에는 이모지를 넣지 마세요. 추천 이모지는 recommended_emojis에 6개 내외로 따로 제시하세요.
+- 결과에는 보호자 유형명 자체를 절대 쓰지 마세요.
+- 아래 JSON 객체만 반환하세요.
+
 {output_schema}
 """.strip()
     response = client.responses.create(
         model=get_openai_vision_model(),
         input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
-        max_output_tokens=1500,
+        max_output_tokens=1600,
         store=False,
     )
     raw = str(getattr(response, "output_text", "") or "").strip()
@@ -2913,14 +2957,26 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     examples = [str(item).strip() for item in examples if str(item).strip()][:3]
     if len(examples) < 3:
         subject = child_alias.strip() or ("영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아")
-        base = edited_draft.strip()
+        base = edited_draft.strip() or photo_play_content
         examples = [
-            f"{base}\n\n{subject}의 관심과 반응을 중심으로 오늘의 모습을 전합니다.",
-            f"{play_name} 활동에서 관찰된 장면을 바탕으로 정리했습니다. {base}",
-            f"오늘의 {play_name} 경험은 {curriculum} 영역과 연결해 살펴볼 수 있었습니다. {base}",
+            f"오늘 {subject}는 {play_name} 놀이에 관심을 보이며 즐겁게 참여했습니다. {base}",
+            f"{play_name} 시간에 {subject}는 사진 속 자료를 살펴보고 자신의 방식으로 놀이를 이어갔습니다. {teacher_observed_situation or '오늘의 놀이 장면을 함께 나누어 드립니다.'}",
+            f"오늘은 {play_name} 놀이를 통해 {subject}의 관심과 탐색을 만나볼 수 있었습니다. 가정에서도 오늘의 놀이 이야기를 편안히 나누어 보시면 좋겠습니다.",
         ]
-    plain = "\n\n".join(f"예시 {index + 1}\n{item}" for index, item in enumerate(examples))
-    return {"output_type": output_type, "sections": {}, "examples": examples, "plain_text": plain}
+    emojis = _normalize_recommended_emojis(payload.get("recommended_emojis"))
+    if len(emojis) < 4:
+        emojis = _fallback_recommended_emojis(play_name)
+    plain = "\n\n".join(f"알림장 예시 {index}\n{item}" for index, item in enumerate(examples))
+    plain += "\n\n추천 이모지\n" + " ".join(emojis)
+    return {
+        "output_type": output_type,
+        "sections": {},
+        "examples": examples,
+        "recommended_emojis": emojis,
+        "plain_text": plain,
+        "photo_play_content": photo_play_content,
+        "teacher_observed_situation": teacher_observed_situation,
+    }
 
 def save_generated_text(session_id: str, user_id: str, output_type: str, result_text: str, edited_text: str, source_text: str):
     payload = {
@@ -3505,10 +3561,10 @@ def render_active_notice_banner():
 
 
 def render_active_popup_if_needed():
-    """활성 이미지 팝업을 모두 동시에 표시합니다.
+    """활성 팝업을 각각 독립된 창으로 표시합니다.
 
-    데스크톱에서는 최대 3개가 한 줄에 나란히 보이고, 4개 이상은 다음 줄로 자동 배치됩니다.
-    관리자 화면의 위치 선택은 팝업 묶음 전체가 표시될 세로 기준(상단·중앙·하단)으로 사용합니다.
+    데스크톱에서는 2개면 가운데를 기준으로 두 창, 3개면 좌·중·우 세 창이 나란히 보입니다.
+    팝업마다 닫기·오늘 하루 다시 보지 않기 상태가 독립적으로 유지됩니다.
     """
     popups = load_visible_popups()
     popup_payloads = []
@@ -3524,13 +3580,12 @@ def render_active_popup_if_needed():
         (function () {
             const win = window.parent;
             const doc = win.document;
-            const ROOT_ID = 'witti-platform-popup-root';
-            const STYLE_ID = 'witti-platform-popup-style';
+            const ROOT_PREFIX = 'witti-platform-popup-window-';
+            const STYLE_ID = 'witti-platform-popup-window-style';
             const popups = __POPUP_PAYLOAD__;
 
-            function removeCurrent() {
-                const old = doc.getElementById(ROOT_ID);
-                if (old) old.remove();
+            function removeCurrentWindows() {
+                doc.querySelectorAll('[data-witti-platform-popup-window="true"]').forEach((node) => node.remove());
             }
 
             function safeHttpUrl(raw) {
@@ -3572,14 +3627,7 @@ def render_active_popup_if_needed():
 
             function markTodayDismissed(popup) {
                 try { win.localStorage.setItem(todayKey(popup), '1'); }
-                catch (error) { /* 현재 화면만 닫습니다. */ }
-            }
-
-            function groupPositionClass(firstPopup) {
-                const position = String((firstPopup && firstPopup.popup_position) || 'center');
-                if (position.startsWith('top')) return 'witti-popup-grid-top';
-                if (position.startsWith('bottom')) return 'witti-popup-grid-bottom';
-                return 'witti-popup-grid-center';
+                catch (error) { /* 브라우저 저장소를 쓸 수 없으면 현재 화면에서만 닫습니다. */ }
             }
 
             function ensureStyle() {
@@ -3587,110 +3635,107 @@ def render_active_popup_if_needed():
                 const style = doc.createElement('style');
                 style.id = STYLE_ID;
                 style.textContent = `
-                    #${ROOT_ID} {
-                        position: fixed;
-                        z-index: 2147483645;
-                        left: 50%;
-                        width: min(1050px, calc(100vw - 46px));
-                        display: grid;
-                        grid-template-columns: repeat(3, minmax(0, 1fr));
-                        gap: 12px;
-                        transform: translateX(-50%);
-                        box-sizing: border-box;
-                        pointer-events: none;
-                        font-family: Pretendard, SUIT, 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-                    }
-                    #${ROOT_ID}.witti-popup-grid-top { top: 82px; }
-                    #${ROOT_ID}.witti-popup-grid-center { top: 50%; transform: translate(-50%, -50%); }
-                    #${ROOT_ID}.witti-popup-grid-bottom { bottom: 22px; }
-                    #${ROOT_ID} .witti-popup-card {
-                        position: relative;
-                        min-width: 0;
-                        max-height: min(76vh, 650px);
-                        overflow: auto;
-                        background: #FFFFFF;
-                        border: 1px solid #D8E5F2;
-                        border-radius: 16px;
-                        box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
-                        box-sizing: border-box;
-                        pointer-events: auto;
-                    }
-                    #${ROOT_ID} .witti-popup-close {
-                        position: absolute;
-                        top: 8px;
-                        right: 8px;
-                        width: 30px;
-                        height: 30px;
-                        border: 0;
-                        border-radius: 999px;
-                        background: rgba(255,255,255,0.95);
-                        color: #344054;
-                        font-size: 20px;
-                        line-height: 1;
-                        cursor: pointer;
-                        box-shadow: 0 2px 8px rgba(15,23,42,0.14);
-                        z-index: 3;
-                    }
-                    #${ROOT_ID} .witti-popup-image-link { display:block; text-decoration:none; cursor:pointer; }
-                    #${ROOT_ID} .witti-popup-image {
-                        display:block;
-                        width:100%;
-                        max-height:min(59vh, 560px);
-                        object-fit:contain;
-                        background:#F7FAFC;
-                        border-radius:16px 16px 0 0;
-                    }
-                    #${ROOT_ID} .witti-popup-dismiss-row {
-                        display:flex;
-                        align-items:center;
-                        gap:7px;
-                        min-height:42px;
-                        padding:9px 11px 10px;
-                        color:#475467;
+                    .witti-popup-window {
+                        position:fixed;
+                        z-index:2147483645;
+                        width:min(330px, calc((100vw - 86px) / 3));
+                        max-height:min(76vh, 650px);
+                        overflow:auto;
                         background:#FFFFFF;
-                        border-top:1px solid #EDF1F5;
-                        font-size:11.5px;
-                        line-height:1.35;
-                        font-weight:700;
-                        cursor:pointer;
+                        border:1px solid #D8E5F2;
+                        border-radius:16px;
+                        box-shadow:0 18px 42px rgba(15,23,42,.22);
                         box-sizing:border-box;
+                        font-family:Pretendard, SUIT, 'Noto Sans KR', 'Malgun Gothic', sans-serif;
                     }
-                    #${ROOT_ID} .witti-popup-dismiss-row input {
+                    .witti-popup-window .witti-popup-close {
+                        position:absolute; top:8px; right:8px; width:30px; height:30px;
+                        border:0; border-radius:999px; background:rgba(255,255,255,.95); color:#344054;
+                        font-size:20px; line-height:1; cursor:pointer; box-shadow:0 2px 8px rgba(15,23,42,.14); z-index:3;
+                    }
+                    .witti-popup-window .witti-popup-image-link { display:block; text-decoration:none; cursor:pointer; }
+                    .witti-popup-window .witti-popup-image {
+                        display:block; width:100%; max-height:min(59vh,560px); object-fit:contain;
+                        background:#F7FAFC; border-radius:16px 16px 0 0;
+                    }
+                    .witti-popup-window .witti-popup-dismiss-row {
+                        display:flex; align-items:center; gap:7px; min-height:42px; padding:9px 11px 10px;
+                        color:#475467; background:#FFFFFF; border-top:1px solid #EDF1F5;
+                        font-size:11.5px; line-height:1.35; font-weight:700; cursor:pointer; box-sizing:border-box;
+                    }
+                    .witti-popup-window .witti-popup-dismiss-row input {
                         width:15px; height:15px; margin:0; accent-color:#123A5A; flex:0 0 auto; cursor:pointer;
                     }
-                    #${ROOT_ID} .witti-popup-dismiss-row span { cursor:pointer; word-break:keep-all; }
-                    @media (max-width: 768px) {
-                        #${ROOT_ID},
-                        #${ROOT_ID}.witti-popup-grid-top,
-                        #${ROOT_ID}.witti-popup-grid-center,
-                        #${ROOT_ID}.witti-popup-grid-bottom {
-                            left:12px;
-                            right:12px;
-                            width:auto;
-                            top:12px;
-                            bottom:auto;
-                            transform:none;
-                            grid-template-columns:1fr;
-                            max-height:calc(100vh - 24px);
-                            overflow-y:auto;
-                            padding-right:2px;
+                    .witti-popup-window .witti-popup-dismiss-row span { cursor:pointer; word-break:keep-all; }
+                    @media (max-width:768px) {
+                        .witti-popup-window {
+                            left:12px !important; right:12px !important; width:auto !important;
+                            max-height:28vh; overflow:auto;
                         }
-                        #${ROOT_ID} .witti-popup-card { max-height:none; }
-                        #${ROOT_ID} .witti-popup-image { max-height:58vh; }
+                        .witti-popup-window .witti-popup-image { max-height:19vh; }
                     }
                 `;
                 doc.head.appendChild(style);
             }
 
-            function appendPopupCard(root, popup) {
+            function verticalPlacement(card, popup, index) {
+                const position = String(popup.popup_position || 'center');
+                const row = Math.floor(index / 3);
+                if (win.innerWidth <= 768) {
+                    card.style.top = `calc(12px + ${index * 30}vh)`;
+                    card.style.bottom = 'auto';
+                    card.style.transform = 'none';
+                    return;
+                }
+                if (position.startsWith('top')) {
+                    card.style.top = `${82 + row * 34}px`;
+                    card.style.bottom = 'auto';
+                    card.style.transform = 'translateX(-50%)';
+                } else if (position.startsWith('bottom')) {
+                    card.style.bottom = `${22 + row * 34}px`;
+                    card.style.top = 'auto';
+                    card.style.transform = 'translateX(-50%)';
+                } else {
+                    card.style.top = `calc(50% + ${row * 34}px)`;
+                    card.style.bottom = 'auto';
+                    card.style.transform = 'translate(-50%, -50%)';
+                }
+            }
+
+            function horizontalPlacement(card, index, total) {
+                if (win.innerWidth <= 768) return;
+                const slot = index % 3;
+                if (total === 1) {
+                    const position = String((popups[0] && popups[0].popup_position) || 'center');
+                    if (position.endsWith('left')) card.style.left = 'calc(50% - min(32vw, 360px))';
+                    else if (position.endsWith('right')) card.style.left = 'calc(50% + min(32vw, 360px))';
+                    else card.style.left = '50%';
+                    return;
+                }
+                if (total === 2) {
+                    card.style.left = index === 0 ? 'calc(50% - min(20vw, 230px))' : 'calc(50% + min(20vw, 230px))';
+                    return;
+                }
+                const slots = [
+                    'calc(50% - min(33vw, 380px))',
+                    '50%',
+                    'calc(50% + min(33vw, 380px))',
+                ];
+                card.style.left = slots[slot];
+            }
+
+            function createPopupWindow(popup, index, total) {
                 const imageUrl = safeHttpUrl(popup.image_signed_url);
                 if (!imageUrl) return;
-
                 const card = doc.createElement('section');
-                card.className = 'witti-popup-card';
+                card.id = ROOT_PREFIX + String(popup.id || index);
+                card.dataset.wittiPlatformPopupWindow = 'true';
+                card.className = 'witti-popup-window';
                 card.setAttribute('role', 'dialog');
                 card.setAttribute('aria-modal', 'false');
                 card.setAttribute('aria-label', String(popup.title || '서비스 안내 이미지'));
+                horizontalPlacement(card, index, total);
+                verticalPlacement(card, popup, index);
 
                 const image = doc.createElement('img');
                 image.className = 'witti-popup-image';
@@ -3729,32 +3774,21 @@ def render_active_popup_if_needed():
                 closeButton.addEventListener('click', function () {
                     if (dismissCheckbox.checked) markTodayDismissed(popup);
                     card.remove();
-                    if (!root.querySelector('.witti-popup-card')) root.remove();
                 });
                 card.appendChild(closeButton);
-                root.appendChild(card);
+                doc.body.appendChild(card);
             }
 
-            removeCurrent();
+            removeCurrentWindows();
             if (!Array.isArray(popups) || !popups.length) return;
             const visiblePopups = popups.filter((item) => item && safeHttpUrl(item.image_signed_url) && !wasDismissed(item));
             if (!visiblePopups.length) return;
-
             ensureStyle();
-            const root = doc.createElement('section');
-            root.id = ROOT_ID;
-            root.className = groupPositionClass(visiblePopups[0]);
-            visiblePopups.forEach((popup) => appendPopupCard(root, popup));
-            if (root.querySelector('.witti-popup-card')) doc.body.appendChild(root);
+            visiblePopups.forEach((popup, index) => createPopupWindow(popup, index, visiblePopups.length));
         })();
         </script>
     """
-    components.html(
-        script.replace("__POPUP_PAYLOAD__", safe_payload),
-        height=0,
-        width=0,
-    )
-
+    components.html(script.replace("__POPUP_PAYLOAD__", safe_payload), height=0, width=0)
 
 def render_public_notice_page():
     render_menu_card(
@@ -6533,46 +6567,233 @@ def _render_sidebar_password_view():
                     st.error(str(exc))
 
 
-def _render_sidebar_my_page_view():
-    user_id = current_member_user_id()
-    profile = get_member_profile(user_id)
-    if not profile:
-        clear_member_session()
-        _set_member_portal_view(MEMBER_PORTAL_LOGIN)
-        st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
+MEMBER_POSITION_OPTIONS = [
+    "- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타",
+]
+MEMBER_INSTITUTION_GROUP_OPTIONS = ["- 선택 -", "어린이집", "유치원"]
+MEMBER_INSTITUTION_TYPE_OPTIONS = {
+    "어린이집": ["- 선택 -", "국공립", "사회복지법인", "법인·단체 등", "민간", "가정", "협동", "직장", "기타"],
+    "유치원": ["- 선택 -", "국립", "공립 단설", "공립 병설", "사립 법인", "사립 사인", "기타"],
+}
+MEMBER_INSTITUTION_FEATURE_OPTIONS = [
+    "일반", "장애통합", "다문화", "야간연장", "시간제보육", "방과후 과정", "숲·생태 특화", "놀이중심 운영", "부모참여 활성화", "기타",
+]
+
+
+def _member_profile_feature_values(value) -> list[str]:
+    if isinstance(value, list):
+        raw_values = [str(item).strip() for item in value]
+    else:
+        raw_values = [item.strip() for item in str(value or "").replace("\n", ",").split(",")]
+    return [item for item in raw_values if item in MEMBER_INSTITUTION_FEATURE_OPTIONS]
+
+
+def _member_profile_seed_widget(key: str, value):
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+def update_member_profile_basic_information(user_id: str, payload: dict):
+    """로그인 회원의 public subscribers 프로필만 수정합니다.
+
+    아이디와 로그인 이메일은 Supabase Auth와 연결되어 있어 여기서 임의 변경하지 않습니다.
+    기본 정보 수정은 기존 가입 컬럼만 사용하므로 별도 DB 마이그레이션이 필요하지 않습니다.
+    """
+    if not user_id:
+        raise PermissionError("기본 정보를 수정하려면 먼저 로그인해 주세요.")
+    cleaned_payload = {
+        "display_name": str(payload.get("display_name") or "").strip(),
+        "subscriber_name": str(payload.get("subscriber_name") or "").strip(),
+        "institution_name": str(payload.get("institution_name") or "").strip(),
+        "institution_group": str(payload.get("institution_group") or "").strip(),
+        "institution_type": str(payload.get("institution_type") or "").strip(),
+        "institution_feature": str(payload.get("institution_feature") or "").strip(),
+        "phone": str(payload.get("phone") or "").strip(),
+        "position": str(payload.get("position") or "").strip(),
+        "mailing_agree": str(bool(payload.get("mailing_agree"))),
+    }
+    if not cleaned_payload["subscriber_name"]:
+        raise ValueError("성명을 입력해 주세요.")
+    supabase.table("subscribers").update(cleaned_payload).eq("user_id", user_id).execute()
+
+
+def _render_member_profile_photo_manager(user_id: str):
+    """기존 검증된 private Storage 사진 삭제 함수를 마이페이지 모달 안에 재사용합니다."""
+    st.caption("사진 원본은 비공개 Storage에 보관됩니다. 삭제하면 원본 파일과 연결 정보가 함께 영구 삭제됩니다.")
+    photo_df = load_member_photo_records(user_id)
+    if photo_df.empty:
+        st.info("현재 보관된 업로드 사진이 없습니다.")
         return
 
-    st.markdown("#### 마이페이지")
-    st.caption(f"아이디: {profile.get('username') or profile.get('platform_member_id') or '-'}")
-    st.caption(f"이메일: {profile.get('email') or current_member_email() or '-'}")
-    name = st.text_input("성명", value=str(profile.get("subscriber_name") or profile.get("display_name") or ""), key="sidebar_mypage_name")
-    institution = st.text_input("기관명", value=str(profile.get("institution_name") or ""), key="sidebar_mypage_institution")
-    position_options = ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"]
-    current_position = str(profile.get("position") or "- 선택 -")
-    if current_position not in position_options:
-        current_position = "기타"
-    position = st.selectbox("직책", position_options, index=position_options.index(current_position), key="sidebar_mypage_position")
-    mailing = st.checkbox(
-        f"{WITTI_SITE_LABEL} 소식과 자료 안내 메일 수신",
-        value=_as_bool(profile.get("mailing_agree")),
-        key="sidebar_mypage_mailing",
+    records = _format_kst_datetime_column(photo_df).to_dict("records")
+    for row_index in range(0, len(records), 2):
+        columns = st.columns(2)
+        for column, record in zip(columns, records[row_index:row_index + 2]):
+            with column:
+                photo_id = record.get("id")
+                signed_url = create_member_photo_signed_url(
+                    str(record.get("file_path") or ""),
+                    str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
+                )
+                if signed_url:
+                    st.image(signed_url, use_container_width=True)
+                else:
+                    st.warning("사진 미리보기 주소를 만들지 못했습니다.")
+                st.caption(f"{record.get('작성일시') or '-'} · {record.get('original_file_name') or '놀이 사진'}")
+                if record.get("play_title"):
+                    st.caption(f"연결 놀이: {record.get('play_title')}")
+
+                request_key = f"member_modal_photo_delete_request_{photo_id}"
+                if st.button("사진 삭제", key=f"member_modal_photo_delete_button_{photo_id}", use_container_width=True):
+                    st.session_state[request_key] = True
+                if st.session_state.get(request_key):
+                    confirmed = st.checkbox(
+                        "사진 원본과 연결 정보가 영구 삭제되는 것을 확인했습니다.",
+                        key=f"member_modal_photo_delete_confirm_{photo_id}",
+                    )
+                    if st.button(
+                        "사진 영구 삭제",
+                        key=f"member_modal_photo_delete_confirm_button_{photo_id}",
+                        disabled=not confirmed,
+                        use_container_width=True,
+                    ):
+                        try:
+                            # 기존 코드의 권한 검증 + Storage 원본 삭제 + DB 연결 정보 삭제를 그대로 사용합니다.
+                            delete_member_photo(int(photo_id), user_id)
+                            st.session_state.pop(request_key, None)
+                            st.success("사진 원본과 연결 정보를 영구 삭제했습니다.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error("사진을 삭제하지 못했습니다.")
+                            st.caption(str(exc))
+
+
+def _render_member_management_window_content():
+    """로그인 상태를 유지하는 큰 마이페이지 창의 실제 내용입니다."""
+    user_id = current_member_user_id()
+    if not user_id:
+        st.warning("마이페이지는 로그인 후 이용할 수 있습니다.")
+        if st.button("닫기", key="member_modal_close_not_logged_in"):
+            st.session_state["member_management_modal_open"] = False
+            st.rerun()
+        return
+
+    profile = get_member_profile(user_id)
+    if not profile:
+        st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
+        if st.button("닫기", key="member_modal_close_missing_profile"):
+            st.session_state["member_management_modal_open"] = False
+            st.rerun()
+        return
+
+    st.caption("아이디와 로그인 이메일은 계정 보안을 위해 이 창에서 변경하지 않습니다. 이메일 변경은 관리자 문의로 처리합니다.")
+    st.markdown(
+        f"**아이디**  {profile.get('username') or profile.get('platform_member_id') or '-'}  ·  "
+        f"**이메일**  {profile.get('email') or current_member_email() or '-'}"
     )
-    if st.button("내 정보 저장", key="sidebar_mypage_save", use_container_width=True):
-        if not name.strip():
-            st.warning("성명을 입력해 주세요.")
-        else:
+    info_tab, photo_tab = st.tabs(["기본 정보 수정", "업로드한 사진 관리"])
+
+    with info_tab:
+        st.markdown("#### 기본 정보 수정")
+        # 동일 브라우저에서 다른 계정으로 바뀌어도 이전 회원의 입력값이 남지 않도록 회원 ID별 키를 사용합니다.
+        safe_user_key = re.sub(r"[^0-9A-Za-z_-]+", "", str(user_id))[:24] or "member"
+        widget_prefix = f"member_modal_{safe_user_key}_profile"
+        name_key = f"{widget_prefix}_name"
+        institution_key = f"{widget_prefix}_institution"
+        group_key = f"{widget_prefix}_group"
+        type_key = f"{widget_prefix}_type"
+        features_key = f"{widget_prefix}_features"
+        phone_key = f"{widget_prefix}_phone"
+        position_key = f"{widget_prefix}_position"
+        mailing_key = f"{widget_prefix}_mailing"
+
+        current_name = str(profile.get("subscriber_name") or profile.get("display_name") or "")
+        current_group = str(profile.get("institution_group") or "- 선택 -")
+        if current_group not in MEMBER_INSTITUTION_GROUP_OPTIONS:
+            current_group = "- 선택 -"
+        current_type = str(profile.get("institution_type") or "- 선택 -")
+        current_position = str(profile.get("position") or "- 선택 -")
+        if current_position not in MEMBER_POSITION_OPTIONS:
+            current_position = "기타"
+
+        _member_profile_seed_widget(name_key, current_name)
+        _member_profile_seed_widget(institution_key, str(profile.get("institution_name") or ""))
+        _member_profile_seed_widget(group_key, current_group)
+        _member_profile_seed_widget(features_key, _member_profile_feature_values(profile.get("institution_feature")))
+        _member_profile_seed_widget(phone_key, str(profile.get("phone") or ""))
+        _member_profile_seed_widget(position_key, current_position)
+        _member_profile_seed_widget(mailing_key, _as_bool(profile.get("mailing_agree")))
+
+        left_col, right_col = st.columns(2)
+        with left_col:
+            name = st.text_input("성명", key=name_key)
+            institution = st.text_input("기관명", key=institution_key)
+            group = st.selectbox("기관 구분", MEMBER_INSTITUTION_GROUP_OPTIONS, key=group_key)
+            type_options = MEMBER_INSTITUTION_TYPE_OPTIONS.get(group, ["- 선택 -"])
+            if st.session_state.get(type_key) not in type_options:
+                st.session_state[type_key] = current_type if current_type in type_options else "- 선택 -"
+            institution_type = st.selectbox("기관 유형", type_options, key=type_key, disabled=(group == "- 선택 -"))
+        with right_col:
+            features = st.multiselect("기관 특성", MEMBER_INSTITUTION_FEATURE_OPTIONS, key=features_key, placeholder="선택해 주세요.")
+            phone = st.text_input("기관 연락처", placeholder="예: 02-1234-5678", key=phone_key)
+            position = st.selectbox("직책", MEMBER_POSITION_OPTIONS, key=position_key)
+            mailing = st.checkbox(f"{WITTI_SITE_LABEL} 소식과 자료 안내 메일 수신", key=mailing_key)
+
+        if st.button("기본 정보 저장", key="member_modal_profile_save", use_container_width=True):
             try:
-                supabase.table("subscribers").update({
-                    "display_name": name.strip(),
-                    "subscriber_name": name.strip(),
-                    "institution_name": institution.strip(),
-                    "position": "" if position == "- 선택 -" else position,
-                    "mailing_agree": str(bool(mailing)),
-                }).eq("user_id", user_id).execute()
-                st.success("내 정보를 저장했습니다.")
+                update_member_profile_basic_information(
+                    user_id,
+                    {
+                        "display_name": name,
+                        "subscriber_name": name,
+                        "institution_name": institution,
+                        "institution_group": "" if group == "- 선택 -" else group,
+                        "institution_type": "" if institution_type == "- 선택 -" else institution_type,
+                        "institution_feature": ", ".join(features),
+                        "phone": phone,
+                        "position": "" if position == "- 선택 -" else position,
+                        "mailing_agree": mailing,
+                    },
+                )
+                st.success("기본 정보를 저장했습니다.")
             except Exception as exc:
-                st.error("내 정보를 저장하지 못했습니다.")
+                st.error("기본 정보를 저장하지 못했습니다.")
                 st.caption(str(exc))
+
+    with photo_tab:
+        st.markdown("#### 업로드한 사진 관리")
+        _render_member_profile_photo_manager(user_id)
+
+    st.divider()
+    if st.button("마이페이지 창 닫기", key="member_modal_close", use_container_width=True):
+        st.session_state["member_management_modal_open"] = False
+        st.rerun()
+
+
+def _show_member_management_window():
+    """새 브라우저 탭 대신 로그인 세션을 잃지 않는 대형 모달 창으로 마이페이지를 표시합니다."""
+    dialog_factory = getattr(st, "dialog", None)
+    if not callable(dialog_factory):
+        # 아주 오래된 Streamlit 환경의 안전한 대체 화면입니다.
+        st.markdown("### 마이페이지")
+        _render_member_management_window_content()
+        return
+
+    try:
+        decorator = dialog_factory("마이페이지", width="large", dismissible=False)
+    except TypeError:
+        decorator = dialog_factory("마이페이지", width="large")
+
+    @decorator
+    def _member_management_dialog():
+        _render_member_management_window_content()
+
+    _member_management_dialog()
+
+
+def _render_sidebar_my_page_view():
+    """기존 호출 호환용: 실제 마이페이지는 큰 모달 창으로 표시합니다."""
+    st.caption("마이페이지는 아래 버튼을 누르면 큰 창으로 열립니다.")
 
 
 def _render_sidebar_logged_in_summary():
@@ -6593,7 +6814,9 @@ def _render_member_portal_action_buttons(logged_in: bool):
     with left_col:
         if logged_in:
             if st.button("마이페이지", key="sidebar_go_mypage", use_container_width=True):
-                _set_member_portal_view(MEMBER_PORTAL_MYPAGE)
+                # 사이드바 안에서 길게 펼치지 않고, 로그인 세션이 유지되는 큰 창으로 엽니다.
+                st.session_state["member_management_modal_open"] = True
+                _set_member_portal_view(MEMBER_PORTAL_LOGIN)
                 st.rerun()
         else:
             if st.button("회원가입", key="sidebar_go_signup", use_container_width=True):
@@ -6629,21 +6852,20 @@ def render_sidebar_member_portal():
             _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             _render_sidebar_login_view()
     else:
-        if view == MEMBER_PORTAL_MYPAGE:
-            _render_sidebar_my_page_view()
-        elif view == MEMBER_PORTAL_PASSWORD:
+        # 마이페이지는 사이드바의 작은 화면이 아니라 큰 모달 창으로만 표시합니다.
+        if view == MEMBER_PORTAL_PASSWORD:
             _render_sidebar_password_view()
         else:
             _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             _render_sidebar_logged_in_summary()
 
-    # 회원가입·비밀번호·마이페이지를 보다가도 기본 로그인/로그인 상태로 바로 돌아갈 수 있습니다.
+    # 회원가입·비밀번호 화면을 보다가도 기본 로그인/로그인 상태로 바로 돌아갈 수 있습니다.
     current_view = _member_portal_current_view()
     if not logged_in and current_view in {MEMBER_PORTAL_SIGNUP, MEMBER_PORTAL_PASSWORD}:
         if st.button("← 로그인으로 돌아가기", key="sidebar_back_to_login", use_container_width=True):
             _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             st.rerun()
-    elif logged_in and current_view in {MEMBER_PORTAL_MYPAGE, MEMBER_PORTAL_PASSWORD}:
+    elif logged_in and current_view == MEMBER_PORTAL_PASSWORD:
         if st.button("← 로그인 상태로 돌아가기", key="sidebar_back_to_loggedin", use_container_width=True):
             _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             st.rerun()
@@ -6662,6 +6884,10 @@ def render_sidebar_member_portal():
 # 회원 서비스는 사이드바의 가장 위에만 배치합니다. 강제 접기·열기 코드는 사용하지 않습니다.
 with st.sidebar:
     render_sidebar_member_portal()
+
+# 로그인 상태를 유지하는 큰 마이페이지 창은 사이드바 밖에서 렌더링합니다.
+if st.session_state.get("member_management_modal_open"):
+    _show_member_management_window()
 
 # =========================
 # TAB 2. 기록 요정
@@ -8779,9 +9005,14 @@ def render_final_play_output(output: dict):
         render_result_card(str(output.get("integrated_record") or ""), "result-card-gray")
         return
 
+    st.markdown("#### 보호자에게 전할 알림장 문구")
     for index, example in enumerate(output.get("examples") or [], start=1):
-        st.markdown(f"#### {output_type} 예시 {index}")
+        st.markdown(f"**알림장 예시 {index}**")
         render_result_card(str(example), "result-card-gray")
+    emojis = _normalize_recommended_emojis(output.get("recommended_emojis"))
+    if emojis:
+        st.caption("본문에 가볍게 활용할 추천 이모지")
+        st.markdown("&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(html.escape(emoji) for emoji in emojis), unsafe_allow_html=True)
 
 def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
     output_type = str(context.get("output_type") or "")
@@ -9114,6 +9345,91 @@ def _docx_add_photo_grid(doc, photo_assets: list[dict]):
     return table
 
 
+def _docx_add_divider(doc):
+    """교사용 참고 영역을 분리하는 얇은 나눔줄입니다."""
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(10 if Pt is not None else 0)
+    paragraph.paragraph_format.space_after = Pt(10 if Pt is not None else 0)
+    # 나눔줄만 이전 페이지에 홀로 남지 않도록 다음 제목과 함께 이동합니다.
+    paragraph.paragraph_format.keep_with_next = True
+    if OxmlElement is not None and qn is not None:
+        try:
+            p_pr = paragraph._p.get_or_add_pPr()
+            p_bdr = OxmlElement("w:pBdr")
+            bottom = OxmlElement("w:bottom")
+            bottom.set(qn("w:val"), "single")
+            bottom.set(qn("w:sz"), "8")
+            bottom.set(qn("w:space"), "1")
+            bottom.set(qn("w:color"), "B8C7D8")
+            p_bdr.append(bottom)
+            p_pr.append(p_bdr)
+            return paragraph
+        except Exception:
+            pass
+    _docx_style_run(paragraph.add_run("─" * 56), font_size=8.5, color="AAB8C8")
+    return paragraph
+
+
+def _document_first_analysis_text(first_draft: str) -> str:
+    """화면용 초안에 자동으로 붙었던 교사 입력 블록은 문서에서 한 번만 표시합니다."""
+    text = str(first_draft or "").strip()
+    markers = [
+        "[교사가 입력한 놀이 세부 구분과 실제 장면]",
+        "[교사가 입력한 보육일지 세부 구성과 실제 장면]",
+        "[교사가 입력한 교사의 지원과 구체 지원]",
+    ]
+    marker_positions = [text.find(marker) for marker in markers if text.find(marker) >= 0]
+    if marker_positions:
+        text = text[:min(marker_positions)].rstrip()
+    return text or "-"
+
+
+def _docx_add_teacher_reference_section(doc, context: dict, first_draft: str, output: dict, output_type: str):
+    """완성 기록과 중복되지 않게, 교사 원문·사진 분석을 맨 뒤 참고 영역으로만 남깁니다."""
+    _docx_add_divider(doc)
+    _docx_add_heading(doc, "1차 사진 분석 결과 및 교사가 직접 입력한 내용")
+
+    _docx_add_heading(doc, "1. 사진에 대한 1차 분석 결과", level=3)
+    _docx_add_highlight_box(doc, "교사가 작성한 분석 결과", _document_first_analysis_text(first_draft), fill="F7FAFD")
+
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_rows = _docx_selection_note_rows(
+        context.get("play_subcategories"),
+        context.get("play_subcategory_notes"),
+    )
+    _docx_add_heading(doc, f"2. 교사가 입력한 {component_label}과 실제 장면", level=3)
+    if component_rows:
+        _docx_add_two_column_table(doc, (component_label, "교사가 입력한 실제 장면"), component_rows)
+    else:
+        _docx_add_highlight_box(doc, "입력 내용", "해당 기록 유형에서는 별도의 세부 구분을 선택하지 않았습니다.", fill="FAFBFC")
+
+    support_rows = _docx_selection_note_rows(
+        context.get("teacher_supports"),
+        context.get("teacher_support_notes"),
+    )
+    _docx_add_heading(doc, "3. 교사가 입력한 교사의 지원과 구체 지원", level=3)
+    if support_rows:
+        _docx_add_two_column_table(doc, ("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
+    else:
+        _docx_add_highlight_box(doc, "입력 내용", "해당 기록 유형에서는 별도의 교사 지원 선택값을 입력하지 않았습니다.", fill="FAFBFC")
+
+    _docx_add_heading(doc, "4. 사진 속 놀이 내용", level=3)
+    _docx_add_body(doc, str(output.get("photo_play_content") or "-"))
+    _docx_add_heading(doc, "5. 교사가 관찰한 놀이 상황", level=3)
+    _docx_add_body(doc, str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"))
+
+
+def _docx_add_curriculum_result(doc, framework: str, output: dict):
+    _docx_add_heading(doc, framework)
+    curriculum_rows = []
+    for item in output.get("curriculum_links") or []:
+        if isinstance(item, dict):
+            curriculum_rows.append((str(item.get("area") or "-"), str(item.get("description") or "-")))
+    if curriculum_rows:
+        _docx_add_two_column_table(doc, ("영역", "내용"), curriculum_rows)
+    else:
+        _docx_add_highlight_box(doc, "교육과정 연계", "선택한 교육과정 영역의 연계 설명이 없습니다.", fill="F7FAFD")
+
 def build_record_word_document(
     context: dict,
     first_draft: str,
@@ -9121,10 +9437,10 @@ def build_record_word_document(
     selected_photo_names: list[str] | None = None,
     selected_photo_assets: list[dict] | None = None,
 ) -> bytes:
-    """기록요정 결과를 문서형 Word 파일로 정리합니다.
+    """기록 유형별 목적에 맞는 Word 문서를 만듭니다.
 
-    생성 과정과 최종 기록을 한 파일에 담되, 교사가 현장에서 바로 열람·인쇄할 수 있도록
-    제목·기본정보·표·섹션·강조 박스 중심으로 구성합니다.
+    놀이 이야기와 일지는 기록 본문을 앞에 두고, 사진 분석·교사 입력은 뒤의 참고 영역으로 분리합니다.
+    알림장은 보호자 전달용 문구를 먼저 보여 주고 교사용 참고 영역은 나눔줄 아래에 둡니다.
     """
     if Document is None:
         raise RuntimeError("Word 다운로드 구성요소가 설치되지 않았습니다. requirements.txt에 python-docx를 추가해 주세요.")
@@ -9137,7 +9453,6 @@ def build_record_word_document(
         section.left_margin = Cm(1.8)
         section.right_margin = Cm(1.8)
 
-    # 문서 전체 기본 글꼴
     for style_name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
         try:
             style = doc.styles[style_name]
@@ -9154,117 +9469,75 @@ def build_record_word_document(
     play_name = str(context.get("play_name") or "오늘의 기록").strip()
     age_group = str(context.get("age_group") or "-").strip()
     child_alias = str(context.get("child_alias") or "-").strip()
-    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정")
+    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정 연계")
     created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
 
-    # 문서 제목
     title_p = doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
     title_p.paragraph_format.space_after = Pt(4 if Pt is not None else 0)
-    title_run = title_p.add_run("놀이 기록 자동화")
-    _docx_style_run(title_run, font_size=19, bold=True, color="163A5F")
+    _docx_style_run(title_p.add_run("오늘의 알림장" if output_type == "알림장" else "놀이 기록 자동화"), font_size=19, bold=True, color="163A5F")
 
     subtitle_p = doc.add_paragraph()
     subtitle_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
     subtitle_p.paragraph_format.space_after = Pt(14 if Pt is not None else 0)
-    subtitle_run = subtitle_p.add_run(f"{output_type} 기록 문서")
-    _docx_style_run(subtitle_run, font_size=13.5, bold=True, color="4B647B")
+    subtitle_text = f"{child_alias}의 {play_name}" if output_type == "알림장" else f"{output_type} 기록 문서"
+    _docx_style_run(subtitle_p.add_run(subtitle_text), font_size=13.5, bold=True, color="4B647B")
 
-    # 기본 정보
-    _docx_add_heading(doc, "기록 기본 정보")
-    metadata_rows = [
-        ("놀이명", play_name or "-"),
-        ("기록 유형", output_type),
-        ("연령", age_group),
-        ("아이 별칭", child_alias),
-        ("교육과정 영역", curriculum_display_text(context.get("curriculum_areas"))),
-        ("생성일시", created_at),
-    ]
     if output_type == "알림장":
-        metadata_rows.insert(4, ("보호자 유형", str(context.get("parent_type") or "일반형")))
-    _docx_add_metadata_table(doc, metadata_rows)
-
-    # 입력 과정 요약
-    _docx_add_heading(doc, "기록 생성 과정")
-    selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
-    selected_photo_assets = [asset for asset in (selected_photo_assets or []) if isinstance(asset, dict) and asset.get("bytes")]
-    if selected_photo_assets:
-        _docx_add_heading(doc, "자동 추천 사진")
-        _docx_add_photo_grid(doc, selected_photo_assets)
-    elif selected_photo_names:
-        # Storage 일시 오류가 있어도 기존처럼 어떤 사진이 선택됐는지는 남깁니다.
-        _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
-
-    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-    match_status = str(analysis.get("photo_match_status") or "-").strip()
-    match_reason = str(analysis.get("photo_match_reason") or "-").strip()
-    _docx_add_highlight_box(doc, "사진-놀이명 점검", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
-
-    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
-    component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
-    if component_rows:
-        _docx_add_heading(doc, f"{component_label}과 실제 장면")
-        _docx_add_two_column_table(doc, (component_label, "교사가 입력한 실제 장면"), component_rows)
-
-    if output_type == "놀이 이야기":
-        support_rows = _docx_selection_note_rows(context.get("teacher_supports"), context.get("teacher_support_notes"))
-        if support_rows:
-            _docx_add_heading(doc, "교사의 지원과 구체 지원")
-            _docx_add_two_column_table(doc, ("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
-
-    _docx_add_heading(doc, "사진에 대한 1차 분석 결과")
-    _docx_add_body(doc, first_draft.strip() or "-")
-
-    # 알림장은 3개 예시 중심으로 출력합니다.
-    if output_type == "알림장":
-        observed = str(context.get("teacher_observed_situation") or "").strip()
-        if observed:
-            _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
-            _docx_add_body(doc, observed)
-        _docx_add_heading(doc, "알림장 기록 예시")
+        _docx_add_heading(doc, "보호자에게 전할 알림장 문구")
         examples = output.get("examples") or []
         for index, example in enumerate(examples, start=1):
-            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="F2F7FC")
+            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="FFFDF5" if index == 1 else "F7FAFD")
+        emojis = _normalize_recommended_emojis(output.get("recommended_emojis")) or _fallback_recommended_emojis(play_name)
+        _docx_add_heading(doc, "본문에 활용할 추천 이모지")
+        _docx_add_highlight_box(doc, "가볍게 골라 사용해 주세요", "   ".join(emojis), fill="F7FBF7")
+        _docx_add_teacher_reference_section(doc, context, first_draft, output, output_type)
     else:
-        # 놀이 이야기·보육일지 과정형 기록
-        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
-        _docx_add_heading(doc, photo_section_title)
-        _docx_add_body(doc, str(output.get("photo_play_content") or "-"))
+        _docx_add_heading(doc, "기록 기본 정보")
+        _docx_add_metadata_table(doc, [
+            ("놀이명", play_name or "-"),
+            ("기록 유형", output_type),
+            ("연령", age_group),
+            ("아이 별칭", child_alias),
+            ("교육과정 영역", curriculum_display_text(context.get("curriculum_areas"))),
+            ("생성일시", created_at),
+        ])
 
-        _docx_add_heading(doc, "교사가 관찰한 놀이 상황")
-        _docx_add_body(doc, str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"))
-
-        _docx_add_heading(doc, f"{framework} 연계")
-        curriculum_rows = []
-        for item in output.get("curriculum_links") or []:
-            if isinstance(item, dict):
-                curriculum_rows.append((str(item.get("area") or "-"), str(item.get("description") or "-")))
-        if curriculum_rows:
-            _docx_add_two_column_table(doc, ("영역", "내용"), curriculum_rows)
+        _docx_add_heading(doc, "자동 추천 사진 및 사진-놀이명 점검")
+        selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
+        selected_photo_assets = [asset for asset in (selected_photo_assets or []) if isinstance(asset, dict) and asset.get("bytes")]
+        if selected_photo_assets:
+            _docx_add_photo_grid(doc, selected_photo_assets)
+        elif selected_photo_names:
+            _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
         else:
-            _docx_add_body(doc, "선택한 교육과정 영역의 연계 설명이 없습니다.")
+            _docx_add_highlight_box(doc, "자동 추천 사진", "자동 추천 사진 정보가 없습니다.", fill="F7FAFD")
 
-        _docx_add_heading(doc, str(output.get("observation_label") or "영유아 관찰 및 평가"))
-        _docx_add_body(doc, str(output.get("observation_evaluation") or "-"))
+        analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+        match_status = str(analysis.get("photo_match_status") or "-").strip()
+        match_reason = str(analysis.get("photo_match_reason") or "-").strip()
+        _docx_add_highlight_box(doc, "사진-놀이명 점검 결과", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
 
-        next_plan = str(output.get("next_play_support_plan") or "").strip()
-        if next_plan:
-            _docx_add_heading(doc, "다음 놀이 지원 계획")
-            _docx_add_highlight_box(doc, "교사가 입력한 지원 계획", next_plan, fill="F6FBF5")
+        _docx_add_curriculum_result(doc, framework, output)
 
-        _docx_add_heading(doc, str(output.get("record_label") or "종합 기록"))
-        _docx_add_highlight_box(doc, "최종 기록", str(output.get("integrated_record") or "-"), fill="EDF5FC")
+        if output_type == "놀이 이야기":
+            _docx_add_heading(doc, "놀이 이야기 기록 예시")
+            _docx_add_highlight_box(doc, "최종 기록", str(output.get("integrated_record") or "-"), fill="EDF5FC")
+            _docx_add_heading(doc, str(output.get("observation_label") or "영유아 관찰 및 평가"))
+            _docx_add_body(doc, str(output.get("observation_evaluation") or "-"))
+        else:
+            _docx_add_heading(doc, "일지 기록 예시 (종합)")
+            _docx_add_highlight_box(doc, "최종 기록", str(output.get("integrated_record") or "-"), fill="EDF5FC")
 
-    # 푸터: 별도 유의 문단을 마지막 페이지에 밀어 넣지 않도록 푸터에 간결히 표시합니다.
+        _docx_add_teacher_reference_section(doc, context, first_draft, output, output_type)
+
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
-    footer_run = footer.add_run("놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다.")
-    _docx_style_run(footer_run, font_size=8.3, color="667085")
+    _docx_style_run(footer.add_run("놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다."), font_size=8.3, color="667085")
 
     doc.core_properties.title = f"{play_name}_{output_type}"
     doc.core_properties.subject = "놀이 기록 자동화 결과"
     doc.core_properties.author = "놀이 기록 자동화"
-
     output_buffer = io.BytesIO()
     doc.save(output_buffer)
     output_buffer.seek(0)
@@ -9284,6 +9557,8 @@ st.markdown(
     .record-document-preview-brand { text-align:center; color:#163A5F; font-size:29px; font-weight:900; letter-spacing:-1.2px; margin:0; }
     .record-document-preview-title { text-align:center; color:#4B647B; font-size:19px; font-weight:800; margin:8px 0 28px; }
     .record-document-preview-heading { color:#163A5F; font-size:20px; line-height:1.35; font-weight:900; margin:28px 0 10px; }
+    .record-document-preview-subheading { color:#365B7A; font-size:15.5px; line-height:1.45; font-weight:900; margin:18px 0 7px; }
+    .record-document-preview-divider { border-top:2px solid #C8D5E2; margin:34px 0 24px; }
     .record-document-preview-body { color:#344054; font-size:15px; line-height:1.85; white-space:normal; word-break:keep-all; overflow-wrap:break-word; }
     .record-document-preview-table { width:100%; border-collapse:collapse; table-layout:fixed; margin:8px 0 15px; font-size:14px; }
     .record-document-preview-table th, .record-document-preview-table td { border:1px solid #AAB8C8; padding:8px 10px; vertical-align:top; text-align:left; line-height:1.55; word-break:break-word; }
@@ -9297,6 +9572,10 @@ st.markdown(
     .record-document-preview-photo { min-width:0; border:1px solid #CAD7E4; padding:5px; background:#FFFFFF; text-align:center; }
     .record-document-preview-photo img { display:block; width:100%; aspect-ratio:4 / 3; object-fit:contain; background:#F8FAFC; }
     .record-document-preview-photo span { display:block; color:#667085; font-size:11px; margin-top:4px; }
+    .record-document-preview-alert-card { border:1px solid #E3DBC2; background:#FFFEF7; border-radius:10px; padding:17px 18px; margin:10px 0; color:#344054; line-height:1.85; font-size:15px; }
+    .record-document-preview-alert-card-title { color:#765F25; font-size:14px; font-weight:900; margin-bottom:6px; }
+    .record-document-preview-emoji-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }
+    .record-document-preview-emoji-chip { display:inline-flex; align-items:center; justify-content:center; min-width:38px; min-height:34px; padding:3px 7px; background:#F7FBF7; border:1px solid #D7EBD8; border-radius:999px; font-size:19px; }
     .record-document-preview-footer { margin-top:35px; text-align:center; color:#7A8798; font-size:11px; }
     @media (max-width:768px) {
         .record-document-preview-paper { padding:26px 18px 30px; }
@@ -9332,17 +9611,70 @@ def _preview_table_html(headers: tuple[str, str], rows: list[tuple[str, str]], c
     )
 
 
+def _preview_teacher_reference_html(context: dict, first_draft: str, output: dict, output_type: str) -> str:
+    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
+    component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
+    support_rows = _docx_selection_note_rows(context.get("teacher_supports"), context.get("teacher_support_notes"))
+    component_block = _preview_table_html((component_label, "교사가 입력한 실제 장면"), component_rows)
+    if not component_block:
+        component_block = "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>입력 내용</div>해당 기록 유형에서는 별도의 세부 구분을 선택하지 않았습니다.</div>"
+    support_block = _preview_table_html(("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
+    if not support_block:
+        support_block = "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>입력 내용</div>해당 기록 유형에서는 별도의 교사 지원 선택값을 입력하지 않았습니다.</div>"
+    return f"""
+        <div class='record-document-preview-divider'></div>
+        <div class='record-document-preview-heading'>1차 사진 분석 결과 및 교사가 직접 입력한 내용</div>
+        <div class='record-document-preview-subheading'>1. 사진에 대한 1차 분석 결과</div>
+        <div class='record-document-preview-box'><div class='record-document-preview-box-title'>교사가 작성한 분석 결과</div>{_preview_html_text(_document_first_analysis_text(first_draft))}</div>
+        <div class='record-document-preview-subheading'>2. 교사가 입력한 {_preview_html_text(component_label)}과 실제 장면</div>
+        {component_block}
+        <div class='record-document-preview-subheading'>3. 교사가 입력한 교사의 지원과 구체 지원</div>
+        {support_block}
+        <div class='record-document-preview-subheading'>4. 사진 속 놀이 내용</div>
+        <div class='record-document-preview-body'>{_preview_html_text(output.get('photo_play_content') or '-')}</div>
+        <div class='record-document-preview-subheading'>5. 교사가 관찰한 놀이 상황</div>
+        <div class='record-document-preview-body'>{_preview_html_text(output.get('teacher_observed_situation') or context.get('teacher_observed_situation') or '-')}</div>
+    """
+
+
 def render_record_document_preview(
     context: dict,
     first_draft: str,
     output: dict,
     photo_records: list[dict] | None = None,
 ):
-    """다운로드 전에도 실제 문서와 같은 정보 순서·표·사진 배열을 보여 줍니다."""
+    """다운로드 Word와 같은 순서와 용도로 문서 미리보기를 표시합니다."""
     output_type = str(context.get("output_type") or output.get("output_type") or "기록")
     age_group = str(context.get("age_group") or "-")
-    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정")
+    framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정 연계")
     created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+
+    if output_type == "알림장":
+        examples_html = "".join(
+            f"<div class='record-document-preview-alert-card'><div class='record-document-preview-alert-card-title'>알림장 예시 {index}</div>{_preview_html_text(example)}</div>"
+            for index, example in enumerate(output.get("examples") or [], start=1)
+        ) or "<div class='record-document-preview-alert-card'>생성된 알림장 문구가 없습니다.</div>"
+        emojis = _normalize_recommended_emojis(output.get("recommended_emojis")) or _fallback_recommended_emojis(str(context.get("play_name") or ""))
+        emoji_html = "".join(f"<span class='record-document-preview-emoji-chip'>{html.escape(emoji)}</span>" for emoji in emojis)
+        reference_html = _preview_teacher_reference_html(context, first_draft, output, output_type)
+        document_html = f"""
+        <div class='record-document-preview-wrap'>
+          <p class='record-document-preview-note'>다운로드되는 Word 문서와 같은 순서·내용으로 구성한 미리보기입니다.</p>
+          <article class='record-document-preview-paper'>
+            <div class='record-document-preview-brand'>오늘의 알림장</div>
+            <div class='record-document-preview-title'>{_preview_html_text(context.get('child_alias') or '우리 아이')}의 {_preview_html_text(context.get('play_name') or '오늘 이야기')}</div>
+            <div class='record-document-preview-heading'>보호자에게 전할 알림장 문구</div>
+            {examples_html}
+            <div class='record-document-preview-heading'>본문에 활용할 추천 이모지</div>
+            <div class='record-document-preview-emoji-row'>{emoji_html}</div>
+            {reference_html}
+            <div class='record-document-preview-footer'>놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다.</div>
+          </article>
+        </div>
+        """
+        st.markdown(document_html, unsafe_allow_html=True)
+        return
+
     metadata_rows = [
         ("놀이명", str(context.get("play_name") or "-")),
         ("기록 유형", output_type),
@@ -9351,8 +9683,9 @@ def render_record_document_preview(
         ("교육과정 영역", curriculum_display_text(context.get("curriculum_areas"))),
         ("생성일시", created_at),
     ]
-    if output_type == "알림장":
-        metadata_rows.insert(4, ("보호자 유형", str(context.get("parent_type") or "일반형")))
+    metadata_html = "".join(
+        f"<tr><th>{_preview_html_text(label)}</th><td>{_preview_html_text(value)}</td></tr>" for label, value in metadata_rows
+    )
 
     image_cards = []
     for index, record in enumerate(photo_records or [], start=1):
@@ -9361,91 +9694,41 @@ def render_record_document_preview(
             str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
         )
         if signed_url:
-            image_cards.append(
-                f"<div class='record-document-preview-photo'><img src='{html.escape(signed_url, quote=True)}' alt='자동 추천 사진 {index}'><span>사진 {index}</span></div>"
-            )
-    photo_html = ""
+            image_cards.append(f"<div class='record-document-preview-photo'><img src='{html.escape(signed_url, quote=True)}' alt='자동 추천 사진 {index}'><span>사진 {index}</span></div>")
     if image_cards:
-        photo_html = (
-            "<div class='record-document-preview-heading'>자동 추천 사진</div>"
-            f"<div class='record-document-preview-photo-grid'>{''.join(image_cards)}</div>"
-        )
+        photo_html = f"<div class='record-document-preview-photo-grid'>{''.join(image_cards)}</div>"
     else:
         selected_names = [str(name).strip() for name in context.get("selected_photo_names") or [] if str(name).strip()]
-        if selected_names:
-            photo_html = (
-                "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>"
-                f"{_preview_html_text(chr(10).join('• ' + name for name in selected_names))}</div>"
-            )
+        photo_html = (
+            f"<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>{_preview_html_text(chr(10).join('• ' + name for name in selected_names))}</div>"
+            if selected_names else
+            "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>자동 추천 사진 정보가 없습니다.</div>"
+        )
 
     analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
     match_status = str(analysis.get("photo_match_status") or "-")
     match_reason = str(analysis.get("photo_match_reason") or "-")
     match_class = "green" if match_status != "확인 필요" else ""
+    curriculum_rows = [
+        (str(item.get("area") or "-"), str(item.get("description") or "-"))
+        for item in output.get("curriculum_links") or [] if isinstance(item, dict)
+    ]
+    curriculum_html = _preview_table_html(("영역", "내용"), curriculum_rows) or "<div class='record-document-preview-box'>선택한 교육과정 영역의 연계 설명이 없습니다.</div>"
+    reference_html = _preview_teacher_reference_html(context, first_draft, output, output_type)
 
-    component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
-    component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
-    support_rows = _docx_selection_note_rows(context.get("teacher_supports"), context.get("teacher_support_notes"))
-
-    result_html = ""
-    if output_type == "알림장":
-        observed = str(context.get("teacher_observed_situation") or "").strip()
-        if observed:
-            result_html += f"<div class='record-document-preview-heading'>교사가 관찰한 놀이 상황</div><div class='record-document-preview-body'>{_preview_html_text(observed)}</div>"
-        result_html += "<div class='record-document-preview-heading'>알림장 기록 예시</div>"
-        for index, example in enumerate(output.get("examples") or [], start=1):
-            result_html += (
-                f"<div class='record-document-preview-box blue'><div class='record-document-preview-box-title'>알림장 예시 {index}</div>"
-                f"{_preview_html_text(example)}</div>"
-            )
+    if output_type == "놀이 이야기":
+        final_html = f"""
+            <div class='record-document-preview-heading'>놀이 이야기 기록 예시</div>
+            <div class='record-document-preview-box blue'><div class='record-document-preview-box-title'>최종 기록</div>{_preview_html_text(output.get('integrated_record') or '-')}</div>
+            <div class='record-document-preview-heading'>{_preview_html_text(output.get('observation_label') or '영유아 관찰 및 평가')}</div>
+            <div class='record-document-preview-body'>{_preview_html_text(output.get('observation_evaluation') or '-')}</div>
+        """
     else:
-        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
-        result_html += (
-            f"<div class='record-document-preview-heading'>{photo_section_title}</div>"
-            f"<div class='record-document-preview-body'>{_preview_html_text(output.get('photo_play_content') or '-')}</div>"
-            "<div class='record-document-preview-heading'>교사가 관찰한 놀이 상황</div>"
-            f"<div class='record-document-preview-body'>{_preview_html_text(output.get('teacher_observed_situation') or context.get('teacher_observed_situation') or '-')}</div>"
-            f"<div class='record-document-preview-heading'>{_preview_html_text(framework)} 연계</div>"
-        )
-        curriculum_rows = [
-            (str(item.get("area") or "-"), str(item.get("description") or "-"))
-            for item in output.get("curriculum_links") or [] if isinstance(item, dict)
-        ]
-        result_html += _preview_table_html(("영역", "내용"), curriculum_rows)
-        result_html += (
-            f"<div class='record-document-preview-heading'>{_preview_html_text(output.get('observation_label') or '영유아 관찰 및 평가')}</div>"
-            f"<div class='record-document-preview-body'>{_preview_html_text(output.get('observation_evaluation') or '-')}</div>"
-        )
-        next_plan = str(output.get("next_play_support_plan") or "").strip()
-        if next_plan:
-            result_html += (
-                "<div class='record-document-preview-heading'>다음 놀이 지원 계획</div>"
-                "<div class='record-document-preview-box green'><div class='record-document-preview-box-title'>교사가 입력한 지원 계획</div>"
-                f"{_preview_html_text(next_plan)}</div>"
-            )
-        result_html += (
-            f"<div class='record-document-preview-heading'>{_preview_html_text(output.get('record_label') or '종합 기록')}</div>"
-            "<div class='record-document-preview-box blue'><div class='record-document-preview-box-title'>최종 기록</div>"
-            f"{_preview_html_text(output.get('integrated_record') or '-')}</div>"
-        )
+        final_html = f"""
+            <div class='record-document-preview-heading'>일지 기록 예시 (종합)</div>
+            <div class='record-document-preview-box blue'><div class='record-document-preview-box-title'>최종 기록</div>{_preview_html_text(output.get('integrated_record') or '-')}</div>
+        """
 
-    component_html = ""
-    if component_rows:
-        component_html = (
-            f"<div class='record-document-preview-heading'>{_preview_html_text(component_label)}과 실제 장면</div>"
-            + _preview_table_html((component_label, "교사가 입력한 실제 장면"), component_rows)
-        )
-    support_html = ""
-    if output_type == "놀이 이야기" and support_rows:
-        support_html = (
-            "<div class='record-document-preview-heading'>교사의 지원과 구체 지원</div>"
-            + _preview_table_html(("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
-        )
-
-    metadata_html = "".join(
-        f"<tr><th>{_preview_html_text(label)}</th><td>{_preview_html_text(value)}</td></tr>"
-        for label, value in metadata_rows
-    )
     document_html = f"""
     <div class='record-document-preview-wrap'>
       <p class='record-document-preview-note'>다운로드되는 Word 문서와 같은 순서·내용으로 구성한 미리보기입니다.</p>
@@ -9454,20 +9737,20 @@ def render_record_document_preview(
         <div class='record-document-preview-title'>{_preview_html_text(output_type)} 기록 문서</div>
         <div class='record-document-preview-heading'>기록 기본 정보</div>
         <table class='record-document-preview-table metadata'><tbody>{metadata_html}</tbody></table>
-        <div class='record-document-preview-heading'>기록 생성 과정</div>
+        <div class='record-document-preview-heading'>자동 추천 사진 및 사진-놀이명 점검</div>
         {photo_html}
-        <div class='record-document-preview-box {match_class}'><div class='record-document-preview-box-title'>사진-놀이명 점검</div>
+        <div class='record-document-preview-box {match_class}'><div class='record-document-preview-box-title'>사진-놀이명 점검 결과</div>
           상태: {_preview_html_text(match_status)}<br>사유: {_preview_html_text(match_reason)}</div>
-        {component_html}
-        {support_html}
-        <div class='record-document-preview-heading'>사진에 대한 1차 분석 결과</div>
-        <div class='record-document-preview-body'>{_preview_html_text(first_draft or '-')}</div>
-        {result_html}
+        <div class='record-document-preview-heading'>{_preview_html_text(framework)}</div>
+        {curriculum_html}
+        {final_html}
+        {reference_html}
         <div class='record-document-preview-footer'>놀이 기록 자동화 | 사진 분석과 교사 입력을 바탕으로 생성된 문서입니다.</div>
       </article>
     </div>
     """
     st.markdown(document_html, unsafe_allow_html=True)
+
 
 
 with tab2:
