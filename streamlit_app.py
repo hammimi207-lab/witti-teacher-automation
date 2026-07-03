@@ -951,6 +951,25 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
     line-height: 1.7;
     font-size: 14px;
 }
+
+/* 회원 서비스는 설정창(사이드바) 안에서만 표시합니다. */
+section[data-testid="stSidebar"] .account-portal {
+    padding: 15px 14px;
+    margin: 0 0 12px 0;
+    border-radius: 16px;
+    box-shadow: none;
+}
+section[data-testid="stSidebar"] .account-portal-title {
+    font-size: 18px;
+}
+section[data-testid="stSidebar"] .account-portal-desc,
+section[data-testid="stSidebar"] .account-side-note {
+    font-size: 13px;
+    line-height: 1.65;
+}
+section[data-testid="stSidebar"] div[data-testid="stDivider"] {
+    margin: 1rem 0;
+}
 .notice-item {
     background: #FFFFFF;
     border: 1px solid var(--witti-line);
@@ -1058,7 +1077,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-account-portal-notice-popup"
+APP_VERSION = "2026-07-03-member-sidebar-mainmenu-popup-sequence"
 
 
 def platform_info_text() -> str:
@@ -1648,7 +1667,11 @@ st.markdown(f"""
 SHOW_DIARY_FEATURE = False
 SHOW_TEMPERATURE_FEATURE = False
 
+# 회원 서비스는 설정창을 열었을 때 가장 먼저 보이도록 사이드바 상단에 배치합니다.
+# 실제 내용은 회원 기능 정의 후 member_sidebar_slot 안에 렌더링됩니다.
 with st.sidebar:
+    member_sidebar_slot = st.empty()
+    st.divider()
     st.header("⚙️ 설정")
     top_k = st.slider("선별할 사진 수", min_value=1, max_value=20, value=10)
     max_summary_sentences = 6
@@ -1914,27 +1937,91 @@ def _set_account_view(view: str):
     st.session_state["account_view"] = view
 
 
+def _logout_and_return_to_login():
+    """로그아웃 후 회원 서비스의 기본 화면으로 돌아갑니다."""
+    logout_member()
+    _set_account_view("로그인")
+
+
+def render_member_guide(logged_in: bool = False):
+    """회원가입/비밀번호 버튼 아래에 항상 표시하는 안내 박스입니다."""
+    if logged_in:
+        guide_html = """
+        <div class="account-side-note">
+        <strong>회원 안내</strong><br>
+        마이페이지에서 가입 정보와 메일 수신 여부를 관리할 수 있습니다.<br><br>
+        비밀번호를 바꾸려면 <strong>비밀번호 찾기/변경</strong>을 선택해 주세요.
+        </div>
+        """
+    else:
+        guide_html = """
+        <div class="account-side-note">
+        <strong>회원 안내</strong><br>
+        회원가입 후 로그인하면 기록 서비스 이용과 내 정보 관리가 가능합니다.<br><br>
+        비밀번호를 잊으셨다면 가입 이메일 인증을 통해 새 비밀번호를 설정할 수 있습니다.
+        </div>
+        """
+    st.markdown(guide_html, unsafe_allow_html=True)
+
+
 def render_login_view():
-    login_col, guide_col = st.columns([3, 2], gap="large")
+    """로그인 전 기본 화면입니다. 사이드바 폭에 맞춰 한 줄 구조로 렌더링합니다."""
+    st.markdown("#### 로그인")
+    login_email = st.text_input("이메일", placeholder="example@email.com", key="portal_login_email")
+    login_password = st.text_input("비밀번호", type="password", key="portal_login_password")
 
-    with login_col:
-        st.markdown("#### 로그인")
-        login_email = st.text_input("이메일", placeholder="example@email.com", key="portal_login_email")
-        login_password = st.text_input("비밀번호", type="password", key="portal_login_password")
+    if st.button("로그인", key="portal_login_submit", use_container_width=True):
+        account = get_member_by_email(login_email)
+        if not account:
+            st.warning("가입된 이메일 또는 비밀번호를 확인해 주세요.")
+        elif verify_password(login_password, account.get("password_hash", ""), account.get("password_salt", "")):
+            set_logged_in_member(account)
+            _set_account_view("로그인")
+            st.success(f"{account.get('subscriber_name') or '회원'}님, 환영합니다.")
+            st.rerun()
+        else:
+            st.warning("가입된 이메일 또는 비밀번호를 확인해 주세요.")
 
-        if st.button("로그인", key="portal_login_submit", use_container_width=True):
-            account = get_member_by_email(login_email)
-            if not account:
-                st.warning("가입된 이메일 또는 비밀번호를 확인해 주세요.")
-            elif verify_password(login_password, account.get("password_hash", ""), account.get("password_salt", "")):
-                set_logged_in_member(account)
-                st.success(f"{account.get('subscriber_name') or '회원'}님, 환영합니다.")
-                st.rerun()
-            else:
-                st.warning("가입된 이메일 또는 비밀번호를 확인해 주세요.")
 
-        signup_col, password_col = st.columns(2)
-        with signup_col:
+def render_logged_in_summary():
+    """로그인 후에는 로그인 입력칸 대신 현재 로그인 상태를 표시합니다."""
+    account = get_member_by_id(st.session_state.get("member_id"))
+    if not account:
+        _logout_and_return_to_login()
+        st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
+        return
+
+    member_name = account.get("subscriber_name") or "회원"
+    member_email = account.get("email") or ""
+    st.markdown("#### 로그인 상태")
+    st.success(f"{member_name}님, 로그인되었습니다.")
+    st.caption(member_email)
+
+
+def render_member_action_buttons():
+    """로그인 상태에 맞춰 회원가입 자리만 마이페이지로 바꿉니다."""
+    left_col, right_col = st.columns(2)
+    if member_is_logged_in():
+        with left_col:
+            st.button(
+                "마이페이지",
+                key="portal_go_mypage",
+                use_container_width=True,
+                on_click=_set_account_view,
+                args=("마이페이지",),
+            )
+        with right_col:
+            st.button(
+                "비밀번호 찾기/변경",
+                key="portal_go_password_logged_in",
+                use_container_width=True,
+                on_click=_set_account_view,
+                args=("비밀번호 찾기/변경",),
+            )
+        if st.button("로그아웃", key="portal_logout_sidebar", use_container_width=True, on_click=_logout_and_return_to_login):
+            pass
+    else:
+        with left_col:
             st.button(
                 "회원가입",
                 key="portal_go_signup",
@@ -1942,7 +2029,7 @@ def render_login_view():
                 on_click=_set_account_view,
                 args=("회원가입",),
             )
-        with password_col:
+        with right_col:
             st.button(
                 "비밀번호 찾기/변경",
                 key="portal_go_password",
@@ -1951,137 +2038,110 @@ def render_login_view():
                 args=("비밀번호 찾기/변경",),
             )
 
-    with guide_col:
-        st.markdown(
-            """
-            <div class="account-side-note">
-            <strong>회원 안내</strong><br>
-            로그인하면 내 정보와 비밀번호를 관리할 수 있습니다.<br><br>
-            아직 회원이 아니라면 아래 <strong>회원가입</strong> 버튼에서 이메일 인증 후 가입해 주세요.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
 
 def render_signup_view():
-    form_col, guide_col = st.columns([3, 2], gap="large")
-    with form_col:
-        st.markdown("#### 회원가입")
-        st.caption("필수 항목만 먼저 입력해도 가입할 수 있습니다. 기관 정보는 마이페이지에서 수정할 수 있습니다.")
+    st.markdown("#### 회원가입")
+    st.caption("필수 항목만 먼저 입력해도 가입할 수 있습니다. 기관 정보는 마이페이지에서 수정할 수 있습니다.")
 
-        signup_name = st.text_input("성명", placeholder="예: 홍길동", key="portal_signup_name")
-        signup_email = st.text_input("이메일", placeholder="example@email.com", key="portal_signup_email")
-        signup_password = st.text_input("비밀번호", type="password", help="영문·숫자 포함 8자 이상을 권장합니다.", key="portal_signup_password")
-        signup_password_confirm = st.text_input("비밀번호 확인", type="password", key="portal_signup_password_confirm")
-        signup_institution = st.text_input("기관명", placeholder="예: 한솔어린이집", key="portal_signup_institution")
-        signup_position = st.selectbox(
-            "직책",
-            ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
-            key="portal_signup_position",
-        )
+    signup_name = st.text_input("성명", placeholder="예: 홍길동", key="portal_signup_name")
+    signup_email = st.text_input("이메일", placeholder="example@email.com", key="portal_signup_email")
+    signup_password = st.text_input("비밀번호", type="password", help="영문·숫자 포함 8자 이상을 권장합니다.", key="portal_signup_password")
+    signup_password_confirm = st.text_input("비밀번호 확인", type="password", key="portal_signup_password_confirm")
+    signup_institution = st.text_input("기관명", placeholder="예: 한솔어린이집", key="portal_signup_institution")
+    signup_position = st.selectbox(
+        "직책",
+        ["- 선택 -", "원장", "원감", "선임교사", "주임교사", "경력교사", "신입교사", "예비(실습)교사", "기타"],
+        key="portal_signup_position",
+    )
 
-        verify_col1, verify_col2 = st.columns([1.2, 2.2])
-        with verify_col1:
-            if st.button("인증번호 받기", key="portal_signup_send_code", use_container_width=True):
-                if not is_valid_email(signup_email):
-                    st.warning("가입에 사용할 이메일을 정확히 입력해 주세요.")
-                elif get_member_by_email(signup_email):
-                    st.warning("이미 가입된 이메일입니다. 로그인 또는 비밀번호 찾기를 이용해 주세요.")
-                else:
-                    try:
-                        issue_verification_code("signup", signup_email, "회원가입")
-                        st.success("인증번호를 이메일로 보냈습니다. 10분 안에 입력해 주세요.")
-                    except Exception as error:
-                        st.error("인증번호 이메일 발송에 실패했습니다.")
-                        st.caption(str(error))
-        with verify_col2:
-            signup_code = st.text_input("인증번호", placeholder="6자리 인증번호", key="portal_signup_code")
-
-        signup_privacy = st.checkbox(
-            "개인정보 수집 및 이용에 동의합니다. 회원 관리, 서비스 운영, 문의 응대를 위해 필요한 범위에서만 사용됩니다.",
-            key="portal_signup_privacy",
-        )
-        signup_mailing = st.checkbox(
-            "교사의 발견 소식과 자료 안내 메일 수신에 동의합니다.",
-            key="portal_signup_mailing",
-        )
-
-        if st.button("회원가입 완료", key="portal_signup_submit", use_container_width=True):
-            if not signup_name.strip():
-                st.warning("성명을 입력해 주세요.")
-            elif not is_valid_email(signup_email):
-                st.warning("이메일을 정확히 입력해 주세요.")
-            elif len(signup_password) < 8:
-                st.warning("비밀번호는 8자 이상으로 입력해 주세요.")
-            elif signup_password != signup_password_confirm:
-                st.warning("비밀번호 확인이 일치하지 않습니다.")
-            elif not signup_privacy:
-                st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
+    verify_col1, verify_col2 = st.columns([1.2, 2.2])
+    with verify_col1:
+        if st.button("인증번호 받기", key="portal_signup_send_code", use_container_width=True):
+            if not is_valid_email(signup_email):
+                st.warning("가입에 사용할 이메일을 정확히 입력해 주세요.")
+            elif get_member_by_email(signup_email):
+                st.warning("이미 가입된 이메일입니다. 로그인 또는 비밀번호 찾기를 이용해 주세요.")
             else:
-                verified, message = verify_verification_code("signup", signup_email, signup_code)
-                if not verified:
-                    st.warning(message)
-                else:
-                    try:
-                        account = create_member_account(
-                            {
-                                "email": signup_email,
-                                "subscriber_name": signup_name,
-                                "institution_name": signup_institution,
-                                "position": "" if signup_position == "- 선택 -" else signup_position,
-                                "mailing_agree": signup_mailing,
-                            },
-                            signup_password,
-                        )
-                        # 기존 가입자 통계와 자료 안내 기능은 그대로 연결합니다.
-                        try:
-                            save_subscriber(
-                                {
-                                    "기관명": signup_institution,
-                                    "기관 구분": "",
-                                    "기관 유형": "",
-                                    "기관 특성": "",
-                                    "기관 연락처": "",
-                                    "가입자 성명": signup_name,
-                                    "직책": "" if signup_position == "- 선택 -" else signup_position,
-                                    "이메일": normalize_member_email(signup_email),
-                                    "개인정보 동의": True,
-                                    "메일링 수신 동의": signup_mailing,
-                                }
-                            )
-                        except Exception:
-                            pass
-                        clear_verification_code("signup")
-                        set_logged_in_member(account or get_member_by_email(signup_email) or {})
-                        st.success("회원가입이 완료되었습니다. 로그인 상태로 전환했습니다.")
-                        st.rerun()
-                    except ValueError as error:
-                        st.warning(str(error))
-                    except Exception as error:
-                        st.error("회원가입 정보를 저장하지 못했습니다. Supabase 회원 테이블 설정을 확인해 주세요.")
-                        st.caption(str(error))
+                try:
+                    issue_verification_code("signup", signup_email, "회원가입")
+                    st.success("인증번호를 이메일로 보냈습니다. 10분 안에 입력해 주세요.")
+                except Exception as error:
+                    st.error("인증번호 이메일 발송에 실패했습니다.")
+                    st.caption(str(error))
+    with verify_col2:
+        signup_code = st.text_input("인증번호", placeholder="6자리 인증번호", key="portal_signup_code")
 
-    with guide_col:
-        st.markdown(
-            """
-            <div class="account-side-note">
-            <strong>가입 절차</strong><br>
-            1. 기본 정보 입력<br>
-            2. 이메일 인증번호 요청<br>
-            3. 인증번호 입력 후 회원가입 완료<br><br>
-            이미 가입한 이메일이라면 로그인 또는 비밀번호 찾기를 이용해 주세요.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    signup_privacy = st.checkbox(
+        "개인정보 수집 및 이용에 동의합니다. 회원 관리, 서비스 운영, 문의 응대를 위해 필요한 범위에서만 사용됩니다.",
+        key="portal_signup_privacy",
+    )
+    signup_mailing = st.checkbox(
+        "교사의 발견 소식과 자료 안내 메일 수신에 동의합니다.",
+        key="portal_signup_mailing",
+    )
+
+    if st.button("회원가입 완료", key="portal_signup_submit", use_container_width=True):
+        if not signup_name.strip():
+            st.warning("성명을 입력해 주세요.")
+        elif not is_valid_email(signup_email):
+            st.warning("이메일을 정확히 입력해 주세요.")
+        elif len(signup_password) < 8:
+            st.warning("비밀번호는 8자 이상으로 입력해 주세요.")
+        elif signup_password != signup_password_confirm:
+            st.warning("비밀번호 확인이 일치하지 않습니다.")
+        elif not signup_privacy:
+            st.warning("개인정보 수집 및 이용 동의가 필요합니다.")
+        else:
+            verified, message = verify_verification_code("signup", signup_email, signup_code)
+            if not verified:
+                st.warning(message)
+            else:
+                try:
+                    account = create_member_account(
+                        {
+                            "email": signup_email,
+                            "subscriber_name": signup_name,
+                            "institution_name": signup_institution,
+                            "position": "" if signup_position == "- 선택 -" else signup_position,
+                            "mailing_agree": signup_mailing,
+                        },
+                        signup_password,
+                    )
+                    # 기존 가입자 통계와 자료 안내 기능은 그대로 연결합니다.
+                    try:
+                        save_subscriber(
+                            {
+                                "기관명": signup_institution,
+                                "기관 구분": "",
+                                "기관 유형": "",
+                                "기관 특성": "",
+                                "기관 연락처": "",
+                                "가입자 성명": signup_name,
+                                "직책": "" if signup_position == "- 선택 -" else signup_position,
+                                "이메일": normalize_member_email(signup_email),
+                                "개인정보 동의": True,
+                                "메일링 수신 동의": signup_mailing,
+                            }
+                        )
+                    except Exception:
+                        pass
+                    clear_verification_code("signup")
+                    set_logged_in_member(account or get_member_by_email(signup_email) or {})
+                    _set_account_view("로그인")
+                    st.success("회원가입이 완료되었습니다. 로그인 상태로 전환했습니다.")
+                    st.rerun()
+                except ValueError as error:
+                    st.warning(str(error))
+                except Exception as error:
+                    st.error("회원가입 정보를 저장하지 못했습니다. Supabase 회원 테이블 설정을 확인해 주세요.")
+                    st.caption(str(error))
 
 
 def render_password_view():
     if member_is_logged_in():
         account = get_member_by_id(st.session_state.get("member_id"))
         if not account:
-            logout_member()
+            _logout_and_return_to_login()
             st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
             return
         st.markdown("#### 비밀번호 변경")
@@ -2104,78 +2164,58 @@ def render_password_view():
                     st.caption(str(error))
         return
 
-    reset_col, guide_col = st.columns([3, 2], gap="large")
-    with reset_col:
-        st.markdown("#### 비밀번호 찾기/변경")
-        reset_email = st.text_input("가입 이메일", placeholder="example@email.com", key="portal_reset_email")
-        code_col, value_col = st.columns([1.2, 2.2])
-        with code_col:
-            if st.button("인증번호 받기", key="portal_reset_send_code", use_container_width=True):
-                account = get_member_by_email(reset_email)
-                if not is_valid_email(reset_email):
-                    st.warning("가입 이메일을 정확히 입력해 주세요.")
-                elif not account:
-                    st.warning("가입된 이메일을 찾지 못했습니다. 회원가입 여부를 확인해 주세요.")
-                else:
-                    try:
-                        issue_verification_code("password_reset", reset_email, "비밀번호 재설정")
-                        st.success("인증번호를 이메일로 보냈습니다. 10분 안에 입력해 주세요.")
-                    except Exception as error:
-                        st.error("인증번호 이메일 발송에 실패했습니다.")
-                        st.caption(str(error))
-        with value_col:
-            reset_code = st.text_input("인증번호", placeholder="6자리 인증번호", key="portal_reset_code")
-
-        reset_new_password = st.text_input("새 비밀번호", type="password", key="portal_reset_new_password")
-        reset_new_password_confirm = st.text_input("새 비밀번호 확인", type="password", key="portal_reset_new_password_confirm")
-        if st.button("새 비밀번호 저장", key="portal_reset_submit", use_container_width=True):
+    st.markdown("#### 비밀번호 찾기/변경")
+    reset_email = st.text_input("가입 이메일", placeholder="example@email.com", key="portal_reset_email")
+    code_col, value_col = st.columns([1.2, 2.2])
+    with code_col:
+        if st.button("인증번호 받기", key="portal_reset_send_code", use_container_width=True):
             account = get_member_by_email(reset_email)
-            verified, message = verify_verification_code("password_reset", reset_email, reset_code)
-            if not account:
-                st.warning("가입된 이메일을 찾지 못했습니다.")
-            elif not verified:
-                st.warning(message)
-            elif len(reset_new_password) < 8:
-                st.warning("새 비밀번호는 8자 이상으로 입력해 주세요.")
-            elif reset_new_password != reset_new_password_confirm:
-                st.warning("새 비밀번호 확인이 일치하지 않습니다.")
+            if not is_valid_email(reset_email):
+                st.warning("가입 이메일을 정확히 입력해 주세요.")
+            elif not account:
+                st.warning("가입된 이메일을 찾지 못했습니다. 회원가입 여부를 확인해 주세요.")
             else:
                 try:
-                    update_member_account(account["id"], make_password_fields(reset_new_password))
-                    clear_verification_code("password_reset")
-                    st.success("새 비밀번호를 저장했습니다. 이제 로그인해 주세요.")
-                    _set_account_view("로그인")
+                    issue_verification_code("password_reset", reset_email, "비밀번호 재설정")
+                    st.success("인증번호를 이메일로 보냈습니다. 10분 안에 입력해 주세요.")
                 except Exception as error:
-                    st.error("새 비밀번호를 저장하지 못했습니다.")
+                    st.error("인증번호 이메일 발송에 실패했습니다.")
                     st.caption(str(error))
+    with value_col:
+        reset_code = st.text_input("인증번호", placeholder="6자리 인증번호", key="portal_reset_code")
 
-    with guide_col:
-        st.markdown(
-            """
-            <div class="account-side-note">
-            <strong>비밀번호 안내</strong><br>
-            가입 이메일로 인증번호를 받아 새 비밀번호를 설정할 수 있습니다.<br><br>
-            로그인 상태라면 현재 비밀번호를 확인한 뒤 바로 변경할 수 있습니다.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    reset_new_password = st.text_input("새 비밀번호", type="password", key="portal_reset_new_password")
+    reset_new_password_confirm = st.text_input("새 비밀번호 확인", type="password", key="portal_reset_new_password_confirm")
+    if st.button("새 비밀번호 저장", key="portal_reset_submit", use_container_width=True):
+        account = get_member_by_email(reset_email)
+        verified, message = verify_verification_code("password_reset", reset_email, reset_code)
+        if not account:
+            st.warning("가입된 이메일을 찾지 못했습니다.")
+        elif not verified:
+            st.warning(message)
+        elif len(reset_new_password) < 8:
+            st.warning("새 비밀번호는 8자 이상으로 입력해 주세요.")
+        elif reset_new_password != reset_new_password_confirm:
+            st.warning("새 비밀번호 확인이 일치하지 않습니다.")
+        else:
+            try:
+                update_member_account(account["id"], make_password_fields(reset_new_password))
+                clear_verification_code("password_reset")
+                _set_account_view("로그인")
+                st.success("새 비밀번호를 저장했습니다. 이제 로그인해 주세요.")
+            except Exception as error:
+                st.error("새 비밀번호를 저장하지 못했습니다.")
+                st.caption(str(error))
 
 
 def render_my_page_view():
     if not member_is_logged_in():
         st.info("마이페이지는 로그인 후 이용할 수 있습니다.")
-        st.button(
-            "로그인으로 이동",
-            key="portal_go_login_from_mypage",
-            on_click=_set_account_view,
-            args=("로그인",),
-        )
         return
 
     account = get_member_by_id(st.session_state.get("member_id"))
     if not account:
-        logout_member()
+        _logout_and_return_to_login()
         st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
         return
 
@@ -2190,63 +2230,87 @@ def render_my_page_view():
     position = st.selectbox("직책", position_options, index=position_options.index(current_position), key="mypage_position")
     mailing = st.checkbox("교사의 발견 소식과 자료 안내 메일 수신", value=_as_bool(account.get("mailing_agree")), key="mypage_mailing")
 
-    save_col, logout_col = st.columns(2)
-    with save_col:
-        if st.button("내 정보 저장", key="mypage_save", use_container_width=True):
-            if not name.strip():
-                st.warning("성명을 입력해 주세요.")
-            else:
-                try:
-                    update_member_account(
-                        account["id"],
-                        {
-                            "subscriber_name": name.strip(),
-                            "institution_name": institution.strip(),
-                            "position": "" if position == "- 선택 -" else position,
-                            "mailing_agree": bool(mailing),
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                    st.session_state["member_name"] = name.strip()
-                    st.success("내 정보를 저장했습니다.")
-                except Exception as error:
-                    st.error("내 정보를 저장하지 못했습니다.")
-                    st.caption(str(error))
-    with logout_col:
-        st.button("로그아웃", key="mypage_logout", use_container_width=True, on_click=logout_member)
+    if st.button("내 정보 저장", key="mypage_save", use_container_width=True):
+        if not name.strip():
+            st.warning("성명을 입력해 주세요.")
+        else:
+            try:
+                update_member_account(
+                    account["id"],
+                    {
+                        "subscriber_name": name.strip(),
+                        "institution_name": institution.strip(),
+                        "position": "" if position == "- 선택 -" else position,
+                        "mailing_agree": bool(mailing),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                st.session_state["member_name"] = name.strip()
+                st.success("내 정보를 저장했습니다.")
+            except Exception as error:
+                st.error("내 정보를 저장하지 못했습니다.")
+                st.caption(str(error))
 
 
 def render_account_portal():
-    if "account_view" not in st.session_state:
-        st.session_state["account_view"] = "로그인"
+    """회원 서비스를 메인 화면이 아닌 설정 사이드바에 렌더링합니다."""
+    valid_views = {"로그인", "회원가입", "비밀번호 찾기/변경", "마이페이지"}
+    if st.session_state.get("account_view") not in valid_views:
+        _set_account_view("로그인")
+
+    logged_in = member_is_logged_in()
+    account_view = st.session_state.get("account_view", "로그인")
 
     st.markdown(
         """
         <div class="account-portal">
           <div class="account-portal-title">회원 서비스</div>
-          <div class="account-portal-desc">로그인, 회원가입, 비밀번호 관리, 마이페이지를 한 곳에서 이용하세요.</div>
+          <div class="account-portal-desc">로그인 후 내 정보와 비밀번호를 관리할 수 있습니다.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    account_view = st.radio(
-        "회원 메뉴",
-        ["로그인", "회원가입", "비밀번호 찾기/변경", "마이페이지"],
-        horizontal=True,
-        key="account_view",
-        label_visibility="collapsed",
-    )
-
-    if account_view == "로그인":
-        render_login_view()
-    elif account_view == "회원가입":
-        render_signup_view()
-    elif account_view == "비밀번호 찾기/변경":
-        render_password_view()
+    # 로그인 전에는 로그인 폼이 기본이고, 로그인 후에는 회원가입 자리에 마이페이지가 표시됩니다.
+    if not logged_in:
+        if account_view == "회원가입":
+            render_signup_view()
+        elif account_view == "비밀번호 찾기/변경":
+            render_password_view()
+        else:
+            _set_account_view("로그인")
+            render_login_view()
     else:
-        render_my_page_view()
+        if account_view == "마이페이지":
+            render_my_page_view()
+        elif account_view == "비밀번호 찾기/변경":
+            render_password_view()
+        else:
+            _set_account_view("로그인")
+            render_logged_in_summary()
 
+    # 회원가입·비밀번호 화면에서 로그인 기본 화면으로 바로 돌아갈 수 있게 둡니다.
+    if not logged_in and account_view in {"회원가입", "비밀번호 찾기/변경"}:
+        st.button(
+            "← 로그인으로 돌아가기",
+            key="portal_back_to_login",
+            use_container_width=True,
+            on_click=_set_account_view,
+            args=("로그인",),
+        )
+    elif logged_in and account_view in {"마이페이지", "비밀번호 찾기/변경"}:
+        st.button(
+            "← 로그인 상태로 돌아가기",
+            key="portal_back_to_logged_in",
+            use_container_width=True,
+            on_click=_set_account_view,
+            args=("로그인",),
+        )
+
+    st.divider()
+    render_member_action_buttons()
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    render_member_guide(logged_in=member_is_logged_in())
 
 def upload_notice_image(uploaded_file):
     if uploaded_file is None:
@@ -2369,8 +2433,13 @@ def _popup_dialog_body(notices: list[dict]):
             st.session_state["popup_notice_index"] = index + 1
             st.rerun()
     with close_col:
-        if st.button("닫기", key=f"popup_close_{notice.get('id')}", use_container_width=True):
-            st.session_state["popup_notice_visible"] = False
+        close_label = "다음 공지" if index < max_index else "닫기"
+        if st.button(close_label, key=f"popup_close_{notice.get('id')}", use_container_width=True):
+            # 여러 팝업이 등록된 경우, 첫 공지를 닫아도 다음 공지로 이어집니다.
+            if index < max_index:
+                st.session_state["popup_notice_index"] = index + 1
+            else:
+                st.session_state["popup_notice_visible"] = False
             st.rerun()
 
 
@@ -2396,14 +2465,16 @@ def show_active_popup_notices():
         show_popup_notice_dialog(notices)
 
 
-# 회원 포털은 60:40 레이아웃으로 로그인 폼을 왼쪽에 배치합니다.
-render_account_portal()
+# 회원 서비스는 설정창(사이드바) 안에서만 표시합니다.
+with member_sidebar_slot.container():
+    render_account_portal()
 
 # 공지 팝업은 Streamlit native dialog로 순차 표시합니다. 별도의 무거운 JavaScript를 추가하지 않습니다.
 show_active_popup_notices()
 
 # =========================
 # 메인 메뉴
+# 페이지 접속 시 바로 보이는 대메뉴: 기록요정 / 사진 보정 / 공지사항 / 관리자
 # =========================
 tab_labels = ["🧚 기록요정", "✨ 사진 보정", "📢 공지사항", "🔐 관리자"]
 tabs = st.tabs(tab_labels)
