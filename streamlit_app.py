@@ -3173,7 +3173,7 @@ def render_member_information_page():
     purge_expired_private_records_once_per_session()
     user_id = current_member_user_id()
     if not user_id:
-        st.info("소통 탭에서 아이디와 비밀번호로 로그인하면 내 놀이 기록과 보관 사진을 확인할 수 있습니다.")
+        st.info("회원서비스에서 아이디와 비밀번호로 로그인하면 내 놀이 기록과 보관 사진을 확인할 수 있습니다.")
         return
     profile = get_member_profile(user_id)
     if not profile:
@@ -4144,7 +4144,7 @@ def render_admin_popup_manager():
 
 
 def save_subscriber(data):
-    """소통 탭에서 입력받은 회원·기관 정보를 Supabase public profile 테이블에 저장합니다."""
+    """회원 서비스에서 입력받은 회원·기관 정보를 Supabase public profile 테이블에 저장합니다."""
     payload = {
         "user_id": data.get("회원 UID", ""),
         "platform_member_id": data.get("회원 ID", ""),
@@ -9863,12 +9863,12 @@ with tab2:
     reset_tab2_inputs_once()
     render_menu_card(
         "🧚‍♀️ 사진 기반 놀이 기록 만들기",
-        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 사진 분석 결과와 교사의 관찰을 바탕으로 놀이 이야기·보육일지를 과정과 함께 생성합니다.",
+        "놀이 정보를 입력하고 사진을 올리면 자동으로 3~5장을 추천·분석합니다. 사진 분석 결과와 교사의 관찰을 바탕으로 놀이 이야기·일지·알림장을 생성합니다.",
         ["사진 자동 추천", "사진-놀이명 점검", "사진 1차 분석", "교사 관찰", "과정 산출", "기록 다운로드"]
     )
 
     if not member_is_logged_in():
-        st.info("사진 저장과 개인 기록 연결을 위해 소통 탭에서 아이디와 비밀번호로 로그인해 주세요.")
+        st.info("사진 저장과 개인 기록 연결을 위해 회원 서비스에서 아이디와 비밀번호로 로그인해 주세요.")
     else:
         st.markdown("### 1. 놀이 기본 정보")
         play_name = st.text_input("놀이명", placeholder="예: 블록으로 만든 우리 동네", key="wizard_play_name")
