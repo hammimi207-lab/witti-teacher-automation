@@ -1077,7 +1077,7 @@ WITTI_SITE_LABEL = "교사의 발견 플랫폼"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "자동화 플랫폼 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EA%B5%90%EC%82%AC%EC%9D%98%20%EB%B0%9C%EA%B2%AC%5D%20%EC%9E%90%EB%8F%99%ED%99%94%20%ED%94%8C%EB%9E%AB%ED%8F%BC%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-member-sidebar-mainmenu-popup-sequence"
+APP_VERSION = "2026-07-03-admin-notice-popup-restored"
 
 
 def platform_info_text() -> str:
@@ -5185,7 +5185,7 @@ with tab6:
         ["누적 기록", "통계", "CSV"]
     )
 
-    with st.expander("관리자 메뉴 열기", expanded=False):
+    with st.expander("관리자 메뉴 열기", expanded=bool(st.session_state.get("admin_logged_in", False))):
         st.write("가입자 정보와 생성 기록을 확인하고 CSV로 다운로드할 수 있습니다.")
 
         admin_id = st.text_input("관리자 아이디", key="admin_id_input")
@@ -5195,127 +5195,130 @@ with tab6:
             if admin_id.strip() == ADMIN_ID and admin_pw.strip() == ADMIN_PW:
                 st.session_state["admin_logged_in"] = True
                 st.success("관리자 로그인에 성공했습니다.")
+                st.rerun()
             else:
                 st.session_state["admin_logged_in"] = False
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
         if st.session_state.get("admin_logged_in"):
 
-            with st.expander("📢 공지사항 · 팝업 관리", expanded=False):
-                st.caption("우선순위는 표시 순서만 정합니다. 팝업으로 설정한 공지는 여러 건이어도 순서대로 모두 표시됩니다.")
+            st.markdown("### 📢 공지사항 · 팝업 관리")
+            st.caption("공지 등록·수정·공개 여부·팝업 여부를 여기에서 관리합니다. 우선순위는 표시 순서만 정하며, 팝업으로 설정한 공지는 여러 건이어도 순서대로 모두 표시됩니다.")
 
-                with st.form("notice_create_form", clear_on_submit=True):
-                    notice_title = st.text_input("공지 제목", placeholder="예: 교사의 발견 서비스 안내")
-                    notice_content = st.text_area("공지 내용", height=150, placeholder="공지 내용을 입력해 주세요.")
-                    notice_image = st.file_uploader("팝업/공지 이미지", type=["png", "jpg", "jpeg", "webp"], key="notice_create_image")
-                    ncol1, ncol2, ncol3 = st.columns(3)
-                    with ncol1:
-                        notice_published = st.checkbox("공지 공개", value=True)
-                    with ncol2:
-                        notice_popup = st.checkbox("팝업으로 표시", value=False)
-                    with ncol3:
-                        notice_priority = st.checkbox("우선순위", value=False)
-                    notice_order = st.number_input("팝업 표시 순서", min_value=1, max_value=999, value=1, step=1)
-                    notice_submit = st.form_submit_button("공지 등록")
+            with st.form("notice_create_form", clear_on_submit=True):
+                notice_title = st.text_input("공지 제목", placeholder="예: 교사의 발견 서비스 안내")
+                notice_content = st.text_area("공지 내용", height=150, placeholder="공지 내용을 입력해 주세요.")
+                notice_image = st.file_uploader("팝업/공지 이미지", type=["png", "jpg", "jpeg", "webp"], key="notice_create_image")
+                ncol1, ncol2, ncol3 = st.columns(3)
+                with ncol1:
+                    notice_published = st.checkbox("공지 공개", value=True)
+                with ncol2:
+                    notice_popup = st.checkbox("팝업으로 표시", value=False)
+                with ncol3:
+                    notice_priority = st.checkbox("우선순위", value=False)
+                notice_order = st.number_input("팝업 표시 순서", min_value=1, max_value=999, value=1, step=1)
+                notice_submit = st.form_submit_button("공지 등록")
 
-                if notice_submit:
-                    if not notice_title.strip():
-                        st.warning("공지 제목을 입력해 주세요.")
-                    elif not notice_content.strip() and notice_image is None:
-                        st.warning("공지 내용 또는 이미지를 하나 이상 입력해 주세요.")
-                    else:
+            if notice_submit:
+                if not notice_title.strip():
+                    st.warning("공지 제목을 입력해 주세요.")
+                elif not notice_content.strip() and notice_image is None:
+                    st.warning("공지 내용 또는 이미지를 하나 이상 입력해 주세요.")
+                else:
+                    try:
+                        image_url = upload_notice_image(notice_image) if notice_image else ""
+                        save_site_notice(
+                            {
+                                "title": notice_title.strip(),
+                                "content": notice_content.strip(),
+                                "image_url": image_url,
+                                "is_published": bool(notice_published),
+                                "is_popup": bool(notice_popup),
+                                "is_priority": bool(notice_priority),
+                                "popup_order": int(notice_order),
+                                "publish_start": datetime.now(timezone.utc).date().isoformat(),
+                                "publish_end": None,
+                                "deleted": False,
+                            }
+                        )
+                        st.success("공지사항을 등록했습니다.")
+                        st.rerun()
+                    except Exception as error:
+                        st.error("공지사항을 등록하지 못했습니다. Supabase 공지 테이블과 notice-images 버킷을 확인해 주세요.")
+                        st.caption(str(error))
+
+            admin_notices = load_site_notices(include_deleted=True, published_only=False, current_only=False)
+            if admin_notices.empty:
+                st.caption("등록된 공지사항이 없습니다.")
+            else:
+                notice_columns = [column for column in ["id", "title", "is_published", "is_popup", "is_priority", "popup_order", "created_at", "deleted"] if column in admin_notices.columns]
+                st.dataframe(admin_notices[notice_columns], use_container_width=True, hide_index=True)
+
+                if "deleted" in admin_notices.columns:
+                    active_notice_df = admin_notices[~admin_notices["deleted"].apply(_as_bool)]
+                else:
+                    active_notice_df = admin_notices
+                if not active_notice_df.empty:
+                    notice_options = {
+                        int(row["id"]): f"#{int(row['id'])} · {row.get('title') or '제목 없음'}"
+                        for _, row in active_notice_df.iterrows()
+                    }
+                    selected_notice_id = st.selectbox(
+                        "수정할 공지 선택",
+                        options=list(notice_options.keys()),
+                        format_func=lambda value: notice_options[value],
+                        key="notice_edit_id",
+                    )
+                    selected_notice = active_notice_df[active_notice_df["id"].astype(int) == int(selected_notice_id)].iloc[0].to_dict()
+
+                    with st.form("notice_update_form"):
+                        edit_title = st.text_input("공지 제목 수정", value=str(selected_notice.get("title") or ""))
+                        edit_content = st.text_area("공지 내용 수정", value=str(selected_notice.get("content") or ""), height=150)
+                        edit_image = st.file_uploader("새 이미지로 교체", type=["png", "jpg", "jpeg", "webp"], key="notice_update_image")
+                        ecol1, ecol2, ecol3 = st.columns(3)
+                        with ecol1:
+                            edit_published = st.checkbox("공지 공개", value=_as_bool(selected_notice.get("is_published")))
+                        with ecol2:
+                            edit_popup = st.checkbox("팝업으로 표시", value=_as_bool(selected_notice.get("is_popup")))
+                        with ecol3:
+                            edit_priority = st.checkbox("우선순위", value=_as_bool(selected_notice.get("is_priority")))
+                        edit_order = st.number_input("팝업 표시 순서", min_value=1, max_value=999, value=int(selected_notice.get("popup_order") or 1), step=1)
+                        update_submit = st.form_submit_button("공지 수정")
+
+                    if update_submit:
                         try:
-                            image_url = upload_notice_image(notice_image) if notice_image else ""
-                            save_site_notice(
+                            edit_image_url = selected_notice.get("image_url") or ""
+                            if edit_image is not None:
+                                edit_image_url = upload_notice_image(edit_image)
+                            update_site_notice(
+                                selected_notice_id,
                                 {
-                                    "title": notice_title.strip(),
-                                    "content": notice_content.strip(),
-                                    "image_url": image_url,
-                                    "is_published": bool(notice_published),
-                                    "is_popup": bool(notice_popup),
-                                    "is_priority": bool(notice_priority),
-                                    "popup_order": int(notice_order),
-                                    "publish_start": datetime.now(timezone.utc).date().isoformat(),
-                                    "publish_end": None,
-                                    "deleted": False,
-                                }
+                                    "title": edit_title.strip(),
+                                    "content": edit_content.strip(),
+                                    "image_url": edit_image_url,
+                                    "is_published": bool(edit_published),
+                                    "is_popup": bool(edit_popup),
+                                    "is_priority": bool(edit_priority),
+                                    "popup_order": int(edit_order),
+                                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                                },
                             )
-                            st.success("공지사항을 등록했습니다.")
+                            st.success("공지사항을 수정했습니다.")
                             st.rerun()
                         except Exception as error:
-                            st.error("공지사항을 등록하지 못했습니다. Supabase 공지 테이블과 notice-images 버킷을 확인해 주세요.")
+                            st.error("공지사항을 수정하지 못했습니다.")
                             st.caption(str(error))
 
-                admin_notices = load_site_notices(include_deleted=True, published_only=False, current_only=False)
-                if admin_notices.empty:
-                    st.caption("등록된 공지사항이 없습니다.")
-                else:
-                    notice_columns = [column for column in ["id", "title", "is_published", "is_popup", "is_priority", "popup_order", "created_at", "deleted"] if column in admin_notices.columns]
-                    st.dataframe(admin_notices[notice_columns], use_container_width=True, hide_index=True)
+                    if st.button("선택 공지 숨김 처리", key="notice_soft_delete"):
+                        try:
+                            soft_delete_site_notice(selected_notice_id)
+                            st.success("선택한 공지를 숨김 처리했습니다.")
+                            st.rerun()
+                        except Exception as error:
+                            st.error("공지를 숨김 처리하지 못했습니다.")
+                            st.caption(str(error))
 
-                    if "deleted" in admin_notices.columns:
-                        active_notice_df = admin_notices[~admin_notices["deleted"].apply(_as_bool)]
-                    else:
-                        active_notice_df = admin_notices
-                    if not active_notice_df.empty:
-                        notice_options = {
-                            int(row["id"]): f"#{int(row['id'])} · {row.get('title') or '제목 없음'}"
-                            for _, row in active_notice_df.iterrows()
-                        }
-                        selected_notice_id = st.selectbox(
-                            "수정할 공지 선택",
-                            options=list(notice_options.keys()),
-                            format_func=lambda value: notice_options[value],
-                            key="notice_edit_id",
-                        )
-                        selected_notice = active_notice_df[active_notice_df["id"].astype(int) == int(selected_notice_id)].iloc[0].to_dict()
-
-                        with st.form("notice_update_form"):
-                            edit_title = st.text_input("공지 제목 수정", value=str(selected_notice.get("title") or ""))
-                            edit_content = st.text_area("공지 내용 수정", value=str(selected_notice.get("content") or ""), height=150)
-                            edit_image = st.file_uploader("새 이미지로 교체", type=["png", "jpg", "jpeg", "webp"], key="notice_update_image")
-                            ecol1, ecol2, ecol3 = st.columns(3)
-                            with ecol1:
-                                edit_published = st.checkbox("공지 공개", value=_as_bool(selected_notice.get("is_published")))
-                            with ecol2:
-                                edit_popup = st.checkbox("팝업으로 표시", value=_as_bool(selected_notice.get("is_popup")))
-                            with ecol3:
-                                edit_priority = st.checkbox("우선순위", value=_as_bool(selected_notice.get("is_priority")))
-                            edit_order = st.number_input("팝업 표시 순서", min_value=1, max_value=999, value=int(selected_notice.get("popup_order") or 1), step=1)
-                            update_submit = st.form_submit_button("공지 수정")
-
-                        if update_submit:
-                            try:
-                                edit_image_url = selected_notice.get("image_url") or ""
-                                if edit_image is not None:
-                                    edit_image_url = upload_notice_image(edit_image)
-                                update_site_notice(
-                                    selected_notice_id,
-                                    {
-                                        "title": edit_title.strip(),
-                                        "content": edit_content.strip(),
-                                        "image_url": edit_image_url,
-                                        "is_published": bool(edit_published),
-                                        "is_popup": bool(edit_popup),
-                                        "is_priority": bool(edit_priority),
-                                        "popup_order": int(edit_order),
-                                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                                    },
-                                )
-                                st.success("공지사항을 수정했습니다.")
-                                st.rerun()
-                            except Exception as error:
-                                st.error("공지사항을 수정하지 못했습니다.")
-                                st.caption(str(error))
-
-                        if st.button("선택 공지 숨김 처리", key="notice_soft_delete"):
-                            try:
-                                soft_delete_site_notice(selected_notice_id)
-                                st.success("선택한 공지를 숨김 처리했습니다.")
-                                st.rerun()
-                            except Exception as error:
-                                st.error("공지를 숨김 처리하지 못했습니다.")
-                                st.caption(str(error))
+            st.divider()
 
             st.markdown("### 📊 데이터 분석 대시보드")
 
