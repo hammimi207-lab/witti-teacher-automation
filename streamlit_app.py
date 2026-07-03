@@ -530,6 +530,9 @@ div[data-testid="stDownloadButton"] button[aria-disabled="true"] * {
     box-shadow: var(--witti-shadow-soft);
 }
 
+.notice-result-emoji-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 18px; }
+.notice-result-emoji { display:inline-flex; align-items:center; justify-content:center; min-width:36px; min-height:34px; padding:3px 7px; border:1px solid #CFE4FF; border-radius:999px; background:#F1F8FF; font-size:20px; line-height:1; }
+
 .result-card-gray {
     color: var(--witti-text);
     background-color:#FFFFFF;
@@ -1454,7 +1457,7 @@ WITTI_SITE_LABEL = "교사의 발견"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-member-modal-individual-popups-type-specific-word-v3"
+APP_VERSION = "2026-07-03-preview-fix-password-modal-diary-text-only-notice-delivery-popup-order-cache-v4"
 
 
 # =========================
@@ -2134,6 +2137,31 @@ def merge_photo_analysis_with_teacher_inputs(analysis_result: dict | None, conte
     return merged
 
 
+
+def build_text_only_daily_life_analysis(context: dict | None) -> dict:
+    """사진 없이 작성하는 보육일지의 일상생활 장면을 1차 기록 형식으로 정리합니다.
+
+    일상생활만 선택한 경우에는 사진 업로드·Storage 저장·사진 일치 점검을 요구하지 않습니다.
+    교사가 직접 적은 실제 장면을 1차 기록 초안으로 사용하고, 이후 최종 일지 생성에서
+    교육과정 연계와 종합 기록으로 다듬습니다.
+    """
+    context = context or {}
+    source = str(context.get("daily_life_source_text") or "").strip()
+    if not source:
+        raise ValueError("일상생활 장면을 먼저 입력해 주세요.")
+    play_name = str(context.get("play_name") or "일상생활").strip() or "일상생활"
+    return {
+        "play_title": play_name,
+        "play_keyword": "일상생활 - 교사 입력 장면",
+        "observed_action": source,
+        "ai_caption": source,
+        "draft": merge_photo_analysis_with_teacher_inputs({"draft": source}, context).get("draft") or source,
+        "photo_match_status": "사진 미사용",
+        "photo_match_reason": "일상생활만 선택되어 사진을 업로드하지 않고 교사가 입력한 실제 장면을 바탕으로 기록합니다.",
+        "is_text_only_daily_log": True,
+    }
+
+
 def _parse_photo_draft_json(raw_text: str) -> dict:
     payload = _parse_json_object(raw_text)
     cleaned = (raw_text or "").strip()
@@ -2748,6 +2776,24 @@ def _structured_record_plain_text(output: dict) -> str:
     return "\n\n".join(chunks).strip()
 
 
+def _is_text_only_daily_log(context: dict | None) -> bool:
+    context = context or {}
+    return (
+        str(context.get("output_type") or "") == "일지"
+        and context.get("uses_photo_analysis") is False
+    )
+
+
+def _notice_parent_delivery_message(context: dict | None, fallback: str = "") -> str:
+    context = context or {}
+    return str(
+        context.get("parent_delivery_message")
+        or context.get("teacher_observed_situation")
+        or fallback
+        or ""
+    ).strip()
+
+
 def _normalize_recommended_emojis(value) -> list[str]:
     if isinstance(value, list):
         raw_items = [str(item).strip() for item in value]
@@ -2759,23 +2805,23 @@ def _normalize_recommended_emojis(value) -> list[str]:
     for item in raw_items:
         if item and item not in normalized:
             normalized.append(item)
-    return normalized[:8]
+    return normalized[:10]
 
 
 def _fallback_recommended_emojis(play_name: str) -> list[str]:
     source = str(play_name or "")
     keyword_map = [
-        ("자연", ["🌿", "🍃", "🌼", "✨", "😊", "💛"]),
-        ("블록", ["🧱", "✨", "🌱", "😊", "💛", "🌼"]),
-        ("미술", ["🎨", "🖍️", "✨", "😊", "🌼", "💛"]),
-        ("음악", ["🎵", "🎶", "✨", "😊", "🌈", "💛"]),
-        ("물", ["💧", "🫧", "🌈", "😊", "✨", "💛"]),
-        ("바깥", ["🌤️", "🍃", "🌿", "😊", "✨", "💛"]),
+        ("자연", ["🌿", "🍃", "🪵", "🪨", "🌰", "🌼", "🧺", "✨", "😊", "💛"]),
+        ("블록", ["🧱", "🧩", "🏠", "🚗", "🌱", "✨", "😊", "💛", "🌈", "👏"]),
+        ("미술", ["🎨", "🖍️", "🖌️", "🌈", "✨", "😊", "💛", "🌼", "🫶", "👏"]),
+        ("음악", ["🎵", "🎶", "🪇", "💃", "🕺", "✨", "😊", "🌈", "💛", "👏"]),
+        ("물", ["💧", "🫧", "🐳", "🌈", "✨", "😊", "💛", "🌼", "🫶", "👏"]),
+        ("바깥", ["🌤️", "🍃", "🌿", "🦋", "🌼", "✨", "😊", "💛", "🌈", "👏"]),
     ]
     for keyword, emojis in keyword_map:
         if keyword in source:
             return emojis
-    return ["🌿", "✨", "😊", "🌼", "💛", "🍀"]
+    return ["🌿", "✨", "😊", "🌼", "💛", "🍀", "🌈", "🫶", "👏", "📷"]
 
 
 def generate_final_play_record(context: dict, edited_draft: str, revision_direction: str = "") -> dict:
@@ -2784,6 +2830,7 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     if client is None:
         raise RuntimeError("OpenAI API 키가 설정되지 않았습니다. Streamlit Secrets의 [openai] api_key를 확인해 주세요.")
 
+    context = context or {}
     output_type = str(context.get("output_type") or "놀이 이야기")
     play_name = str(context.get("play_name") or "오늘의 놀이")
     age_group = str(context.get("age_group") or "")
@@ -2796,10 +2843,17 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     supports = ", ".join(teacher_supports) or "미선택"
     detail_notes = _selection_notes_display(play_subcategories, context.get("play_subcategory_notes"))
     support_notes = _selection_notes_display(teacher_supports, context.get("teacher_support_notes"))
+    text_only_daily = _is_text_only_daily_log(context)
+    daily_life_source_text = str(context.get("daily_life_source_text") or "").strip()
     teacher_observed_situation = str(context.get("teacher_observed_situation") or revision_direction or "").strip()
+    parent_delivery_message = _notice_parent_delivery_message(context, revision_direction)
     next_play_support_plan = str(context.get("next_play_support_plan") or "").strip()
     analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-    photo_play_content = str(analysis.get("ai_caption") or "사진에서 확인되는 놀이 장면을 바탕으로 분석했습니다.").strip()
+    photo_play_content = (
+        daily_life_source_text
+        if text_only_daily and daily_life_source_text
+        else str(analysis.get("ai_caption") or "사진에서 확인되는 놀이 장면을 바탕으로 분석했습니다.").strip()
+    )
     framework = curriculum_framework_label(age_group)
     framework_title = curriculum_framework_short_label(age_group)
     child_label = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
@@ -2812,7 +2866,7 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     support_input_block = (
         f"- 교사의 지원: {supports}\n- 교사의 지원별 구체 내용:\n{support_notes}"
         if output_type == "놀이 이야기"
-        else "- 보육일지는 별도의 '교사의 지원' 선택값을 입력하지 않습니다. 교사가 관찰한 놀이 상황과 사진 1차 분석에 실제로 적힌 지원 내용만 기록에 반영하세요."
+        else "- 보육일지는 별도의 '교사의 지원' 선택값을 입력하지 않습니다. 교사가 적은 실제 장면과 1차 기록에 실제로 적힌 지원 내용만 기록에 반영하세요."
     )
 
     if output_type in ["놀이 이야기", "일지"]:
@@ -2822,44 +2876,46 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
             if output_type == "놀이 이야기"
             else "보육일지 문체로, 선택한 일상생활·놀이·활동의 실제 장면과 그 안에서 드러난 배움이 분명히 나타나도록 6~9문장으로 작성하세요. '했음/보였음/지원하였음'처럼 공식 기록에 적합한 종결을 사용하세요."
         )
+        source_label = "교사가 입력한 일상생활 장면" if text_only_daily else ("사진 속 일상·놀이·활동 장면" if output_type == "일지" else "사진 속 놀이 내용")
+        teacher_input_label = "교사가 관찰한 일상생활 상황" if text_only_daily else "교사가 관찰한 놀이 상황"
         output_schema = """{
   \"curriculum_links\": [
-    {\"area\": \"선택한 영역명\", \"description\": \"사진과 교사 관찰에 근거한 1문장 연계 설명\"}
+    {\"area\": \"선택한 영역명\", \"description\": \"교사 입력 또는 사진·관찰 장면에 근거한 1문장 연계 설명\"}
   ],
   \"observation_evaluation\": \"영아 또는 유아의 관심, 탐색, 표현, 관계, 배움의 변화를 교육과정에 근거해 3~5문장으로 정리\",
   \"integrated_record\": \"종합 기록 6~9문장\"
 }"""
         prompt = f"""
-당신은 한국 영유아교육 현장의 사진 기반 기록을 돕는 보조자입니다.
-사진 1차 분석과 교사가 직접 적은 관찰 상황을 바탕으로, 교사의 판단이 드러나는 과정형 기록을 작성하세요.
+당신은 한국 영유아교육 현장의 기록을 돕는 보조자입니다.
+{('사진 없이 교사가 직접 적은 일상생활 장면' if text_only_daily else '사진 1차 분석과 교사가 직접 적은 관찰 상황')}을 바탕으로, 교사의 판단이 드러나는 과정형 기록을 작성하세요.
 
 [기본 정보]
-- 놀이명: {play_name}
+- 놀이명 또는 기록명: {play_name}
 - 연령: {age_group or '미입력'}
 - 아이 별칭: {child_alias or '미입력'}
 - 기록 유형: {output_type}
 - {framework} 선택 영역: {curriculum}
-- 사진 속 놀이 내용: {photo_play_content}
-- 교사가 관찰한 놀이 상황(필수): {teacher_observed_situation}
+- {source_label}: {photo_play_content}
+- {teacher_input_label}(필수): {teacher_observed_situation}
 - {component_label}: {detail_tags}
 - {component_label}별 구체 장면:
 {detail_notes}
 {support_input_block}
 - {component_label}의 {framework} 관점 핵심 설명:
 {component_guidance}
-- 교사가 수정한 사진 1차 분석 결과:
+- 교사가 수정한 1차 기록 결과:
 {edited_draft.strip()}
 
 [작성 기준]
-- 사진과 교사 관찰에 직접 드러난 사실만 사용하세요. 보이지 않은 대화·감정·사건·발달 상태를 지어내지 마세요.
-- curriculum_links에는 교사가 선택한 영역만 정확히 포함하고, 영역마다 사진·관찰 장면과 연결된 설명을 1문장씩 작성하세요.
+- 교사 입력과 사진에 직접 드러난 사실만 사용하세요. 보이지 않은 대화·감정·사건·발달 상태를 지어내지 마세요.
+- curriculum_links에는 교사가 선택한 영역만 정확히 포함하고, 영역마다 입력 장면과 연결된 설명을 1문장씩 작성하세요.
 - 0~2세는 ‘영아’의 감각, 반응, 반복 탐색, 몸짓·말소리·짧은 말, 안정감의 언어를 사용하세요.
 - 3~5세는 ‘유아’의 흥미, 선택, 탐색, 표현, 또래와의 상호작용, 놀이 확장의 언어를 사용하세요.
 - observation_evaluation은 평가적 낙인이나 단정 없이, {child_label}의 관심·탐색·표현·관계·배움의 변화를 {framework} 관점에서 정리하세요.
 - {record_label}은 {record_style}
-- 교사가 직접 입력한 각 세부 장면과 교사의 지원은 한 항목도 빠뜨리지 말고, 원문 핵심어와 실제 행동·지원 주체가 드러나도록 종합 기록에 반영하세요. 사진만으로 확인되지 않는 교사 지원은 ‘교사는 ...로 지원했습니다/지원하였음’처럼 교사 입력에 근거한 내용임을 분명히 쓰세요.
+- 교사가 직접 입력한 각 세부 장면과 교사의 지원은 한 항목도 빠뜨리지 말고, 원문 핵심어와 실제 행동·지원 주체가 드러나도록 종합 기록에 반영하세요.
 - 기록 유형이 일지라면, 선택한 보육일지 세부 구성(일상생활·놀이·활동)과 교사가 적은 실제 장면을 중심으로 작성하고, 선택하지 않은 구성은 임의로 추가하지 마세요.
-- 기록 유형이 일지라면, 별도의 교사 지원 선택값이 없으므로 사진 1차 분석이나 교사 관찰에 실제로 적힌 지원 내용만 자연스럽게 반영하세요.
+- 사진을 사용하지 않은 일상생활 일지라면 사진 속 장면을 언급하지 말고, 교사가 직접 적은 일상생활 장면만 근거로 작성하세요.
 - 다음 놀이 지원 계획은 AI가 새로 만들거나 바꾸지 않습니다. 별도 입력값이 있을 때 화면에서 원문 그대로 보여 줄 것입니다.
 - 아래 JSON 객체만 반환하세요.
 
@@ -2878,14 +2934,15 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
         observation_evaluation = str(payload.get("observation_evaluation") or "").strip()
         integrated_record = str(payload.get("integrated_record") or "").strip()
         if not observation_evaluation:
+            base_subject = child_alias.strip() or child_label
             observation_evaluation = (
-                f"{child_alias.strip() or child_label}는 {teacher_observed_situation}의 과정에서 관심을 보인 자료와 행동을 반복해 살피며 놀이를 이어갔습니다. "
-                f"선택한 {framework} 영역의 경험이 사진과 교사 관찰 속에서 함께 드러났습니다."
+                f"{base_subject}는 {teacher_observed_situation or photo_play_content}의 과정에서 관심을 보인 자료와 행동을 살피며 경험을 이어갔습니다. "
+                f"선택한 {framework} 영역의 경험이 교사 입력과 기록 장면 속에서 함께 드러났습니다."
             )
         if not integrated_record:
             if output_type == "일지":
                 integrated_record = (
-                    f"{edited_draft.strip()} {teacher_observed_situation} "
+                    f"{edited_draft.strip()} {teacher_observed_situation or photo_play_content} "
                     f"선택한 일상생활·놀이·활동 장면을 바탕으로 {child_label}의 반응과 배움을 기록하였음."
                 ).strip()
             else:
@@ -2907,6 +2964,8 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
             "sections": {},
             "examples": [],
             "recommended_emojis": [],
+            "uses_photo_analysis": not text_only_daily,
+            "daily_life_source_text": daily_life_source_text,
         }
         result["plain_text"] = _structured_record_plain_text(result)
         return result
@@ -2918,11 +2977,11 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     parent_guidance = PARENT_TYPE_GUIDANCE[parent_type]
     output_schema = """{
   \"examples\": [\"보호자에게 전달할 완결된 알림장 문구 1\", \"문구 2\", \"문구 3\"],
-  \"recommended_emojis\": [\"본문에 가볍게 활용할 이모지 1개\", \"이모지 2개\", \"이모지 3개\", \"이모지 4개\", \"이모지 5개\", \"이모지 6개\"]
+  \"recommended_emojis\": [\"추천 이모지 1\", \"추천 이모지 2\", \"추천 이모지 3\", \"추천 이모지 4\", \"추천 이모지 5\", \"추천 이모지 6\", \"추천 이모지 7\", \"추천 이모지 8\", \"추천 이모지 9\", \"추천 이모지 10\"]
 }"""
     prompt = f"""
 당신은 한국 어린이집·유치원 교사가 보호자에게 보내는 알림장 문장을 돕는 보조자입니다.
-아래의 사진 분석과 교사 관찰을 바탕으로, 실제 알림장에 바로 옮겨 적을 수 있는 따뜻하고 읽기 쉬운 문장 3개를 작성하세요.
+아래의 사진 분석과 교사가 반드시 전달해야 한다고 적은 내용을 바탕으로, 실제 알림장에 바로 옮겨 적을 수 있는 따뜻하고 읽기 쉬운 문장 3개를 작성하세요.
 
 [기본 정보]
 - 오늘의 놀이명: {play_name}
@@ -2930,16 +2989,17 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
 - 아이 별칭: {child_alias or '미입력'}
 - 사진 속 놀이 내용: {photo_play_content}
 - 교사가 수정한 사진 1차 분석 결과: {edited_draft.strip()}
-- 교사가 관찰한 놀이 상황: {teacher_observed_situation or '미입력'}
+- 보호자에게 꼭 전달해야 하는 내용(필수): {parent_delivery_message or '미입력'}
 - 보호자 유형에 따른 전달 기준: {parent_guidance}
 
 [알림장 작성 원칙]
 - 보호자에게 말하듯 부드럽고 친근한 어투를 사용하세요.
 - 첫 문장은 오늘의 놀이 또는 아이의 흥미에서 자연스럽게 시작하고, 본문은 3~4문장으로 읽기 쉽게 구성하세요.
+- 보호자에게 꼭 전달해야 하는 내용은 빠뜨리지 말고, 건강 상태·하루 기분·친구와의 상황·준비물·일정 안내처럼 필요한 정보가 자연스럽고 분명하게 읽히도록 반영하세요.
 - 교육과정 명칭, 전문 평가 용어, ‘관찰 및 평가’ 같은 교사용 표현은 본문에 쓰지 마세요.
 - 사진과 교사 입력에서 확인되는 사실만 사용하고, 사진에 없는 대화·감정·발달 수준을 지어내지 마세요.
 - 단정, 비교, 지시형 문장을 피하고 보호자가 편안히 읽을 수 있게 마무리하세요.
-- 본문에는 이모지를 넣지 마세요. 추천 이모지는 recommended_emojis에 6개 내외로 따로 제시하세요.
+- 본문에는 이모지를 넣지 마세요. 추천 이모지는 recommended_emojis에 서로 다른 컬러 이모지 10개를 따로 제시하세요.
 - 결과에는 보호자 유형명 자체를 절대 쓰지 마세요.
 - 아래 JSON 객체만 반환하세요.
 
@@ -2948,7 +3008,7 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     response = client.responses.create(
         model=get_openai_vision_model(),
         input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
-        max_output_tokens=1600,
+        max_output_tokens=1800,
         store=False,
     )
     raw = str(getattr(response, "output_text", "") or "").strip()
@@ -2957,16 +3017,17 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
     examples = [str(item).strip() for item in examples if str(item).strip()][:3]
     if len(examples) < 3:
         subject = child_alias.strip() or ("영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아")
-        base = edited_draft.strip() or photo_play_content
+        delivery_sentence = parent_delivery_message or "오늘의 놀이 장면을 함께 나누어 드립니다."
         examples = [
-            f"오늘 {subject}는 {play_name} 놀이에 관심을 보이며 즐겁게 참여했습니다. {base}",
-            f"{play_name} 시간에 {subject}는 사진 속 자료를 살펴보고 자신의 방식으로 놀이를 이어갔습니다. {teacher_observed_situation or '오늘의 놀이 장면을 함께 나누어 드립니다.'}",
-            f"오늘은 {play_name} 놀이를 통해 {subject}의 관심과 탐색을 만나볼 수 있었습니다. 가정에서도 오늘의 놀이 이야기를 편안히 나누어 보시면 좋겠습니다.",
+            f"오늘 {subject}는 {play_name} 놀이에 관심을 보이며 즐겁게 참여했습니다. {delivery_sentence}",
+            f"{play_name} 시간에 {subject}는 사진 속 자료를 살펴보고 자신의 방식으로 놀이를 이어갔습니다. {delivery_sentence}",
+            f"오늘은 {play_name} 놀이를 통해 {subject}의 관심과 탐색을 만나볼 수 있었습니다. {delivery_sentence}",
         ]
     emojis = _normalize_recommended_emojis(payload.get("recommended_emojis"))
-    if len(emojis) < 4:
-        emojis = _fallback_recommended_emojis(play_name)
-    plain = "\n\n".join(f"알림장 예시 {index}\n{item}" for index, item in enumerate(examples))
+    if len(emojis) < 10:
+        fallback = _fallback_recommended_emojis(play_name)
+        emojis = (emojis + [emoji for emoji in fallback if emoji not in emojis])[:10]
+    plain = "\n\n".join(f"알림장 예시 {index}\n{item}" for index, item in enumerate(examples, start=1))
     plain += "\n\n추천 이모지\n" + " ".join(emojis)
     return {
         "output_type": output_type,
@@ -2975,7 +3036,8 @@ def generate_final_play_record(context: dict, edited_draft: str, revision_direct
         "recommended_emojis": emojis,
         "plain_text": plain,
         "photo_play_content": photo_play_content,
-        "teacher_observed_situation": teacher_observed_situation,
+        "teacher_observed_situation": parent_delivery_message,
+        "parent_delivery_message": parent_delivery_message,
     }
 
 def save_generated_text(session_id: str, user_id: str, output_type: str, result_text: str, edited_text: str, source_text: str):
@@ -3522,11 +3584,14 @@ def load_visible_popups() -> list[dict]:
         if audience == "member" and not member_is_logged_in():
             continue
         rows.append(row)
+    # 낮은 숫자가 왼쪽(첫 번째)에 오도록 1 → 2 → 3 순으로 정렬합니다.
+    # 우선순위가 같으면 생성 시각과 ID로 고정해 새로고침할 때마다 순서가 흔들리지 않게 합니다.
     return sorted(
         rows,
         key=lambda row: (
-            -int(row.get("priority") or 0),
-            -(int(pd.Timestamp(_parse_utc_datetime(row.get("created_at")) or datetime.now(timezone.utc)).timestamp())),
+            int(row.get("priority") or 999999),
+            int(pd.Timestamp(_parse_utc_datetime(row.get("created_at")) or datetime.now(timezone.utc)).timestamp()),
+            int(row.get("id") or 0),
         ),
     )
 
@@ -3561,11 +3626,11 @@ def render_active_notice_banner():
 
 
 def render_active_popup_if_needed():
-    """활성 팝업을 각각 독립된 창으로 표시합니다.
+    '''활성 팝업을 독립 창으로 표시합니다.
 
-    데스크톱에서는 2개면 가운데를 기준으로 두 창, 3개면 좌·중·우 세 창이 나란히 보입니다.
-    팝업마다 닫기·오늘 하루 다시 보지 않기 상태가 독립적으로 유지됩니다.
-    """
+    데스크톱에서는 우선순위 1 → 2 → 3 순으로 왼쪽부터 같은 크기의 창을 일렬 배치합니다.
+    위치 설정은 팝업이 한 개일 때만 적용하며, 여러 개가 동시에 뜰 때는 가로 정렬 규칙을 우선합니다.
+    '''
     popups = load_visible_popups()
     popup_payloads = []
     for popup in popups:
@@ -3575,7 +3640,7 @@ def render_active_popup_if_needed():
         popup_payloads.append(copied)
 
     safe_payload = json.dumps(popup_payloads, ensure_ascii=False).replace('</', '<\\/')
-    script = r"""
+    script = r'''
         <script>
         (function () {
             const win = window.parent;
@@ -3587,48 +3652,26 @@ def render_active_popup_if_needed():
             function removeCurrentWindows() {
                 doc.querySelectorAll('[data-witti-platform-popup-window="true"]').forEach((node) => node.remove());
             }
-
             function safeHttpUrl(raw) {
                 if (!raw) return '';
                 try {
                     const url = new URL(String(raw));
                     return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
-                } catch (error) {
-                    return '';
-                }
+                } catch (error) { return ''; }
             }
-
-            function revisionKey(popup) {
-                return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || '');
-            }
-
+            function revisionKey(popup) { return String(popup.id || '') + '_' + String(popup.updated_at || popup.created_at || ''); }
             function kstDateKey() {
                 try {
-                    const parts = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
-                    }).formatToParts(new Date());
-                    const map = {};
-                    parts.forEach((part) => { map[part.type] = part.value; });
+                    const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(new Date());
+                    const map = {}; parts.forEach((part) => { map[part.type] = part.value; });
                     return String(map.year || '') + '-' + String(map.month || '') + '-' + String(map.day || '');
                 } catch (error) {
-                    const now = new Date();
-                    return String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                    const now = new Date(); return String(now.getFullYear()) + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
                 }
             }
-
-            function todayKey(popup) {
-                return 'witti_platform_popup_dismissed_today_' + revisionKey(popup) + '_' + kstDateKey();
-            }
-
-            function wasDismissed(popup) {
-                try { return win.localStorage.getItem(todayKey(popup)) === '1'; }
-                catch (error) { return false; }
-            }
-
-            function markTodayDismissed(popup) {
-                try { win.localStorage.setItem(todayKey(popup), '1'); }
-                catch (error) { /* 브라우저 저장소를 쓸 수 없으면 현재 화면에서만 닫습니다. */ }
-            }
+            function todayKey(popup) { return 'witti_platform_popup_dismissed_today_' + revisionKey(popup) + '_' + kstDateKey(); }
+            function wasDismissed(popup) { try { return win.localStorage.getItem(todayKey(popup)) === '1'; } catch (error) { return false; } }
+            function markTodayDismissed(popup) { try { win.localStorage.setItem(todayKey(popup), '1'); } catch (error) {} }
 
             function ensureStyle() {
                 if (doc.getElementById(STYLE_ID)) return;
@@ -3636,159 +3679,61 @@ def render_active_popup_if_needed():
                 style.id = STYLE_ID;
                 style.textContent = `
                     .witti-popup-window {
-                        position:fixed;
-                        z-index:2147483645;
-                        width:min(330px, calc((100vw - 86px) / 3));
-                        max-height:min(76vh, 650px);
-                        overflow:auto;
-                        background:#FFFFFF;
-                        border:1px solid #D8E5F2;
-                        border-radius:16px;
-                        box-shadow:0 18px 42px rgba(15,23,42,.22);
-                        box-sizing:border-box;
+                        position:fixed; z-index:2147483645; width:min(326px, calc((100vw - 86px) / 3)); height:min(76vh, 510px);
+                        display:flex; flex-direction:column; overflow:hidden; background:#FFFFFF; border:1px solid #D8E5F2;
+                        border-radius:16px; box-shadow:0 18px 42px rgba(15,23,42,.22); box-sizing:border-box;
                         font-family:Pretendard, SUIT, 'Noto Sans KR', 'Malgun Gothic', sans-serif;
                     }
-                    .witti-popup-window .witti-popup-close {
-                        position:absolute; top:8px; right:8px; width:30px; height:30px;
-                        border:0; border-radius:999px; background:rgba(255,255,255,.95); color:#344054;
-                        font-size:20px; line-height:1; cursor:pointer; box-shadow:0 2px 8px rgba(15,23,42,.14); z-index:3;
-                    }
-                    .witti-popup-window .witti-popup-image-link { display:block; text-decoration:none; cursor:pointer; }
-                    .witti-popup-window .witti-popup-image {
-                        display:block; width:100%; max-height:min(59vh,560px); object-fit:contain;
-                        background:#F7FAFC; border-radius:16px 16px 0 0;
-                    }
-                    .witti-popup-window .witti-popup-dismiss-row {
-                        display:flex; align-items:center; gap:7px; min-height:42px; padding:9px 11px 10px;
-                        color:#475467; background:#FFFFFF; border-top:1px solid #EDF1F5;
-                        font-size:11.5px; line-height:1.35; font-weight:700; cursor:pointer; box-sizing:border-box;
-                    }
-                    .witti-popup-window .witti-popup-dismiss-row input {
-                        width:15px; height:15px; margin:0; accent-color:#123A5A; flex:0 0 auto; cursor:pointer;
-                    }
+                    .witti-popup-window .witti-popup-close { position:absolute; top:8px; right:8px; width:30px; height:30px; border:0; border-radius:999px; background:rgba(255,255,255,.95); color:#344054; font-size:20px; line-height:1; cursor:pointer; box-shadow:0 2px 8px rgba(15,23,42,.14); z-index:3; }
+                    .witti-popup-window .witti-popup-image-link { display:block; min-height:0; flex:1 1 auto; text-decoration:none; cursor:pointer; overflow:hidden; background:#F7FAFC; }
+                    .witti-popup-window .witti-popup-image { display:block; width:100%; height:100%; object-fit:contain; background:#F7FAFC; }
+                    .witti-popup-window .witti-popup-dismiss-row { display:flex; align-items:center; gap:7px; flex:0 0 42px; min-height:42px; padding:9px 11px 10px; color:#475467; background:#FFFFFF; border-top:1px solid #EDF1F5; font-size:11.5px; line-height:1.35; font-weight:700; cursor:pointer; box-sizing:border-box; }
+                    .witti-popup-window .witti-popup-dismiss-row input { width:15px; height:15px; margin:0; accent-color:#123A5A; flex:0 0 auto; cursor:pointer; }
                     .witti-popup-window .witti-popup-dismiss-row span { cursor:pointer; word-break:keep-all; }
                     @media (max-width:768px) {
-                        .witti-popup-window {
-                            left:12px !important; right:12px !important; width:auto !important;
-                            max-height:28vh; overflow:auto;
-                        }
-                        .witti-popup-window .witti-popup-image { max-height:19vh; }
+                        .witti-popup-window { left:12px !important; right:12px !important; width:auto !important; height:27vh; min-height:180px; max-height:260px; }
                     }
                 `;
                 doc.head.appendChild(style);
             }
-
-            function verticalPlacement(card, popup, index) {
+            function numericPriority(value) { const n = Number(value); return Number.isFinite(n) ? n : 999999; }
+            function orderPopups(items) { return items.slice().sort((a,b) => numericPriority(a.priority) - numericPriority(b.priority) || Number(a.id || 0) - Number(b.id || 0)); }
+            function singlePopupPlacement(card, popup) {
                 const position = String(popup.popup_position || 'center');
-                const row = Math.floor(index / 3);
-                if (win.innerWidth <= 768) {
-                    card.style.top = `calc(12px + ${index * 30}vh)`;
-                    card.style.bottom = 'auto';
-                    card.style.transform = 'none';
-                    return;
-                }
-                if (position.startsWith('top')) {
-                    card.style.top = `${82 + row * 34}px`;
-                    card.style.bottom = 'auto';
-                    card.style.transform = 'translateX(-50%)';
-                } else if (position.startsWith('bottom')) {
-                    card.style.bottom = `${22 + row * 34}px`;
-                    card.style.top = 'auto';
-                    card.style.transform = 'translateX(-50%)';
-                } else {
-                    card.style.top = `calc(50% + ${row * 34}px)`;
-                    card.style.bottom = 'auto';
-                    card.style.transform = 'translate(-50%, -50%)';
-                }
+                if (position.endsWith('left')) card.style.left = 'calc(50% - min(32vw, 360px))';
+                else if (position.endsWith('right')) card.style.left = 'calc(50% + min(32vw, 360px))';
+                else card.style.left = '50%';
+                if (position.startsWith('top')) { card.style.top = '74px'; card.style.transform = 'translateX(-50%)'; }
+                else if (position.startsWith('bottom')) { card.style.bottom = '22px'; card.style.transform = 'translateX(-50%)'; }
+                else { card.style.top = '50%'; card.style.transform = 'translate(-50%, -50%)'; }
             }
-
-            function horizontalPlacement(card, index, total) {
-                if (win.innerWidth <= 768) return;
-                const slot = index % 3;
-                if (total === 1) {
-                    const position = String((popups[0] && popups[0].popup_position) || 'center');
-                    if (position.endsWith('left')) card.style.left = 'calc(50% - min(32vw, 360px))';
-                    else if (position.endsWith('right')) card.style.left = 'calc(50% + min(32vw, 360px))';
-                    else card.style.left = '50%';
-                    return;
-                }
-                if (total === 2) {
-                    card.style.left = index === 0 ? 'calc(50% - min(20vw, 230px))' : 'calc(50% + min(20vw, 230px))';
-                    return;
-                }
-                const slots = [
-                    'calc(50% - min(33vw, 380px))',
-                    '50%',
-                    'calc(50% + min(33vw, 380px))',
-                ];
-                card.style.left = slots[slot];
+            function multiPopupPlacement(card, index) {
+                if (win.innerWidth <= 768) { card.style.top = `calc(12px + ${index * 29}vh)`; card.style.bottom = 'auto'; card.style.transform = 'none'; return; }
+                const slots = ['calc(50% - min(33vw, 380px))', '50%', 'calc(50% + min(33vw, 380px))'];
+                card.style.left = slots[index % 3]; card.style.top = `${74 + Math.floor(index / 3) * 34}px`; card.style.bottom = 'auto'; card.style.transform = 'translateX(-50%)';
             }
-
             function createPopupWindow(popup, index, total) {
-                const imageUrl = safeHttpUrl(popup.image_signed_url);
-                if (!imageUrl) return;
-                const card = doc.createElement('section');
-                card.id = ROOT_PREFIX + String(popup.id || index);
-                card.dataset.wittiPlatformPopupWindow = 'true';
-                card.className = 'witti-popup-window';
-                card.setAttribute('role', 'dialog');
-                card.setAttribute('aria-modal', 'false');
-                card.setAttribute('aria-label', String(popup.title || '서비스 안내 이미지'));
-                horizontalPlacement(card, index, total);
-                verticalPlacement(card, popup, index);
-
-                const image = doc.createElement('img');
-                image.className = 'witti-popup-image';
-                image.src = imageUrl;
-                image.alt = String(popup.image_alt_text || popup.title || '팝업 안내 이미지');
+                const imageUrl = safeHttpUrl(popup.image_signed_url); if (!imageUrl) return;
+                const card = doc.createElement('section'); card.id = ROOT_PREFIX + String(popup.id || index); card.dataset.wittiPlatformPopupWindow = 'true'; card.className = 'witti-popup-window'; card.setAttribute('role','dialog'); card.setAttribute('aria-modal','false'); card.setAttribute('aria-label',String(popup.title || '서비스 안내 이미지'));
+                if (total === 1) singlePopupPlacement(card, popup); else multiPopupPlacement(card, index);
+                const image = doc.createElement('img'); image.className = 'witti-popup-image'; image.src = imageUrl; image.alt = String(popup.image_alt_text || popup.title || '팝업 안내 이미지');
                 const linkUrl = safeHttpUrl(popup.link_url);
-                if (linkUrl) {
-                    const imageLink = doc.createElement('a');
-                    imageLink.className = 'witti-popup-image-link';
-                    imageLink.href = linkUrl;
-                    imageLink.target = '_blank';
-                    imageLink.rel = 'noopener noreferrer';
-                    imageLink.setAttribute('aria-label', '팝업 이미지 링크 열기');
-                    imageLink.appendChild(image);
-                    card.appendChild(imageLink);
-                } else {
-                    card.appendChild(image);
-                }
-
-                const dismissRow = doc.createElement('label');
-                dismissRow.className = 'witti-popup-dismiss-row';
-                const dismissCheckbox = doc.createElement('input');
-                dismissCheckbox.type = 'checkbox';
-                dismissCheckbox.setAttribute('aria-label', '오늘 하루 이 창을 다시 열지 않습니다.');
-                const dismissText = doc.createElement('span');
-                dismissText.textContent = '오늘 하루 이 창을 다시 열지 않습니다.';
-                dismissRow.appendChild(dismissCheckbox);
-                dismissRow.appendChild(dismissText);
-                card.appendChild(dismissRow);
-
-                const closeButton = doc.createElement('button');
-                closeButton.type = 'button';
-                closeButton.className = 'witti-popup-close';
-                closeButton.setAttribute('aria-label', '팝업 닫기');
-                closeButton.textContent = '×';
-                closeButton.addEventListener('click', function () {
-                    if (dismissCheckbox.checked) markTodayDismissed(popup);
-                    card.remove();
-                });
-                card.appendChild(closeButton);
+                if (linkUrl) { const link = doc.createElement('a'); link.className = 'witti-popup-image-link'; link.href = linkUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label','팝업 이미지 링크 열기'); link.appendChild(image); card.appendChild(link); }
+                else { const wrap = doc.createElement('div'); wrap.className = 'witti-popup-image-link'; wrap.appendChild(image); card.appendChild(wrap); }
+                const dismissRow = doc.createElement('label'); dismissRow.className = 'witti-popup-dismiss-row'; const checkbox = doc.createElement('input'); checkbox.type = 'checkbox'; checkbox.setAttribute('aria-label','오늘 하루 이 창을 다시 열지 않습니다.'); const label = doc.createElement('span'); label.textContent = '오늘 하루 이 창을 다시 열지 않습니다.'; dismissRow.appendChild(checkbox); dismissRow.appendChild(label); card.appendChild(dismissRow);
+                const close = doc.createElement('button'); close.type = 'button'; close.className = 'witti-popup-close'; close.setAttribute('aria-label','팝업 닫기'); close.textContent = '×'; close.addEventListener('click', function () { if (checkbox.checked) markTodayDismissed(popup); card.remove(); }); card.appendChild(close);
                 doc.body.appendChild(card);
             }
-
             removeCurrentWindows();
             if (!Array.isArray(popups) || !popups.length) return;
-            const visiblePopups = popups.filter((item) => item && safeHttpUrl(item.image_signed_url) && !wasDismissed(item));
-            if (!visiblePopups.length) return;
-            ensureStyle();
-            visiblePopups.forEach((popup, index) => createPopupWindow(popup, index, visiblePopups.length));
+            const visible = orderPopups(popups.filter((item) => item && safeHttpUrl(item.image_signed_url) && !wasDismissed(item)));
+            if (!visible.length) return;
+            ensureStyle(); visible.forEach((popup,index) => createPopupWindow(popup,index,visible.length));
         })();
         </script>
-    """
+    '''
     components.html(script.replace("__POPUP_PAYLOAD__", safe_payload), height=0, width=0)
+
 
 def render_public_notice_page():
     render_menu_card(
@@ -6790,6 +6735,115 @@ def _show_member_management_window():
 
     _member_management_dialog()
 
+def _render_member_password_window_content():
+    """비밀번호 찾기와 로그인 후 변경을 한 개의 독립 창 안에서 제공합니다."""
+    reset_tab, change_tab = st.tabs(["비밀번호 찾기", "비밀번호 변경"])
+
+    with reset_tab:
+        st.markdown("#### 이메일 인증으로 새 비밀번호 설정")
+        st.caption("가입 이메일 인증을 완료한 뒤 새 비밀번호를 설정합니다.")
+        recovery_email = st.text_input("가입 이메일", placeholder="example@email.com", key="password_modal_recovery_email")
+        col1, col2 = st.columns([1.15, 2.35])
+        with col1:
+            send_code = st.button("인증번호 받기", key="password_modal_recovery_send", use_container_width=True)
+        with col2:
+            recovery_code = st.text_input("인증번호", placeholder="6자리", key="password_modal_recovery_code")
+        if send_code:
+            if not recovery_email.strip():
+                st.warning("가입 이메일을 입력해 주세요.")
+            elif not find_member_id_by_email(recovery_email):
+                st.warning("가입된 이메일을 찾지 못했습니다.")
+            else:
+                try:
+                    code = issue_email_verification(recovery_email, "account_recovery")
+                    send_verification_email(recovery_email, code)
+                    st.session_state["password_modal_recovery_verified_email"] = ""
+                    st.success("인증번호를 이메일로 보냈습니다.")
+                except Exception as exc:
+                    st.error("인증번호를 발송하지 못했습니다.")
+                    st.caption(str(exc))
+        if st.button("인증 확인", key="password_modal_recovery_verify", use_container_width=False):
+            verified, message = verify_email_verification(recovery_email, "account_recovery", recovery_code)
+            if verified:
+                st.session_state["password_modal_recovery_verified_email"] = recovery_email.strip().lower()
+                st.success(message)
+            else:
+                st.warning(message)
+
+        if st.session_state.get("password_modal_recovery_verified_email") == recovery_email.strip().lower():
+            found_id = find_member_id_by_email(recovery_email)
+            if found_id:
+                st.caption(f"가입 아이디: {found_id}")
+            new_pw1, new_pw2 = st.columns(2)
+            with new_pw1:
+                new_password = st.text_input("새 비밀번호", type="password", key="password_modal_recovery_new")
+            with new_pw2:
+                new_password_confirm = st.text_input("새 비밀번호 확인", type="password", key="password_modal_recovery_new_confirm")
+            if st.button("새 비밀번호 저장", key="password_modal_recovery_save", use_container_width=True):
+                if len(new_password) < 8:
+                    st.warning("새 비밀번호는 8자 이상으로 입력해 주세요.")
+                elif new_password != new_password_confirm:
+                    st.warning("새 비밀번호와 확인 값이 일치하지 않습니다.")
+                else:
+                    try:
+                        reset_member_password_by_email(recovery_email, new_password)
+                        st.session_state["password_modal_recovery_verified_email"] = ""
+                        st.success("새 비밀번호를 저장했습니다. 새 비밀번호로 로그인해 주세요.")
+                    except Exception as exc:
+                        st.error(str(exc))
+
+    with change_tab:
+        st.markdown("#### 현재 비밀번호 확인 후 변경")
+        if not member_is_logged_in():
+            st.info("비밀번호 변경은 로그인 후 이용할 수 있습니다. 비밀번호를 잊으셨다면 첫 번째 탭에서 이메일 인증으로 재설정해 주세요.")
+        else:
+            profile = get_member_profile(current_member_user_id())
+            username = str(profile.get("username") or profile.get("platform_member_id") or "") if profile else ""
+            current_password = st.text_input("현재 비밀번호", type="password", key="password_modal_current")
+            change_pw1, change_pw2 = st.columns(2)
+            with change_pw1:
+                new_password = st.text_input("새 비밀번호", type="password", key="password_modal_new")
+            with change_pw2:
+                new_password_confirm = st.text_input("새 비밀번호 확인", type="password", key="password_modal_new_confirm")
+            if st.button("비밀번호 변경", key="password_modal_change_submit", use_container_width=True):
+                verified, _ = authenticate_member(username, current_password)
+                if not verified:
+                    st.warning("현재 비밀번호가 일치하지 않습니다.")
+                elif len(new_password) < 8:
+                    st.warning("새 비밀번호는 8자 이상으로 입력해 주세요.")
+                elif new_password != new_password_confirm:
+                    st.warning("새 비밀번호와 확인 값이 일치하지 않습니다.")
+                else:
+                    try:
+                        reset_member_password_by_email(current_member_email(), new_password)
+                        st.success("비밀번호를 변경했습니다.")
+                    except Exception as exc:
+                        st.error(str(exc))
+
+    st.divider()
+    if st.button("비밀번호 창 닫기", key="password_modal_close", use_container_width=True):
+        st.session_state["member_password_modal_open"] = False
+        _set_member_portal_view(MEMBER_PORTAL_LOGIN)
+        st.rerun()
+
+
+def _show_member_password_window():
+    dialog_factory = getattr(st, "dialog", None)
+    if not callable(dialog_factory):
+        st.markdown("### 비밀번호 찾기/변경")
+        _render_member_password_window_content()
+        return
+    try:
+        decorator = dialog_factory("비밀번호 찾기/변경", width="large", dismissible=False)
+    except TypeError:
+        decorator = dialog_factory("비밀번호 찾기/변경", width="large")
+
+    @decorator
+    def _member_password_dialog():
+        _render_member_password_window_content()
+
+    _member_password_dialog()
+
 
 def _render_sidebar_my_page_view():
     """기존 호출 호환용: 실제 마이페이지는 큰 모달 창으로 표시합니다."""
@@ -6824,7 +6878,8 @@ def _render_member_portal_action_buttons(logged_in: bool):
                 st.rerun()
     with right_col:
         if st.button("비밀번호 찾기/변경", key="sidebar_go_password", use_container_width=True):
-            _set_member_portal_view(MEMBER_PORTAL_PASSWORD)
+            st.session_state["member_password_modal_open"] = True
+            _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             st.rerun()
 
 
@@ -6846,18 +6901,13 @@ def render_sidebar_member_portal():
     if not logged_in:
         if view == MEMBER_PORTAL_SIGNUP:
             _render_sidebar_signup_view()
-        elif view == MEMBER_PORTAL_PASSWORD:
-            _render_sidebar_password_view()
         else:
             _set_member_portal_view(MEMBER_PORTAL_LOGIN)
             _render_sidebar_login_view()
     else:
         # 마이페이지는 사이드바의 작은 화면이 아니라 큰 모달 창으로만 표시합니다.
-        if view == MEMBER_PORTAL_PASSWORD:
-            _render_sidebar_password_view()
-        else:
-            _set_member_portal_view(MEMBER_PORTAL_LOGIN)
-            _render_sidebar_logged_in_summary()
+        _set_member_portal_view(MEMBER_PORTAL_LOGIN)
+        _render_sidebar_logged_in_summary()
 
     # 회원가입·비밀번호 화면을 보다가도 기본 로그인/로그인 상태로 바로 돌아갈 수 있습니다.
     current_view = _member_portal_current_view()
@@ -6885,9 +6935,11 @@ def render_sidebar_member_portal():
 with st.sidebar:
     render_sidebar_member_portal()
 
-# 로그인 상태를 유지하는 큰 마이페이지 창은 사이드바 밖에서 렌더링합니다.
+# 로그인 상태를 유지하는 큰 회원 관리 창은 사이드바 밖에서 렌더링합니다.
 if st.session_state.get("member_management_modal_open"):
     _show_member_management_window()
+if st.session_state.get("member_password_modal_open"):
+    _show_member_password_window()
 
 # =========================
 # TAB 2. 기록 요정
@@ -8854,6 +8906,8 @@ WIZARD_ENTRY_STATE_KEYS = [
     "wizard_play_photo_uploader",
     "wizard_recommendation_count",
     "wizard_photo_analysis_agree",
+    "wizard_daily_life_source_text",
+    "wizard_parent_delivery_message",
 ]
 WIZARD_DYNAMIC_PREFIXES = (
     "wizard_play_detail_note_",
@@ -8867,6 +8921,7 @@ WIZARD_ANALYSIS_STATE_KEYS = [
     "wizard_analysis_result",
     "wizard_initial_draft",
     "wizard_teacher_observed_situation",
+    "wizard_parent_delivery_message",
     "wizard_next_play_support_plan",
     "wizard_final_output",
 ]
@@ -8881,7 +8936,11 @@ def _clear_wizard_entry_state():
 
 
 def apply_pending_wizard_cleanup():
-    """위젯이 만들어지기 전에만 실행해 Streamlit 상태 변경 오류를 피합니다."""
+    """위젯이 만들어지기 전에만 실행해 Streamlit 상태 변경 오류를 피합니다.
+
+    메뉴 이동 중에는 상태를 지우지 않습니다. 최종 기록 생성이 성공한 직후에만 입력·분석 캐시를 비우고,
+    완료 스냅샷은 Word 다운로드와 미리보기를 위해 남깁니다.
+    """
     if st.session_state.pop("_wizard_clear_entry_after_analysis", False):
         _clear_wizard_entry_state()
     if st.session_state.pop("_wizard_clear_after_final", False):
@@ -8977,11 +9036,12 @@ def render_selected_note_inputs(selected: list[str], note_kind: str) -> dict[str
 def render_final_play_output(output: dict):
     output_type = str(output.get("output_type") or "")
     if output_type in ["놀이 이야기", "일지"]:
-        photo_section_title = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
-        st.markdown(f"#### {photo_section_title}")
+        source_title = "교사가 입력한 일상생활 장면" if output.get("uses_photo_analysis") is False else ("사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면")
+        st.markdown(f"#### {source_title}")
         render_result_card(str(output.get("photo_play_content") or ""), "result-card-gray")
 
-        st.markdown("#### 교사가 관찰한 놀이 상황")
+        observation_title = "교사가 관찰한 일상생활 상황" if output.get("uses_photo_analysis") is False else "교사가 관찰한 놀이 상황"
+        st.markdown(f"#### {observation_title}")
         render_result_card(str(output.get("teacher_observed_situation") or ""), "result-card-gray")
 
         st.markdown(f"#### {output.get('framework_label') or '교육과정 연계'}")
@@ -8992,8 +9052,9 @@ def render_final_play_output(output: dict):
         else:
             st.caption("선택한 교육과정 영역의 연계 설명이 없습니다.")
 
-        st.markdown(f"#### {output.get('observation_label') or '영유아 관찰 및 평가'}")
-        render_result_card(str(output.get("observation_evaluation") or ""), "result-card-gray")
+        if output_type == "놀이 이야기":
+            st.markdown(f"#### {output.get('observation_label') or '영유아 관찰 및 평가'}")
+            render_result_card(str(output.get("observation_evaluation") or ""), "result-card-gray")
 
         next_plan = str(output.get("next_play_support_plan") or "").strip()
         if next_plan:
@@ -9008,11 +9069,12 @@ def render_final_play_output(output: dict):
     st.markdown("#### 보호자에게 전할 알림장 문구")
     for index, example in enumerate(output.get("examples") or [], start=1):
         st.markdown(f"**알림장 예시 {index}**")
-        render_result_card(str(example), "result-card-gray")
+        render_result_card(str(example), "result-card-blue")
     emojis = _normalize_recommended_emojis(output.get("recommended_emojis"))
     if emojis:
         st.caption("본문에 가볍게 활용할 추천 이모지")
-        st.markdown("&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(html.escape(emoji) for emoji in emojis), unsafe_allow_html=True)
+        emoji_html = "".join(f"<span class='notice-result-emoji'>{html.escape(emoji)}</span>" for emoji in emojis)
+        st.markdown(f"<div class='notice-result-emoji-row'>{emoji_html}</div>", unsafe_allow_html=True)
 
 def build_record_download_text(context: dict, first_draft: str, output: dict) -> str:
     output_type = str(context.get("output_type") or "")
@@ -9390,7 +9452,8 @@ def _docx_add_teacher_reference_section(doc, context: dict, first_draft: str, ou
     _docx_add_heading(doc, "1차 사진 분석 결과 및 교사가 직접 입력한 내용")
 
     _docx_add_heading(doc, "1. 사진에 대한 1차 분석 결과", level=3)
-    _docx_add_highlight_box(doc, "교사가 작성한 분석 결과", _document_first_analysis_text(first_draft), fill="F7FAFD")
+    first_analysis_title = "교사가 작성한 분석 결과" if not _is_text_only_daily_log(context) else "교사가 작성한 일상생활 1차 기록"
+    _docx_add_highlight_box(doc, first_analysis_title, _document_first_analysis_text(first_draft), fill="F7FAFD")
 
     component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
     component_rows = _docx_selection_note_rows(
@@ -9413,10 +9476,18 @@ def _docx_add_teacher_reference_section(doc, context: dict, first_draft: str, ou
     else:
         _docx_add_highlight_box(doc, "입력 내용", "해당 기록 유형에서는 별도의 교사 지원 선택값을 입력하지 않았습니다.", fill="FAFBFC")
 
-    _docx_add_heading(doc, "4. 사진 속 놀이 내용", level=3)
-    _docx_add_body(doc, str(output.get("photo_play_content") or "-"))
-    _docx_add_heading(doc, "5. 교사가 관찰한 놀이 상황", level=3)
-    _docx_add_body(doc, str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"))
+    source_heading = "4. 교사가 입력한 일상생활 장면" if _is_text_only_daily_log(context) else "4. 사진 속 놀이 내용"
+    _docx_add_heading(doc, source_heading, level=3)
+    _docx_add_body(doc, str(output.get("photo_play_content") or context.get("daily_life_source_text") or "-"))
+
+    if output_type == "알림장":
+        final_input_heading = "5. 보호자에게 꼭 전달해야 하는 내용"
+        final_input_value = str(output.get("parent_delivery_message") or context.get("parent_delivery_message") or output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-")
+    else:
+        final_input_heading = "5. 교사가 관찰한 일상생활 상황" if _is_text_only_daily_log(context) else "5. 교사가 관찰한 놀이 상황"
+        final_input_value = str(output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-")
+    _docx_add_heading(doc, final_input_heading, level=3)
+    _docx_add_body(doc, final_input_value)
 
 
 def _docx_add_curriculum_result(doc, framework: str, output: dict):
@@ -9437,14 +9508,12 @@ def build_record_word_document(
     selected_photo_names: list[str] | None = None,
     selected_photo_assets: list[dict] | None = None,
 ) -> bytes:
-    """기록 유형별 목적에 맞는 Word 문서를 만듭니다.
-
-    놀이 이야기와 일지는 기록 본문을 앞에 두고, 사진 분석·교사 입력은 뒤의 참고 영역으로 분리합니다.
-    알림장은 보호자 전달용 문구를 먼저 보여 주고 교사용 참고 영역은 나눔줄 아래에 둡니다.
-    """
+    """기록 유형별 목적에 맞는 Word 문서를 만듭니다."""
     if Document is None:
         raise RuntimeError("Word 다운로드 구성요소가 설치되지 않았습니다. requirements.txt에 python-docx를 추가해 주세요.")
 
+    context = context or {}
+    output = output or {}
     doc = Document()
     section = doc.sections[0]
     if Cm is not None:
@@ -9471,6 +9540,7 @@ def build_record_word_document(
     child_alias = str(context.get("child_alias") or "-").strip()
     framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정 연계")
     created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+    text_only_daily = _is_text_only_daily_log(context)
 
     title_p = doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER if WD_ALIGN_PARAGRAPH is not None else 1
@@ -9487,10 +9557,10 @@ def build_record_word_document(
         _docx_add_heading(doc, "보호자에게 전할 알림장 문구")
         examples = output.get("examples") or []
         for index, example in enumerate(examples, start=1):
-            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="FFFDF5" if index == 1 else "F7FAFD")
+            _docx_add_highlight_box(doc, f"알림장 예시 {index}", str(example), fill="EDF5FC")
         emojis = _normalize_recommended_emojis(output.get("recommended_emojis")) or _fallback_recommended_emojis(play_name)
         _docx_add_heading(doc, "본문에 활용할 추천 이모지")
-        _docx_add_highlight_box(doc, "가볍게 골라 사용해 주세요", "   ".join(emojis), fill="F7FBF7")
+        _docx_add_highlight_box(doc, "가볍게 골라 사용해 주세요", "   ".join(emojis), fill="EAF4FF")
         _docx_add_teacher_reference_section(doc, context, first_draft, output, output_type)
     else:
         _docx_add_heading(doc, "기록 기본 정보")
@@ -9503,20 +9573,35 @@ def build_record_word_document(
             ("생성일시", created_at),
         ])
 
-        _docx_add_heading(doc, "자동 추천 사진 및 사진-놀이명 점검")
-        selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
-        selected_photo_assets = [asset for asset in (selected_photo_assets or []) if isinstance(asset, dict) and asset.get("bytes")]
-        if selected_photo_assets:
-            _docx_add_photo_grid(doc, selected_photo_assets)
-        elif selected_photo_names:
-            _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
-        else:
-            _docx_add_highlight_box(doc, "자동 추천 사진", "자동 추천 사진 정보가 없습니다.", fill="F7FAFD")
-
         analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-        match_status = str(analysis.get("photo_match_status") or "-").strip()
-        match_reason = str(analysis.get("photo_match_reason") or "-").strip()
-        _docx_add_highlight_box(doc, "사진-놀이명 점검 결과", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
+        if text_only_daily:
+            _docx_add_heading(doc, "일상생활 기록 입력 및 1차 기록")
+            _docx_add_highlight_box(
+                doc,
+                "교사가 입력한 일상생활 장면",
+                str(context.get("daily_life_source_text") or output.get("photo_play_content") or "-"),
+                fill="F7FAFD",
+            )
+            _docx_add_highlight_box(
+                doc,
+                "기록 방식",
+                "일상생활만 선택되어 사진을 업로드하지 않고, 교사가 입력한 실제 장면을 바탕으로 기록했습니다.",
+                fill="F5FAF7",
+            )
+        else:
+            _docx_add_heading(doc, "자동 추천 사진 및 사진-놀이명 점검")
+            selected_photo_names = [str(name).strip() for name in (selected_photo_names or []) if str(name).strip()]
+            selected_photo_assets = [asset for asset in (selected_photo_assets or []) if isinstance(asset, dict) and asset.get("bytes")]
+            if selected_photo_assets:
+                _docx_add_photo_grid(doc, selected_photo_assets)
+            elif selected_photo_names:
+                _docx_add_highlight_box(doc, "자동 추천 사진", "\n".join([f"• {name}" for name in selected_photo_names]), fill="F7FAFD")
+            else:
+                _docx_add_highlight_box(doc, "자동 추천 사진", "자동 추천 사진 정보가 없습니다.", fill="F7FAFD")
+
+            match_status = str(analysis.get("photo_match_status") or "-").strip()
+            match_reason = str(analysis.get("photo_match_reason") or "-").strip()
+            _docx_add_highlight_box(doc, "사진-놀이명 점검 결과", f"상태: {match_status}\n사유: {match_reason}", fill="FFF8E8" if match_status == "확인 필요" else "F5FAF7")
 
         _docx_add_curriculum_result(doc, framework, output)
 
@@ -9544,55 +9629,6 @@ def build_record_word_document(
     return output_buffer.getvalue()
 
 
-st.markdown(
-    """
-    <style>
-    .record-document-preview-wrap { margin: 10px 0 18px; }
-    .record-document-preview-note { color:#667085; font-size:13px; margin:0 0 8px; }
-    .record-document-preview-paper {
-        max-width: 900px; margin: 0 auto; padding: 46px 48px 54px; background:#FFFFFF;
-        border:1px solid #DCE5EE; box-shadow:0 14px 34px rgba(15,23,42,.11); color:#1F2937;
-        font-family:'Malgun Gothic','Noto Sans KR',sans-serif; box-sizing:border-box;
-    }
-    .record-document-preview-brand { text-align:center; color:#163A5F; font-size:29px; font-weight:900; letter-spacing:-1.2px; margin:0; }
-    .record-document-preview-title { text-align:center; color:#4B647B; font-size:19px; font-weight:800; margin:8px 0 28px; }
-    .record-document-preview-heading { color:#163A5F; font-size:20px; line-height:1.35; font-weight:900; margin:28px 0 10px; }
-    .record-document-preview-subheading { color:#365B7A; font-size:15.5px; line-height:1.45; font-weight:900; margin:18px 0 7px; }
-    .record-document-preview-divider { border-top:2px solid #C8D5E2; margin:34px 0 24px; }
-    .record-document-preview-body { color:#344054; font-size:15px; line-height:1.85; white-space:normal; word-break:keep-all; overflow-wrap:break-word; }
-    .record-document-preview-table { width:100%; border-collapse:collapse; table-layout:fixed; margin:8px 0 15px; font-size:14px; }
-    .record-document-preview-table th, .record-document-preview-table td { border:1px solid #AAB8C8; padding:8px 10px; vertical-align:top; text-align:left; line-height:1.55; word-break:break-word; }
-    .record-document-preview-table.metadata th { width:34%; background:#EAF3FB; color:#163A5F; font-weight:900; }
-    .record-document-preview-table.result th { background:#1F4E78; color:#FFFFFF; font-weight:900; }
-    .record-document-preview-box { border:1px solid #B6C6D7; background:#F7FAFD; padding:14px 16px; margin:8px 0 15px; line-height:1.75; }
-    .record-document-preview-box.green { background:#F5FAF7; }
-    .record-document-preview-box.blue { background:#EDF5FC; }
-    .record-document-preview-box-title { color:#163A5F; font-weight:900; margin-bottom:5px; }
-    .record-document-preview-photo-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin:8px 0 16px; }
-    .record-document-preview-photo { min-width:0; border:1px solid #CAD7E4; padding:5px; background:#FFFFFF; text-align:center; }
-    .record-document-preview-photo img { display:block; width:100%; aspect-ratio:4 / 3; object-fit:contain; background:#F8FAFC; }
-    .record-document-preview-photo span { display:block; color:#667085; font-size:11px; margin-top:4px; }
-    .record-document-preview-alert-card { border:1px solid #E3DBC2; background:#FFFEF7; border-radius:10px; padding:17px 18px; margin:10px 0; color:#344054; line-height:1.85; font-size:15px; }
-    .record-document-preview-alert-card-title { color:#765F25; font-size:14px; font-weight:900; margin-bottom:6px; }
-    .record-document-preview-emoji-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }
-    .record-document-preview-emoji-chip { display:inline-flex; align-items:center; justify-content:center; min-width:38px; min-height:34px; padding:3px 7px; background:#F7FBF7; border:1px solid #D7EBD8; border-radius:999px; font-size:19px; }
-    .record-document-preview-footer { margin-top:35px; text-align:center; color:#7A8798; font-size:11px; }
-    @media (max-width:768px) {
-        .record-document-preview-paper { padding:26px 18px 30px; }
-        .record-document-preview-brand { font-size:23px; }
-        .record-document-preview-title { font-size:16px; margin-bottom:20px; }
-        .record-document-preview-heading { font-size:18px; margin-top:22px; }
-        .record-document-preview-body { font-size:14px; }
-        .record-document-preview-table { font-size:12.5px; }
-        .record-document-preview-table th, .record-document-preview-table td { padding:7px 6px; }
-        .record-document-preview-photo-grid { gap:5px; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
 def _preview_html_text(value) -> str:
     return html.escape(str(value or "-")).replace("\n", "<br>")
 
@@ -9611,6 +9647,51 @@ def _preview_table_html(headers: tuple[str, str], rows: list[tuple[str, str]], c
     )
 
 
+def _record_document_preview_component_style() -> str:
+    return """
+    <style>
+      * { box-sizing:border-box; }
+      html, body { margin:0; padding:0; background:#F6F8FB; color:#1F2937; font-family:'Malgun Gothic','Noto Sans KR',sans-serif; }
+      .record-document-preview-wrap { padding:10px; }
+      .record-document-preview-note { color:#667085; font-size:13px; margin:0 0 8px; }
+      .record-document-preview-paper { max-width:900px; margin:0 auto; padding:46px 48px 54px; background:#FFFFFF; border:1px solid #DCE5EE; box-shadow:0 14px 34px rgba(15,23,42,.11); }
+      .record-document-preview-brand { text-align:center; color:#163A5F; font-size:29px; font-weight:900; letter-spacing:-1.2px; margin:0; }
+      .record-document-preview-title { text-align:center; color:#4B647B; font-size:19px; font-weight:800; margin:8px 0 28px; }
+      .record-document-preview-heading { color:#163A5F; font-size:20px; line-height:1.35; font-weight:900; margin:28px 0 10px; }
+      .record-document-preview-subheading { color:#365B7A; font-size:15.5px; line-height:1.45; font-weight:900; margin:18px 0 7px; }
+      .record-document-preview-divider { border-top:2px solid #C8D5E2; margin:34px 0 24px; }
+      .record-document-preview-body { color:#344054; font-size:15px; line-height:1.85; white-space:normal; word-break:keep-all; overflow-wrap:break-word; }
+      .record-document-preview-table { width:100%; border-collapse:collapse; table-layout:fixed; margin:8px 0 15px; font-size:14px; }
+      .record-document-preview-table th, .record-document-preview-table td { border:1px solid #AAB8C8; padding:8px 10px; vertical-align:top; text-align:left; line-height:1.55; word-break:break-word; }
+      .record-document-preview-table.metadata th { width:34%; background:#EAF3FB; color:#163A5F; font-weight:900; }
+      .record-document-preview-table.result th { background:#1F4E78; color:#FFFFFF; font-weight:900; }
+      .record-document-preview-box { border:1px solid #B6C6D7; background:#F7FAFD; padding:14px 16px; margin:8px 0 15px; line-height:1.75; font-size:15px; color:#344054; }
+      .record-document-preview-box.green { background:#F5FAF7; }
+      .record-document-preview-box.blue { background:#EDF5FC; }
+      .record-document-preview-box-title { color:#163A5F; font-weight:900; margin-bottom:5px; }
+      .record-document-preview-photo-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin:8px 0 16px; }
+      .record-document-preview-photo { min-width:0; border:1px solid #CAD7E4; padding:5px; background:#FFFFFF; text-align:center; }
+      .record-document-preview-photo img { display:block; width:100%; aspect-ratio:4 / 3; object-fit:contain; background:#F8FAFC; }
+      .record-document-preview-photo span { display:block; color:#667085; font-size:11px; margin-top:4px; }
+      .record-document-preview-alert-card { border:1px solid #CFE4FF; background:#EDF5FC; border-radius:10px; padding:17px 18px; margin:10px 0; color:#344054; line-height:1.85; font-size:15px; }
+      .record-document-preview-alert-card-title { color:#174F80; font-size:14px; font-weight:900; margin-bottom:6px; }
+      .record-document-preview-emoji-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }
+      .record-document-preview-emoji-chip { display:inline-flex; align-items:center; justify-content:center; min-width:38px; min-height:34px; padding:3px 7px; background:#F1F8FF; border:1px solid #CFE4FF; border-radius:999px; font-size:20px; }
+      .record-document-preview-footer { margin-top:35px; text-align:center; color:#7A8798; font-size:11px; }
+      @media (max-width:768px) {
+        .record-document-preview-paper { padding:26px 18px 30px; }
+        .record-document-preview-brand { font-size:23px; }
+        .record-document-preview-title { font-size:16px; margin-bottom:20px; }
+        .record-document-preview-heading { font-size:18px; margin-top:22px; }
+        .record-document-preview-body { font-size:14px; }
+        .record-document-preview-table { font-size:12.5px; }
+        .record-document-preview-table th, .record-document-preview-table td { padding:7px 6px; }
+        .record-document-preview-photo-grid { gap:5px; }
+      }
+    </style>
+    """
+
+
 def _preview_teacher_reference_html(context: dict, first_draft: str, output: dict, output_type: str) -> str:
     component_label = "보육일지 세부 구성" if output_type == "일지" else "놀이 세부 구분"
     component_rows = _docx_selection_note_rows(context.get("play_subcategories"), context.get("play_subcategory_notes"))
@@ -9621,19 +9702,28 @@ def _preview_teacher_reference_html(context: dict, first_draft: str, output: dic
     support_block = _preview_table_html(("교사의 지원", "교사가 입력한 구체 지원"), support_rows)
     if not support_block:
         support_block = "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>입력 내용</div>해당 기록 유형에서는 별도의 교사 지원 선택값을 입력하지 않았습니다.</div>"
+    text_only_daily = _is_text_only_daily_log(context)
+    source_heading = "4. 교사가 입력한 일상생활 장면" if text_only_daily else "4. 사진 속 놀이 내용"
+    if output_type == "알림장":
+        final_heading = "5. 보호자에게 꼭 전달해야 하는 내용"
+        final_value = output.get("parent_delivery_message") or context.get("parent_delivery_message") or output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"
+    else:
+        final_heading = "5. 교사가 관찰한 일상생활 상황" if text_only_daily else "5. 교사가 관찰한 놀이 상황"
+        final_value = output.get("teacher_observed_situation") or context.get("teacher_observed_situation") or "-"
+    analysis_title = "교사가 작성한 일상생활 1차 기록" if text_only_daily else "교사가 작성한 분석 결과"
     return f"""
         <div class='record-document-preview-divider'></div>
         <div class='record-document-preview-heading'>1차 사진 분석 결과 및 교사가 직접 입력한 내용</div>
         <div class='record-document-preview-subheading'>1. 사진에 대한 1차 분석 결과</div>
-        <div class='record-document-preview-box'><div class='record-document-preview-box-title'>교사가 작성한 분석 결과</div>{_preview_html_text(_document_first_analysis_text(first_draft))}</div>
+        <div class='record-document-preview-box'><div class='record-document-preview-box-title'>{_preview_html_text(analysis_title)}</div>{_preview_html_text(_document_first_analysis_text(first_draft))}</div>
         <div class='record-document-preview-subheading'>2. 교사가 입력한 {_preview_html_text(component_label)}과 실제 장면</div>
         {component_block}
         <div class='record-document-preview-subheading'>3. 교사가 입력한 교사의 지원과 구체 지원</div>
         {support_block}
-        <div class='record-document-preview-subheading'>4. 사진 속 놀이 내용</div>
-        <div class='record-document-preview-body'>{_preview_html_text(output.get('photo_play_content') or '-')}</div>
-        <div class='record-document-preview-subheading'>5. 교사가 관찰한 놀이 상황</div>
-        <div class='record-document-preview-body'>{_preview_html_text(output.get('teacher_observed_situation') or context.get('teacher_observed_situation') or '-')}</div>
+        <div class='record-document-preview-subheading'>{_preview_html_text(source_heading)}</div>
+        <div class='record-document-preview-body'>{_preview_html_text(output.get('photo_play_content') or context.get('daily_life_source_text') or '-')}</div>
+        <div class='record-document-preview-subheading'>{_preview_html_text(final_heading)}</div>
+        <div class='record-document-preview-body'>{_preview_html_text(final_value)}</div>
     """
 
 
@@ -9643,11 +9733,14 @@ def render_record_document_preview(
     output: dict,
     photo_records: list[dict] | None = None,
 ):
-    """다운로드 Word와 같은 순서와 용도로 문서 미리보기를 표시합니다."""
+    """다운로드 Word와 같은 순서·내용을 독립 HTML 문서로 안전하게 미리보기로 표시합니다."""
+    context = context or {}
+    output = output or {}
     output_type = str(context.get("output_type") or output.get("output_type") or "기록")
     age_group = str(context.get("age_group") or "-")
     framework = str(output.get("framework_label") or curriculum_framework_short_label(age_group) or "교육과정 연계")
     created_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+    text_only_daily = _is_text_only_daily_log(context)
 
     if output_type == "알림장":
         examples_html = "".join(
@@ -9658,6 +9751,7 @@ def render_record_document_preview(
         emoji_html = "".join(f"<span class='record-document-preview-emoji-chip'>{html.escape(emoji)}</span>" for emoji in emojis)
         reference_html = _preview_teacher_reference_html(context, first_draft, output, output_type)
         document_html = f"""
+        {_record_document_preview_component_style()}
         <div class='record-document-preview-wrap'>
           <p class='record-document-preview-note'>다운로드되는 Word 문서와 같은 순서·내용으로 구성한 미리보기입니다.</p>
           <article class='record-document-preview-paper'>
@@ -9672,7 +9766,7 @@ def render_record_document_preview(
           </article>
         </div>
         """
-        st.markdown(document_html, unsafe_allow_html=True)
+        components.html(document_html, height=1600, scrolling=True)
         return
 
     metadata_rows = [
@@ -9687,28 +9781,39 @@ def render_record_document_preview(
         f"<tr><th>{_preview_html_text(label)}</th><td>{_preview_html_text(value)}</td></tr>" for label, value in metadata_rows
     )
 
-    image_cards = []
-    for index, record in enumerate(photo_records or [], start=1):
-        signed_url = create_member_photo_signed_url(
-            str(record.get("file_path") or ""),
-            str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
-        )
-        if signed_url:
-            image_cards.append(f"<div class='record-document-preview-photo'><img src='{html.escape(signed_url, quote=True)}' alt='자동 추천 사진 {index}'><span>사진 {index}</span></div>")
-    if image_cards:
-        photo_html = f"<div class='record-document-preview-photo-grid'>{''.join(image_cards)}</div>"
-    else:
-        selected_names = [str(name).strip() for name in context.get("selected_photo_names") or [] if str(name).strip()]
+    if text_only_daily:
         photo_html = (
-            f"<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>{_preview_html_text(chr(10).join('• ' + name for name in selected_names))}</div>"
-            if selected_names else
-            "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>자동 추천 사진 정보가 없습니다.</div>"
+            "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>교사가 입력한 일상생활 장면</div>"
+            + _preview_html_text(context.get("daily_life_source_text") or output.get("photo_play_content") or "-")
+            + "</div><div class='record-document-preview-box green'><div class='record-document-preview-box-title'>기록 방식</div>일상생활만 선택되어 사진을 업로드하지 않고, 교사가 입력한 실제 장면을 바탕으로 기록했습니다.</div>"
         )
+        photo_heading = "일상생활 기록 입력 및 1차 기록"
+        match_html = ""
+    else:
+        image_cards = []
+        for index, record in enumerate(photo_records or [], start=1):
+            signed_url = create_member_photo_signed_url(
+                str(record.get("file_path") or ""),
+                str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
+            )
+            if signed_url:
+                image_cards.append(f"<div class='record-document-preview-photo'><img src='{html.escape(signed_url, quote=True)}' alt='자동 추천 사진 {index}'><span>사진 {index}</span></div>")
+        if image_cards:
+            photo_html = f"<div class='record-document-preview-photo-grid'>{''.join(image_cards)}</div>"
+        else:
+            selected_names = [str(name).strip() for name in context.get("selected_photo_names") or [] if str(name).strip()]
+            photo_html = (
+                f"<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>{_preview_html_text(chr(10).join('• ' + name for name in selected_names))}</div>"
+                if selected_names else
+                "<div class='record-document-preview-box'><div class='record-document-preview-box-title'>자동 추천 사진</div>자동 추천 사진 정보가 없습니다.</div>"
+            )
+        analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
+        match_status = str(analysis.get("photo_match_status") or "-")
+        match_reason = str(analysis.get("photo_match_reason") or "-")
+        match_class = "green" if match_status != "확인 필요" else ""
+        match_html = f"<div class='record-document-preview-box {match_class}'><div class='record-document-preview-box-title'>사진-놀이명 점검 결과</div>상태: {_preview_html_text(match_status)}<br>사유: {_preview_html_text(match_reason)}</div>"
+        photo_heading = "자동 추천 사진 및 사진-놀이명 점검"
 
-    analysis = context.get("photo_analysis") if isinstance(context.get("photo_analysis"), dict) else {}
-    match_status = str(analysis.get("photo_match_status") or "-")
-    match_reason = str(analysis.get("photo_match_reason") or "-")
-    match_class = "green" if match_status != "확인 필요" else ""
     curriculum_rows = [
         (str(item.get("area") or "-"), str(item.get("description") or "-"))
         for item in output.get("curriculum_links") or [] if isinstance(item, dict)
@@ -9730,6 +9835,7 @@ def render_record_document_preview(
         """
 
     document_html = f"""
+    {_record_document_preview_component_style()}
     <div class='record-document-preview-wrap'>
       <p class='record-document-preview-note'>다운로드되는 Word 문서와 같은 순서·내용으로 구성한 미리보기입니다.</p>
       <article class='record-document-preview-paper'>
@@ -9737,10 +9843,9 @@ def render_record_document_preview(
         <div class='record-document-preview-title'>{_preview_html_text(output_type)} 기록 문서</div>
         <div class='record-document-preview-heading'>기록 기본 정보</div>
         <table class='record-document-preview-table metadata'><tbody>{metadata_html}</tbody></table>
-        <div class='record-document-preview-heading'>자동 추천 사진 및 사진-놀이명 점검</div>
+        <div class='record-document-preview-heading'>{_preview_html_text(photo_heading)}</div>
         {photo_html}
-        <div class='record-document-preview-box {match_class}'><div class='record-document-preview-box-title'>사진-놀이명 점검 결과</div>
-          상태: {_preview_html_text(match_status)}<br>사유: {_preview_html_text(match_reason)}</div>
+        {match_html}
         <div class='record-document-preview-heading'>{_preview_html_text(framework)}</div>
         {curriculum_html}
         {final_html}
@@ -9749,7 +9854,7 @@ def render_record_document_preview(
       </article>
     </div>
     """
-    st.markdown(document_html, unsafe_allow_html=True)
+    components.html(document_html, height=1800, scrolling=True)
 
 
 
@@ -9850,25 +9955,47 @@ with tab2:
             teacher_support_notes = {}
             st.caption("선택한 일상생활·놀이·활동 장면마다 실제로 관찰한 내용을 입력해 주세요. 입력 내용은 교육과정 연계, 영유아 관찰 및 평가, 보육일지 기록 예시에 반영됩니다.")
 
-        st.markdown("### 2. 사진 등록 및 자동 추천")
-        uploaded_play_photos = st.file_uploader(
-            "놀이 사진 등록",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=True,
-            key="wizard_play_photo_uploader",
-            help="최대 20장까지 올릴 수 있으며, 사진 선별 도구가 그중 3~5장을 추천합니다.",
-        )
-        recommendation_count = st.slider("AI 분석할 추천 사진 수", min_value=3, max_value=5, value=3, key="wizard_recommendation_count")
-        photo_analysis_agree = st.checkbox(
-            "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 자동 추천된 사진 원본은 비공개 Supabase Storage에 저장되며, 내 정보 보기에서 본인이 직접 삭제할 수 있습니다.",
-            key="wizard_photo_analysis_agree",
-        )
+        diary_requires_photos = record_type == "일지" and any(item in {"놀이", "활동"} for item in play_subcategories)
+        uses_photo_analysis = record_type != "일지" or diary_requires_photos
+        daily_life_source_text = ""
+        uploaded_play_photos = []
+        recommendation_count = 3
+        photo_analysis_agree = True
 
-        if st.button("사진 자동 추천 및 1차 정보 만들기", key="wizard_start_analysis"):
+        if not uses_photo_analysis:
+            st.markdown("### 2. 일상생활 기록 입력")
+            daily_life_source_text = st.text_area(
+                "일상생활 장면 작성 (필수)",
+                placeholder="예: 점심시간에 스스로 숟가락을 잡고 반찬을 살펴본 뒤, 더 먹고 싶은 음식을 짧은 말과 몸짓으로 표현했습니다.",
+                height=150,
+                key="wizard_daily_life_source_text",
+                help="일상생활만 선택한 일지는 사진을 업로드하지 않습니다. 실제로 관찰한 일과 장면을 문장으로 적어 주세요.",
+            )
+            st.caption("일상생활만 선택한 경우에는 사진 업로드 없이 교사가 작성한 실제 장면을 바탕으로 1차 기록을 만듭니다.")
+            analysis_start_label = "일상생활 1차 기록 만들기"
+            analysis_loading_message = "교사가 입력한 일상생활 장면을 바탕으로 1차 기록을 정리하고 있습니다."
+        else:
+            st.markdown("### 2. 사진 등록 및 자동 추천")
+            uploaded_play_photos = st.file_uploader(
+                "놀이 사진 등록",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key="wizard_play_photo_uploader",
+                help="최대 20장까지 올릴 수 있으며, 사진 선별 도구가 그중 3~5장을 추천합니다.",
+            )
+            recommendation_count = st.slider("AI 분석할 추천 사진 수", min_value=3, max_value=5, value=3, key="wizard_recommendation_count")
+            photo_analysis_agree = st.checkbox(
+                "사진 속 영유아의 보호자 동의와 기관의 사진 활용 지침을 확인했습니다. 자동 추천된 사진 원본은 비공개 Supabase Storage에 저장되며, 내 정보 보기에서 본인이 직접 삭제할 수 있습니다.",
+                key="wizard_photo_analysis_agree",
+            )
+            analysis_start_label = "사진 자동 추천 및 1차 정보 만들기"
+            analysis_loading_message = "사진을 선별하고 비공개로 저장한 뒤, 놀이 장면을 분석하고 있습니다."
+
+        if st.button(analysis_start_label, key="wizard_start_analysis"):
             missing_detail_notes = [option for option in play_subcategories if not _as_note_dict(play_subcategory_notes).get(option, "").strip()]
             missing_support_notes = [option for option in teacher_supports if not _as_note_dict(teacher_support_notes).get(option, "").strip()]
             if not play_name.strip():
-                st.warning("놀이명을 입력해 주세요.")
+                st.warning("놀이명 또는 기록명을 입력해 주세요.")
             elif age_group == "- 선택 -":
                 st.warning("연령을 선택해 주세요.")
             elif not child_alias.strip():
@@ -9890,13 +10017,15 @@ with tab2:
                 st.warning(f"선택한 {detail_label}의 실제 장면 설명을 모두 입력해 주세요: " + ", ".join(missing_detail_notes))
             elif record_type == "놀이 이야기" and missing_support_notes:
                 st.warning("선택한 교사의 지원의 구체 지원 내용을 모두 입력해 주세요: " + ", ".join(missing_support_notes))
-            elif not uploaded_play_photos:
-                st.warning("놀이 사진을 한 장 이상 등록해 주세요.")
-            elif len(uploaded_play_photos) < MIN_RECOMMENDED_PLAY_PHOTO_COUNT:
+            elif not uses_photo_analysis and not daily_life_source_text.strip():
+                st.warning("일상생활 장면을 실제 관찰 내용으로 입력해 주세요.")
+            elif uses_photo_analysis and not uploaded_play_photos:
+                st.warning("놀이 또는 활동을 선택한 일지는 사진을 한 장 이상 등록해 주세요.")
+            elif uses_photo_analysis and len(uploaded_play_photos) < MIN_RECOMMENDED_PLAY_PHOTO_COUNT:
                 st.warning(f"사진 자동 추천·분석은 최소 {MIN_RECOMMENDED_PLAY_PHOTO_COUNT}장부터 진행합니다.")
-            elif len(uploaded_play_photos) > MAX_PLAY_UPLOAD_COUNT:
+            elif uses_photo_analysis and len(uploaded_play_photos) > MAX_PLAY_UPLOAD_COUNT:
                 st.warning(f"사진은 한 번에 최대 {MAX_PLAY_UPLOAD_COUNT}장까지 업로드할 수 있습니다.")
-            elif not photo_analysis_agree:
+            elif uses_photo_analysis and not photo_analysis_agree:
                 st.warning("사진 활용 확인에 동의한 뒤 진행해 주세요.")
             else:
                 context = {
@@ -9910,17 +10039,16 @@ with tab2:
                     "play_subcategory_notes": play_subcategory_notes,
                     "teacher_supports": teacher_supports,
                     "teacher_support_notes": teacher_support_notes,
+                    "uses_photo_analysis": uses_photo_analysis,
+                    "daily_life_source_text": daily_life_source_text.strip() if not uses_photo_analysis else "",
                     "teacher_observed_situation": "",
+                    "parent_delivery_message": "",
                     "next_play_support_plan": "",
                 }
                 session_id = ""
                 analysis_completed = False
                 try:
-                    with witti_hourglass_loading("사진을 선별하고 비공개로 저장한 뒤, 놀이 장면을 분석하고 있습니다."):
-                        recommended_files, quality_scores = select_recommended_play_photos(
-                            uploaded_play_photos,
-                            recommendation_count,
-                        )
+                    with witti_hourglass_loading(analysis_loading_message):
                         session = create_play_session(
                             current_member_user_id(),
                             play_name,
@@ -9936,18 +10064,27 @@ with tab2:
                             teacher_support_notes=teacher_support_notes,
                         )
                         session_id = str(session.get("session_id") or "")
-                        stored_records = store_play_photos(
-                            recommended_files,
-                            current_member_user_id(),
-                            session_id,
-                            child_alias,
-                            quality_scores,
-                        )
-                        analysis = merge_photo_analysis_with_teacher_inputs(
-                            analyze_play_photos(recommended_files, context),
-                            context,
-                        )
-                        attach_photo_analysis_to_records(stored_records, analysis)
+                        stored_records = []
+                        recommended_files = []
+                        if uses_photo_analysis:
+                            recommended_files, quality_scores = select_recommended_play_photos(
+                                uploaded_play_photos,
+                                recommendation_count,
+                            )
+                            stored_records = store_play_photos(
+                                recommended_files,
+                                current_member_user_id(),
+                                session_id,
+                                child_alias,
+                                quality_scores,
+                            )
+                            analysis = merge_photo_analysis_with_teacher_inputs(
+                                analyze_play_photos(recommended_files, context),
+                                context,
+                            )
+                            attach_photo_analysis_to_records(stored_records, analysis)
+                        else:
+                            analysis = build_text_only_daily_life_analysis(context)
                         update_play_session_analysis(session_id, analysis)
 
                     context["photo_analysis"] = analysis
@@ -9957,6 +10094,7 @@ with tab2:
                     st.session_state["wizard_analysis_result"] = analysis
                     st.session_state["wizard_initial_draft"] = analysis.get("draft") or ""
                     st.session_state["wizard_teacher_observed_situation"] = ""
+                    st.session_state["wizard_parent_delivery_message"] = ""
                     st.session_state["wizard_next_play_support_plan"] = ""
                     st.session_state.pop("wizard_final_output", None)
                     st.session_state.pop("wizard_completed_snapshot", None)
@@ -9971,77 +10109,118 @@ with tab2:
                     st.error("사진 추천·저장 또는 1차 분석을 완료하지 못했습니다.")
                     st.caption(str(exc))
                 if analysis_completed:
-                    # 분석 결과와 입력 맥락은 별도 session_state에 보존하고, 상단 입력폼만 비웁니다.
-                    st.session_state["_wizard_clear_entry_after_analysis"] = True
-                    st.success(f"사진 {len(recommended_files)}장을 자동 추천하고 1차 정보를 만들었습니다.")
+                    # 1차 분석을 마친 뒤에는 아직 기록이 완성된 것이 아니므로, 입력값을 유지합니다.
+                    # 사용자가 다른 메뉴를 다녀와도 수정·보완을 계속할 수 있고, 최종 기록 생성 성공 뒤에만 정리합니다.
+                    st.success("사진 1차 분석을 만들었습니다." if uses_photo_analysis else "일상생활 1차 기록을 만들었습니다.")
                     st.rerun()
 
         analysis = st.session_state.get("wizard_analysis_result") or {}
         context = st.session_state.get("wizard_context") or {}
         if analysis and context:
-            st.markdown("### 3. 사진에 대한 1차 분석 결과")
+            text_only_daily = _is_text_only_daily_log(context)
+            output_type_for_step = str(context.get("output_type") or "")
+            stage_title = "일상생활 1차 기록 결과" if text_only_daily else "사진에 대한 1차 분석 결과"
+            st.markdown(f"### 3. {stage_title}")
             selected_names = st.session_state.get("wizard_selected_photo_names") or []
-            st.caption("자동 추천 사진: " + ", ".join(selected_names))
+            if selected_names:
+                st.caption("자동 추천 사진: " + ", ".join(selected_names))
+            elif text_only_daily:
+                st.caption("사진을 사용하지 않고 교사가 입력한 일상생활 장면을 바탕으로 1차 기록을 만들었습니다.")
 
-            photo_match_status = _normalize_photo_match_status(analysis.get("photo_match_status"))
-            photo_match_reason = str(analysis.get("photo_match_reason") or "").strip()
-            if photo_match_status == "확인 필요":
-                st.warning(
-                    "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. 사진 또는 놀이명을 다시 확인해 주세요.\n\n"
-                    + (photo_match_reason or "사진 속 핵심 자료·행동을 다시 확인해 주세요.")
-                )
-            elif photo_match_status == "판단 어려움":
-                st.info(
-                    "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. 사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
-                    + (photo_match_reason or "사진 속 핵심 자료·행동이 일부만 보입니다.")
-                )
+            if text_only_daily:
+                st.info("일상생활만 선택된 일지이므로 사진-놀이명 점검을 표시하지 않습니다.")
             else:
-                st.success("입력한 놀이명과 자동 추천 사진의 주요 장면이 대체로 일치합니다.")
+                photo_match_status = _normalize_photo_match_status(analysis.get("photo_match_status"))
+                photo_match_reason = str(analysis.get("photo_match_reason") or "").strip()
+                if photo_match_status == "확인 필요":
+                    st.warning(
+                        "입력한 놀이명과 사진의 주요 장면이 충분히 일치하지 않을 수 있습니다. 사진 또는 놀이명을 다시 확인해 주세요.\n\n"
+                        + (photo_match_reason or "사진 속 핵심 자료·행동을 다시 확인해 주세요.")
+                    )
+                elif photo_match_status == "판단 어려움":
+                    st.info(
+                        "사진과 놀이명의 일치 여부를 충분히 판단하기 어려운 장면이 있습니다. 사진과 놀이명을 한 번 더 확인한 뒤 기록을 수정해 주세요.\n\n"
+                        + (photo_match_reason or "사진 속 핵심 자료·행동이 일부만 보입니다.")
+                    )
+                else:
+                    st.success("입력한 놀이명과 자동 추천 사진의 주요 장면이 대체로 일치합니다.")
+                if analysis.get("ai_caption"):
+                    st.info(analysis.get("ai_caption"))
 
-            if analysis.get("ai_caption"):
-                st.info(analysis.get("ai_caption"))
             st.text_area(
-                "사진에 대한 1차 분석 결과 (교사가 수정 가능)",
+                "일상생활 1차 기록 결과 (교사가 수정 가능)" if text_only_daily else "사진에 대한 1차 분석 결과 (교사가 수정 가능)",
                 height=210,
                 key="wizard_initial_draft",
-                help="사진 분석으로 만든 초안입니다. 실제 관찰 내용과 기관의 기록 원칙에 맞게 교사가 수정해 주세요.",
+                help="자동으로 만든 초안입니다. 실제 관찰 내용과 기관의 기록 원칙에 맞게 교사가 수정해 주세요.",
             )
-            if "wizard_teacher_observed_situation" not in st.session_state and context.get("teacher_observed_situation"):
-                st.session_state["wizard_teacher_observed_situation"] = str(context.get("teacher_observed_situation") or "")
-            if "wizard_next_play_support_plan" not in st.session_state and context.get("next_play_support_plan"):
-                st.session_state["wizard_next_play_support_plan"] = str(context.get("next_play_support_plan") or "")
-            teacher_observed_situation = st.text_area(
-                "교사가 관찰한 놀이 상황 (필수 입력)",
-                placeholder="예: 영아들이 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다.",
-                height=120,
-                key="wizard_teacher_observed_situation",
-                help="사진에서 확인한 장면에 교사가 실제로 관찰한 놀이 흐름, 말과 행동, 관계 장면을 적어 주세요.",
-            )
-            next_play_support_plan = st.text_area(
-                "다음 놀이 지원 계획 (선택)",
-                placeholder="예: 가격표와 메뉴판을 추가로 제공해 가게 놀이가 글자와 수 개념 탐색으로 이어지도록 지원합니다.",
-                height=100,
-                key="wizard_next_play_support_plan",
-                help="입력하면 최종 결과에 교사가 작성한 문장을 그대로 표시합니다. 입력하지 않으면 결과에 표시하지 않습니다.",
-            )
-            if st.button("교사가 관찰한 놀이 상황을 반영해 최종 기록 생성", key="wizard_regenerate"):
+
+            if output_type_for_step == "알림장":
+                if "wizard_parent_delivery_message" not in st.session_state and context.get("parent_delivery_message"):
+                    st.session_state["wizard_parent_delivery_message"] = str(context.get("parent_delivery_message") or "")
+                required_input_value = st.text_area(
+                    "보호자에게 꼭 전달해야 하는 내용 (필수 입력)",
+                    placeholder="아이의 건강 상태, 아이의 하루 기분, 친구와의 상황, 내일의 준비물 또는 현장학습 등 일정 안내를 작성해 주세요.",
+                    height=130,
+                    key="wizard_parent_delivery_message",
+                    help="알림장에 반드시 포함되어야 하는 전달 사항을 적어 주세요. 입력한 내용은 보호자에게 전달하는 문구에 반영됩니다.",
+                )
+                required_input_label = "보호자에게 꼭 전달해야 하는 내용"
+                next_play_support_plan = ""
+                action_label = "보호자에게 전달할 내용을 반영해 알림장 생성"
+                loading_message = "사진 1차 분석 결과와 보호자에게 전달할 내용을 반영해 알림장을 만들고 있습니다."
+            else:
+                if "wizard_teacher_observed_situation" not in st.session_state and context.get("teacher_observed_situation"):
+                    st.session_state["wizard_teacher_observed_situation"] = str(context.get("teacher_observed_situation") or "")
+                observation_label = "교사가 관찰한 일상생활 상황 (필수 입력)" if text_only_daily else "교사가 관찰한 놀이 상황 (필수 입력)"
+                observation_placeholder = (
+                    "예: 점심시간에 스스로 숟가락을 잡고 반찬을 살펴본 뒤, 더 먹고 싶은 음식을 짧은 말과 몸짓으로 표현했습니다."
+                    if text_only_daily else
+                    "예: 영아들이 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다."
+                )
+                required_input_value = st.text_area(
+                    observation_label,
+                    placeholder=observation_placeholder,
+                    height=120,
+                    key="wizard_teacher_observed_situation",
+                    help="사진 또는 실제 일과 장면에 더해 교사가 직접 확인한 흐름, 말과 행동, 관계 장면을 적어 주세요.",
+                )
+                required_input_label = "교사가 관찰한 일상생활 상황" if text_only_daily else "교사가 관찰한 놀이 상황"
+                if "wizard_next_play_support_plan" not in st.session_state and context.get("next_play_support_plan"):
+                    st.session_state["wizard_next_play_support_plan"] = str(context.get("next_play_support_plan") or "")
+                next_play_support_plan = st.text_area(
+                    "다음 놀이 지원 계획 (선택)",
+                    placeholder="예: 가격표와 메뉴판을 추가로 제공해 가게 놀이가 글자와 수 개념 탐색으로 이어지도록 지원합니다.",
+                    height=100,
+                    key="wizard_next_play_support_plan",
+                    help="입력하면 최종 결과에 교사가 작성한 문장을 그대로 표시합니다. 입력하지 않으면 결과에 표시하지 않습니다.",
+                )
+                action_label = "교사가 작성한 내용을 반영해 최종 기록 생성"
+                loading_message = "1차 기록 결과와 교사가 직접 입력한 내용을 반영해 최종 기록을 만들고 있습니다."
+
+            if st.button(action_label, key="wizard_regenerate"):
                 edited_draft = str(st.session_state.get("wizard_initial_draft") or "").strip()
                 if not edited_draft:
-                    st.warning("사진에 대한 1차 분석 결과를 확인하고 수정해 주세요.")
-                elif not teacher_observed_situation.strip():
-                    st.warning("교사가 관찰한 놀이 상황은 필수 입력입니다.")
+                    st.warning(f"{stage_title}를 확인하고 수정해 주세요.")
+                elif not required_input_value.strip():
+                    st.warning(f"{required_input_label}은 필수 입력입니다.")
                 else:
                     final_generation_completed = False
                     try:
-                        context["teacher_observed_situation"] = teacher_observed_situation.strip()
-                        context["next_play_support_plan"] = next_play_support_plan.strip()
+                        if output_type_for_step == "알림장":
+                            context["parent_delivery_message"] = required_input_value.strip()
+                            # 기존 DB 컬럼과의 호환을 위해 같은 원문을 저장하되, 화면 문구는 알림장 전달 내용으로 사용합니다.
+                            context["teacher_observed_situation"] = required_input_value.strip()
+                            context["next_play_support_plan"] = ""
+                        else:
+                            context["teacher_observed_situation"] = required_input_value.strip()
+                            context["next_play_support_plan"] = next_play_support_plan.strip()
                         st.session_state["wizard_context"] = context
                         update_play_session_teacher_context(
                             str(st.session_state.get("wizard_session_id") or ""),
-                            teacher_observed_situation,
-                            next_play_support_plan,
+                            str(context.get("teacher_observed_situation") or ""),
+                            str(context.get("next_play_support_plan") or ""),
                         )
-                        with witti_hourglass_loading("사진 1차 분석 결과와 교사의 관찰을 반영해 과정형 기록을 만들고 있습니다."):
+                        with witti_hourglass_loading(loading_message):
                             output = generate_final_play_record(context, edited_draft)
                             save_generated_text(
                                 str(st.session_state.get("wizard_session_id") or ""),
@@ -10060,13 +10239,14 @@ with tab2:
                             session_id=str(st.session_state.get("wizard_session_id") or ""),
                         )
                         st.session_state["wizard_final_output"] = output
+                        # 실제 최종 기록 생성에 성공한 경우에만 작성 중 캐시를 정리합니다.
                         st.session_state["_wizard_clear_after_final"] = True
                         final_generation_completed = True
                     except Exception as exc:
                         st.error("최종 기록을 만들지 못했습니다.")
                         st.caption(str(exc))
                     if final_generation_completed:
-                        st.success("사진 분석, 교사 관찰, 교육과정 연계, 종합 기록을 생성했습니다.")
+                        st.success("최종 기록을 생성했습니다. 작성 중이던 입력값은 다음 기록을 위해 초기화되었습니다.")
                         st.rerun()
 
         completed_snapshot = st.session_state.get("wizard_completed_snapshot") or {}
@@ -10120,7 +10300,7 @@ with tab2:
                     mime=WORD_MIME_TYPE,
                     key="wizard_record_download_docx",
                 )
-                st.caption("자동 추천 사진은 용량을 줄인 뒤 Word 문서에 한 줄 3장씩 배치됩니다. 아래 미리보기의 내용·사진 배열을 확인한 뒤 내려받으세요.")
+                st.caption("사진을 사용한 기록은 자동 추천 사진을 용량 조정 후 Word 문서에 한 줄 3장씩 배치합니다. 일상생활만 선택한 일지는 사진 없이 교사 입력 장면으로 문서를 만듭니다.")
             except Exception as exc:
                 st.error("Word 문서를 만들지 못했습니다. requirements.txt에 python-docx가 설치되어 있는지 확인해 주세요.")
                 st.caption(str(exc))
