@@ -7037,7 +7037,7 @@ def _render_member_management_window_content():
         st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
         return
 
-    st.caption("아이디와 로그인 이메일은 계정 보안을 위해 이 창에서 변경하지 않습니다. 이메일 변경은 관리자 문의로 처리합니다.")
+    st.caption("아이디와 로그인 이메일은 계정 보안을 위해 이 창에서 변경할 수 없습니다. 현재 이메일 변경 기능은 제공되지 않습니다.")
     st.markdown(
         f"**아이디**  {profile.get('username') or profile.get('platform_member_id') or '-'}  ·  "
         f"**이메일**  {profile.get('email') or current_member_email() or '-'}"
