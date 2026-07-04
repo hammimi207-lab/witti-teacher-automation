@@ -3135,6 +3135,105 @@ def delete_member_photo(photo_id: int, user_id: str) -> bool:
     return True
 
 
+
+def _member_record_id_or_none(value) -> int | None:
+    """DB 행 ID를 안전하게 정수로 바꿉니다."""
+    try:
+        record_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return record_id if record_id > 0 else None
+
+
+def delete_member_generated_records(record_ids: list, user_id: str) -> tuple[list[int], list[str]]:
+    """선택한 최종 생성 결과만 영구 삭제합니다.
+
+    원본 사진과 놀이 세션은 자동으로 삭제하지 않습니다. 사진은 회원이 사진 관리 탭에서
+    따로 선택해 삭제하도록 분리해, 한 번의 기록 삭제가 사진 원본까지 지우지 않게 합니다.
+    """
+    if not user_id:
+        raise PermissionError("생성 기록을 삭제하려면 로그인해 주세요.")
+
+    normalized_ids: list[int] = []
+    for value in record_ids or []:
+        record_id = _member_record_id_or_none(value)
+        if record_id is not None and record_id not in normalized_ids:
+            normalized_ids.append(record_id)
+
+    deleted_ids: list[int] = []
+    errors: list[str] = []
+    for record_id in normalized_ids:
+        try:
+            owned_rows = _response_data(
+                supabase.table("generated_texts")
+                .select("id")
+                .eq("id", record_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if not owned_rows:
+                errors.append(f"#{record_id}: 삭제 권한이 없거나 이미 삭제된 기록입니다.")
+                continue
+
+            (
+                supabase.table("generated_texts")
+                .delete()
+                .eq("id", record_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            deleted_ids.append(record_id)
+        except Exception as exc:
+            errors.append(f"#{record_id}: {exc}")
+    return deleted_ids, errors
+
+
+def delete_member_photos_bulk(photo_ids: list, user_id: str) -> tuple[list[int], list[str]]:
+    """여러 장의 비공개 사진을 한 번에 영구 삭제합니다.
+
+    각 사진은 기존 delete_member_photo()를 사용하므로, Storage 원본과 photo_records 연결
+    정보를 함께 삭제하면서도 회원 소유권 검증은 그대로 유지됩니다.
+    """
+    if not user_id:
+        raise PermissionError("사진을 삭제하려면 로그인해 주세요.")
+
+    normalized_ids: list[int] = []
+    for value in photo_ids or []:
+        photo_id = _member_record_id_or_none(value)
+        if photo_id is not None and photo_id not in normalized_ids:
+            normalized_ids.append(photo_id)
+
+    deleted_ids: list[int] = []
+    errors: list[str] = []
+    for photo_id in normalized_ids:
+        try:
+            delete_member_photo(photo_id, user_id)
+            deleted_ids.append(photo_id)
+        except Exception as exc:
+            errors.append(f"#{photo_id}: {exc}")
+    return deleted_ids, errors
+
+
+def _sync_member_bulk_delete_confirmation(state_prefix: str, selected_ids: list[int]) -> str:
+    """선택 대상이 바뀌면 영구 삭제 확인 체크를 다시 요구합니다."""
+    signature = "|".join(str(item) for item in sorted(set(selected_ids or [])))
+    signature_key = f"{state_prefix}_selection_signature"
+    confirm_key = f"{state_prefix}_confirm"
+    if st.session_state.get(signature_key) != signature:
+        st.session_state[signature_key] = signature
+        st.session_state[confirm_key] = False
+    return confirm_key
+
+
+def _clear_member_bulk_delete_state(state_prefix: str, item_ids: list[int]):
+    """삭제 뒤 선택 체크와 확인 상태가 다음 목록에 남지 않게 정리합니다."""
+    for item_id in item_ids or []:
+        st.session_state.pop(f"{state_prefix}_select_{item_id}", None)
+    st.session_state.pop(f"{state_prefix}_confirm", None)
+    st.session_state.pop(f"{state_prefix}_selection_signature", None)
+
+
 def delete_all_member_photos(user_id: str):
     """회원 계정 영구 삭제 전에 해당 회원의 사진 원본과 메타데이터를 모두 정리합니다."""
     if not user_id:
@@ -6253,6 +6352,31 @@ st.markdown(
     .member-work-card-preview {
         color:#344054; font-size:14px; line-height:1.76; word-break:keep-all; overflow-wrap:break-word;
     }
+    .member-bulk-delete-note {
+        margin:16px 0 8px;
+        padding:13px 14px;
+        border:1px solid #F3C7CC;
+        border-radius:14px;
+        background:#FFF7F8;
+        color:#8A1C26;
+        font-size:13px;
+        font-weight:750;
+        line-height:1.65;
+    }
+    div[class*="st-key-member_generated_delete_select_"],
+    div[class*="st-key-member_photo_bulk_delete_select_"] {
+        margin-top:13px;
+    }
+    div[class*="st-key-member_generated_delete_action"] button,
+    div[class*="st-key-member_photo_bulk_delete_action"] button {
+        background:linear-gradient(135deg,#9C1C29 0%,#B42318 58%,#C4332C 100%) !important;
+        border-color:#9C1C29 !important;
+    }
+    div[class*="st-key-member_generated_delete_action"] button:hover,
+    div[class*="st-key-member_photo_bulk_delete_action"] button:hover {
+        background:linear-gradient(135deg,#7A111C 0%,#971C18 58%,#B42318 100%) !important;
+        border-color:#7A111C !important;
+    }
     @media (max-width:768px) {
         .member-work-feed-head { align-items:flex-start; flex-direction:column; gap:5px; }
         .member-work-card { padding:14px; border-radius:14px; }
@@ -6670,19 +6794,38 @@ def update_member_profile_basic_information(user_id: str, payload: dict):
 
 
 def _render_member_profile_photo_manager(user_id: str):
-    """기존 검증된 private Storage 사진 삭제 함수를 마이페이지 모달 안에 재사용합니다."""
-    st.caption("사진 원본은 비공개 Storage에 보관됩니다. 삭제하면 원본 파일과 연결 정보가 함께 영구 삭제됩니다.")
+    """사진을 체크해 한 번에 영구 삭제하는 마이페이지 사진 관리 화면입니다."""
+    flash = st.session_state.pop("member_photo_bulk_delete_flash", None)
+    if isinstance(flash, dict):
+        if flash.get("deleted_count"):
+            st.success(f"선택한 사진 {flash['deleted_count']}장을 영구 삭제했습니다.")
+        if flash.get("errors"):
+            st.warning("일부 사진은 삭제하지 못했습니다. " + " / ".join(flash["errors"][:3]))
+
+    st.caption("사진 원본은 비공개 Storage에 보관됩니다. 체크한 사진은 원본 파일과 연결 정보가 함께 영구 삭제되며 복구할 수 없습니다.")
     photo_df = load_member_photo_records(user_id)
     if photo_df.empty:
         st.info("현재 보관된 업로드 사진이 없습니다.")
         return
 
     records = _format_kst_datetime_column(photo_df).to_dict("records")
+    selected_photo_ids: list[int] = []
     for row_index in range(0, len(records), 2):
         columns = st.columns(2)
         for column, record in zip(columns, records[row_index:row_index + 2]):
             with column:
-                photo_id = record.get("id")
+                photo_id = _member_record_id_or_none(record.get("id"))
+                if photo_id is None:
+                    st.warning("사진 식별 정보를 읽지 못해 삭제 선택을 표시할 수 없습니다.")
+                else:
+                    selected = st.checkbox(
+                        "삭제 선택",
+                        key=f"member_photo_bulk_delete_select_{photo_id}",
+                        help="선택한 사진은 아래의 일괄 삭제 버튼으로 영구 삭제할 수 있습니다.",
+                    )
+                    if selected:
+                        selected_photo_ids.append(photo_id)
+
                 signed_url = create_member_photo_signed_url(
                     str(record.get("file_path") or ""),
                     str(record.get("storage_bucket") or PLAY_PHOTO_BUCKET),
@@ -6695,29 +6838,32 @@ def _render_member_profile_photo_manager(user_id: str):
                 if record.get("play_title"):
                     st.caption(f"연결 놀이: {record.get('play_title')}")
 
-                request_key = f"member_modal_photo_delete_request_{photo_id}"
-                if st.button("사진 삭제", key=f"member_modal_photo_delete_button_{photo_id}", use_container_width=True):
-                    st.session_state[request_key] = True
-                if st.session_state.get(request_key):
-                    confirmed = st.checkbox(
-                        "사진 원본과 연결 정보가 영구 삭제되는 것을 확인했습니다.",
-                        key=f"member_modal_photo_delete_confirm_{photo_id}",
-                    )
-                    if st.button(
-                        "사진 영구 삭제",
-                        key=f"member_modal_photo_delete_confirm_button_{photo_id}",
-                        disabled=not confirmed,
-                        use_container_width=True,
-                    ):
-                        try:
-                            # 기존 코드의 권한 검증 + Storage 원본 삭제 + DB 연결 정보 삭제를 그대로 사용합니다.
-                            delete_member_photo(int(photo_id), user_id)
-                            st.session_state.pop(request_key, None)
-                            st.success("사진 원본과 연결 정보를 영구 삭제했습니다.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error("사진을 삭제하지 못했습니다.")
-                            st.caption(str(exc))
+    if not selected_photo_ids:
+        return
+
+    confirm_key = _sync_member_bulk_delete_confirmation("member_photo_bulk_delete", selected_photo_ids)
+    st.markdown(
+        f"<div class='member-bulk-delete-note'>⚠️ 선택한 <strong>{len(selected_photo_ids)}장</strong>의 사진 원본과 연결 정보가 영구 삭제됩니다. 삭제 후에는 복구할 수 없습니다.</div>",
+        unsafe_allow_html=True,
+    )
+    confirmed = st.checkbox(
+        "선택한 사진을 영구 삭제하는 내용을 확인했습니다.",
+        key=confirm_key,
+    )
+    if st.button(
+        f"🗑️ 선택한 사진 {len(selected_photo_ids)}장 영구 삭제",
+        key="member_photo_bulk_delete_action",
+        disabled=not confirmed,
+        use_container_width=True,
+    ):
+        with witti_hourglass_loading("선택한 사진을 영구 삭제하고 있습니다."):
+            deleted_ids, errors = delete_member_photos_bulk(selected_photo_ids, user_id)
+        _clear_member_bulk_delete_state("member_photo_bulk_delete", selected_photo_ids)
+        st.session_state["member_photo_bulk_delete_flash"] = {
+            "deleted_count": len(deleted_ids),
+            "errors": errors,
+        }
+        st.rerun()
 
 
 def _member_work_preview_text(value, max_length: int = 260) -> str:
@@ -6756,11 +6902,14 @@ def _member_generated_work_title(record: dict, session: dict | None) -> str:
 
 
 def _render_member_generated_work_feed(user_id: str):
-    """마이페이지 첫 탭에 저장된 생성 결과를 게시물형 목록으로 보여 줍니다.
+    """마이페이지 첫 탭에 저장된 생성 결과를 게시물형 목록과 선택 삭제 기능으로 보여 줍니다."""
+    flash = st.session_state.pop("member_generated_delete_flash", None)
+    if isinstance(flash, dict):
+        if flash.get("deleted_count"):
+            st.success(f"선택한 생성 기록 {flash['deleted_count']}건을 영구 삭제했습니다.")
+        if flash.get("errors"):
+            st.warning("일부 기록은 삭제하지 못했습니다. " + " / ".join(flash["errors"][:3]))
 
-    generated_texts는 최종 생성에 성공한 결과만 저장하므로, 입력 중이던 초안이나 실패한 작업은
-    이 목록에 섞이지 않습니다. 세션 정보는 DB를 수정하지 않고 화면에서만 연결합니다.
-    """
     texts_df = load_member_generated_texts(user_id)
     st.markdown(
         """
@@ -6781,9 +6930,11 @@ def _render_member_generated_work_feed(user_id: str):
 
     sessions_by_id = _member_generated_work_session_map(user_id)
     records = _format_kst_datetime_column(texts_df).to_dict("records")
-    st.caption(f"총 {len(records)}건의 생성 결과가 저장되어 있습니다.")
+    st.caption(f"총 {len(records)}건의 생성 결과가 저장되어 있습니다. 삭제할 게시물을 체크한 뒤 아래의 휴지통 버튼을 사용해 주세요.")
 
+    selected_record_ids: list[int] = []
     for index, record in enumerate(records, start=1):
+        record_id = _member_record_id_or_none(record.get("id"))
         session = sessions_by_id.get(str(record.get("session_id") or "").strip(), {})
         title = _member_generated_work_title(record, session)
         output_type = str(record.get("output_type") or "기록").strip() or "기록"
@@ -6797,29 +6948,68 @@ def _render_member_generated_work_feed(user_id: str):
             metadata.append(age_group)
         preview = _member_work_preview_text(record.get("result_text") or record.get("edited_text") or record.get("source_text") or "")
 
-        st.markdown(
-            f"""
-            <article class='member-work-card'>
-              <div class='member-work-card-top'>
-                <div class='member-work-card-title'>{html.escape(title)}</div>
-                <div class='member-work-card-badge'>{html.escape(output_type)}</div>
-              </div>
-              <div class='member-work-card-meta'>{html.escape(' · '.join(metadata))}</div>
-              <div class='member-work-card-preview'>{html.escape(preview)}</div>
-            </article>
-            """,
-            unsafe_allow_html=True,
-        )
-        with st.expander(f"{index}. 생성 결과 자세히 보기", expanded=False):
-            st.markdown("**최종 생성 결과**")
-            st.write(str(record.get("result_text") or "생성 결과가 저장되지 않았습니다."))
-            if str(record.get("edited_text") or "").strip():
-                with st.expander("교사가 수정한 1차 기록 보기", expanded=False):
-                    st.write(str(record.get("edited_text") or ""))
+        select_col, card_col = st.columns([0.14, 0.86])
+        with select_col:
+            if record_id is None:
+                st.caption("삭제 불가")
+            else:
+                selected = st.checkbox(
+                    "삭제 선택",
+                    key=f"member_generated_delete_select_{record_id}",
+                    help="선택한 생성 기록은 아래의 일괄 삭제 버튼으로 영구 삭제할 수 있습니다.",
+                )
+                if selected:
+                    selected_record_ids.append(record_id)
+        with card_col:
+            st.markdown(
+                f"""
+                <article class='member-work-card'>
+                  <div class='member-work-card-top'>
+                    <div class='member-work-card-title'>{html.escape(title)}</div>
+                    <div class='member-work-card-badge'>{html.escape(output_type)}</div>
+                  </div>
+                  <div class='member-work-card-meta'>{html.escape(' · '.join(metadata))}</div>
+                  <div class='member-work-card-preview'>{html.escape(preview)}</div>
+                </article>
+                """,
+                unsafe_allow_html=True,
+            )
+            with st.expander(f"{index}. 생성 결과 자세히 보기", expanded=False):
+                st.markdown("**최종 생성 결과**")
+                st.write(str(record.get("result_text") or "생성 결과가 저장되지 않았습니다."))
+                if str(record.get("edited_text") or "").strip():
+                    with st.expander("교사가 수정한 1차 기록 보기", expanded=False):
+                        st.write(str(record.get("edited_text") or ""))
 
-            st.markdown("**Word 문서**")
-            _render_member_generated_work_word_download(user_id, record, session)
+                st.markdown("**Word 문서**")
+                _render_member_generated_work_word_download(user_id, record, session)
 
+    if not selected_record_ids:
+        return
+
+    confirm_key = _sync_member_bulk_delete_confirmation("member_generated_delete", selected_record_ids)
+    st.markdown(
+        f"<div class='member-bulk-delete-note'>⚠️ 선택한 <strong>{len(selected_record_ids)}건</strong>의 생성 결과가 영구 삭제됩니다. 삭제한 기록은 목록과 Word 문서 다운로드에서도 사라지며 복구할 수 없습니다. 업로드 사진은 삭제되지 않습니다.</div>",
+        unsafe_allow_html=True,
+    )
+    confirmed = st.checkbox(
+        "선택한 생성 기록을 영구 삭제하는 내용을 확인했습니다.",
+        key=confirm_key,
+    )
+    if st.button(
+        f"🗑️ 선택한 생성 기록 {len(selected_record_ids)}건 영구 삭제",
+        key="member_generated_delete_action",
+        disabled=not confirmed,
+        use_container_width=True,
+    ):
+        with witti_hourglass_loading("선택한 생성 기록을 영구 삭제하고 있습니다."):
+            deleted_ids, errors = delete_member_generated_records(selected_record_ids, user_id)
+        _clear_member_bulk_delete_state("member_generated_delete", selected_record_ids)
+        st.session_state["member_generated_delete_flash"] = {
+            "deleted_count": len(deleted_ids),
+            "errors": errors,
+        }
+        st.rerun()
 
 
 def _render_member_dialog_top_close(state_key: str, button_key: str):
