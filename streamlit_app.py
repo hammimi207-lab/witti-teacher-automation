@@ -10772,7 +10772,7 @@ with tab2:
                 observation_placeholder = (
                     "예: 점심시간에 스스로 숟가락을 잡고 반찬을 살펴본 뒤, 더 먹고 싶은 음식을 짧은 말과 몸짓으로 표현했습니다."
                     if text_only_daily else
-                    "예: 영아들이 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다."
+                    "예: 자연물을 음식처럼 바구니에 담고, 가게 주인과 손님 역할을 번갈아 하며 놀이를 이어갔습니다."
                 )
                 required_input_value = st.text_area(
                     observation_label,
