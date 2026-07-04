@@ -1457,7 +1457,7 @@ WITTI_SITE_LABEL = "교사의 발견"
 WITTI_CONTACT_EMAIL = "witti7942@gmail.com"
 WITTI_CONTACT_LABEL = "놀이 기록 자동화 사용 문의"
 WITTI_CONTACT_MAILTO = "mailto:witti7942@gmail.com?subject=%5B%EB%86%80%EC%9D%B4%20%EA%B8%B0%EB%A1%9D%20%EC%9E%90%EB%8F%99%ED%99%94%5D%20%EC%82%AC%EC%9A%A9%20%EB%AC%B8%EC%9D%98"
-APP_VERSION = "2026-07-03-preview-fix-password-modal-diary-text-only-notice-delivery-popup-order-cache-v4"
+APP_VERSION = "2026-07-04-mypage-generated-work-feed-v5"
 
 
 # =========================
@@ -6217,6 +6217,49 @@ st.markdown(
     }
     section[data-testid="stSidebar"] .stTextInput input { min-height:40px; }
 
+    /* 마이페이지의 생성 기록 목록: 데이터 표 대신 게시물처럼 빠르게 훑어볼 수 있는 카드형 목록 */
+    .member-work-feed-head {
+        display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
+        margin:2px 0 12px;
+    }
+    .member-work-feed-head-title {
+        color:#172B4D; font-size:18px; font-weight:900; letter-spacing:-0.35px;
+    }
+    .member-work-feed-head-copy {
+        color:#667085; font-size:13px; line-height:1.55;
+    }
+    .member-work-feed-count {
+        flex:0 0 auto; color:#174F80; background:#EAF4FF; border:1px solid #CBE1F8;
+        border-radius:999px; padding:5px 10px; font-size:12px; font-weight:850; white-space:nowrap;
+    }
+    .member-work-card {
+        background:#FFFFFF; border:1px solid #DCE8F5; border-radius:16px;
+        padding:16px 17px; margin:10px 0 6px; box-shadow:0 7px 18px rgba(15,23,42,.04);
+    }
+    .member-work-card-top {
+        display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;
+    }
+    .member-work-card-title {
+        color:#172B4D; font-size:16px; font-weight:900; line-height:1.42; letter-spacing:-0.25px;
+        word-break:keep-all; overflow-wrap:break-word;
+    }
+    .member-work-card-badge {
+        flex:0 0 auto; color:#174F80; background:#EAF4FF; border:1px solid #CBE1F8;
+        border-radius:999px; padding:4px 8px; font-size:11.5px; font-weight:850; white-space:nowrap;
+    }
+    .member-work-card-meta {
+        color:#667085; font-size:12.5px; line-height:1.55; margin-bottom:9px;
+    }
+    .member-work-card-preview {
+        color:#344054; font-size:14px; line-height:1.76; word-break:keep-all; overflow-wrap:break-word;
+    }
+    @media (max-width:768px) {
+        .member-work-feed-head { align-items:flex-start; flex-direction:column; gap:5px; }
+        .member-work-card { padding:14px; border-radius:14px; }
+        .member-work-card-title { font-size:15px; }
+        .member-work-card-preview { font-size:13.5px; line-height:1.7; }
+    }
+
     /* 데스크톱 회원 서비스 창은 고정 폭으로 항상 열어 둡니다. 기본 Streamlit 접기 버튼은 숨겨
        로그인·회원가입 화면이 예고 없이 사라지지 않도록 합니다. */
     @media (min-width: 769px) {
@@ -6613,6 +6656,104 @@ def _render_member_profile_photo_manager(user_id: str):
                             st.caption(str(exc))
 
 
+def _member_work_preview_text(value, max_length: int = 260) -> str:
+    """생성 결과를 목록 카드에서 읽기 좋은 한 단락 미리보기로 압축합니다."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return "생성 결과를 불러오지 못했습니다."
+    if len(text) <= max_length:
+        return text
+    clipped = text[:max_length].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[:max_length]}…"
+
+
+def _member_generated_work_session_map(user_id: str) -> dict[str, dict]:
+    """생성 결과와 놀이 세션을 화면에서만 연결해 제목·연령·아이 별칭을 함께 보여 줍니다."""
+    sessions_df = load_member_play_sessions(user_id)
+    if sessions_df.empty:
+        return {}
+
+    mapped: dict[str, dict] = {}
+    for session in sessions_df.to_dict("records"):
+        session_id = str(session.get("session_id") or "").strip()
+        if session_id:
+            mapped[session_id] = session
+    return mapped
+
+
+def _member_generated_work_title(record: dict, session: dict | None) -> str:
+    """세션 제목을 우선 사용하고, 이전 기록처럼 세션 정보가 없으면 기록 유형을 제목으로 씁니다."""
+    session = session or {}
+    play_name = str(session.get("play_name") or "").strip()
+    output_type = str(record.get("output_type") or "기록").strip() or "기록"
+    if play_name:
+        return play_name
+    return f"{output_type} 생성 기록"
+
+
+def _render_member_generated_work_feed(user_id: str):
+    """마이페이지 첫 탭에 저장된 생성 결과를 게시물형 목록으로 보여 줍니다.
+
+    generated_texts는 최종 생성에 성공한 결과만 저장하므로, 입력 중이던 초안이나 실패한 작업은
+    이 목록에 섞이지 않습니다. 세션 정보는 DB를 수정하지 않고 화면에서만 연결합니다.
+    """
+    texts_df = load_member_generated_texts(user_id)
+    st.markdown(
+        """
+        <div class='member-work-feed-head'>
+          <div>
+            <div class='member-work-feed-head-title'>내가 생성한 기록</div>
+            <div class='member-work-feed-head-copy'>완성한 놀이 이야기·일지·알림장을 최근 작업부터 확인할 수 있습니다.</div>
+          </div>
+          <div class='member-work-feed-count'>결과 목록</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if texts_df.empty:
+        st.info("아직 완성된 생성 기록이 없습니다. 기록 요정에서 최종 기록을 만들면 이곳에 자동으로 쌓입니다.")
+        return
+
+    sessions_by_id = _member_generated_work_session_map(user_id)
+    records = _format_kst_datetime_column(texts_df).to_dict("records")
+    st.caption(f"총 {len(records)}건의 생성 결과가 저장되어 있습니다.")
+
+    for index, record in enumerate(records, start=1):
+        session = sessions_by_id.get(str(record.get("session_id") or "").strip(), {})
+        title = _member_generated_work_title(record, session)
+        output_type = str(record.get("output_type") or "기록").strip() or "기록"
+        created_at = str(record.get("작성일시") or record.get("created_at") or "-")
+        child_alias = str(session.get("child_alias") or "").strip()
+        age_group = str(session.get("age_group") or "").strip()
+        metadata = [created_at]
+        if child_alias:
+            metadata.append(f"아이 별칭 {child_alias}")
+        if age_group:
+            metadata.append(age_group)
+        preview = _member_work_preview_text(record.get("result_text") or record.get("edited_text") or record.get("source_text") or "")
+
+        st.markdown(
+            f"""
+            <article class='member-work-card'>
+              <div class='member-work-card-top'>
+                <div class='member-work-card-title'>{html.escape(title)}</div>
+                <div class='member-work-card-badge'>{html.escape(output_type)}</div>
+              </div>
+              <div class='member-work-card-meta'>{html.escape(' · '.join(metadata))}</div>
+              <div class='member-work-card-preview'>{html.escape(preview)}</div>
+            </article>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.expander(f"{index}. 생성 결과 자세히 보기", expanded=False):
+            st.markdown("**최종 생성 결과**")
+            st.write(str(record.get("result_text") or "생성 결과가 저장되지 않았습니다."))
+            if str(record.get("edited_text") or "").strip():
+                with st.expander("교사가 수정한 1차 기록 보기", expanded=False):
+                    st.write(str(record.get("edited_text") or ""))
+
+
 def _render_member_management_window_content():
     """로그인 상태를 유지하는 큰 마이페이지 창의 실제 내용입니다."""
     user_id = current_member_user_id()
@@ -6636,7 +6777,10 @@ def _render_member_management_window_content():
         f"**아이디**  {profile.get('username') or profile.get('platform_member_id') or '-'}  ·  "
         f"**이메일**  {profile.get('email') or current_member_email() or '-'}"
     )
-    info_tab, photo_tab = st.tabs(["기본 정보 수정", "업로드한 사진 관리"])
+    work_tab, info_tab, photo_tab = st.tabs(["🗂️ 내가 생성한 기록", "기본 정보 수정", "업로드한 사진 관리"])
+
+    with work_tab:
+        _render_member_generated_work_feed(user_id)
 
     with info_tab:
         st.markdown("#### 기본 정보 수정")
