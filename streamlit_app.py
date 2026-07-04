@@ -6295,6 +6295,70 @@ st.markdown(
         white-space: normal !important;
         line-height: 1.22 !important;
     }
+
+
+    /* 비밀번호 찾기/변경 버튼은 작은 사이드바 폭에서도 한 줄로 안정적으로 보이게 합니다. */
+    section[data-testid="stSidebar"] div[class*="st-key-sidebar_go_password"] button {
+        min-height: 52px !important;
+        height: 52px !important;
+        padding: 5px 4px !important;
+        font-size: 10.4px !important;
+        letter-spacing: -0.62px !important;
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        overflow: hidden !important;
+        text-overflow: clip !important;
+    }
+    section[data-testid="stSidebar"] div[class*="st-key-sidebar_go_password"] button p {
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        line-height: 1.1 !important;
+        letter-spacing: -0.62px !important;
+    }
+
+    /* 별도 생성 창(마이페이지·비밀번호)의 닫기 버튼은 창의 오른쪽 위에 고정합니다. */
+    div[role="dialog"] {
+        position: relative !important;
+    }
+    div[role="dialog"] div[class*="st-key-member_modal_top_close"],
+    div[role="dialog"] div[class*="st-key-password_modal_top_close"] {
+        position: absolute !important;
+        top: 10px !important;
+        right: 12px !important;
+        z-index: 2147483000 !important;
+        width: 34px !important;
+        height: 34px !important;
+        margin: 0 !important;
+    }
+    div[role="dialog"] div[class*="st-key-member_modal_top_close"] button,
+    div[role="dialog"] div[class*="st-key-password_modal_top_close"] button {
+        min-width: 34px !important;
+        width: 34px !important;
+        min-height: 34px !important;
+        height: 34px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        border: 1px solid #D5E0EB !important;
+        background: #FFFFFF !important;
+        color: #344054 !important;
+        -webkit-text-fill-color: #344054 !important;
+        font-size: 22px !important;
+        font-weight: 500 !important;
+        line-height: 1 !important;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12) !important;
+    }
+    div[role="dialog"] div[class*="st-key-member_modal_top_close"] button *,
+    div[role="dialog"] div[class*="st-key-password_modal_top_close"] button * {
+        color: #344054 !important;
+        -webkit-text-fill-color: #344054 !important;
+        font-size: 22px !important;
+        font-weight: 500 !important;
+    }
+    div[role="dialog"] div[class*="st-key-member_modal_top_close"] button:hover,
+    div[role="dialog"] div[class*="st-key-password_modal_top_close"] button:hover {
+        background: #F3F7FB !important;
+        border-color: #BFD3E6 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -6753,23 +6817,34 @@ def _render_member_generated_work_feed(user_id: str):
                 with st.expander("교사가 수정한 1차 기록 보기", expanded=False):
                     st.write(str(record.get("edited_text") or ""))
 
+            st.markdown("**Word 문서**")
+            _render_member_generated_work_word_download(user_id, record, session)
+
+
+
+def _render_member_dialog_top_close(state_key: str, button_key: str):
+    """대형 회원 창의 우측 상단 닫기 버튼입니다.
+
+    기본 dialog 닫기 아이콘 대신 세션 상태까지 함께 정리해, 닫은 창이 다음 렌더링에서
+    다시 열리는 일을 막습니다.
+    """
+    if st.button("×", key=button_key, help="창 닫기"):
+        st.session_state[state_key] = False
+        _set_member_portal_view(MEMBER_PORTAL_LOGIN)
+        st.rerun()
+
 
 def _render_member_management_window_content():
     """로그인 상태를 유지하는 큰 마이페이지 창의 실제 내용입니다."""
+    _render_member_dialog_top_close("member_management_modal_open", "member_modal_top_close")
     user_id = current_member_user_id()
     if not user_id:
         st.warning("마이페이지는 로그인 후 이용할 수 있습니다.")
-        if st.button("닫기", key="member_modal_close_not_logged_in"):
-            st.session_state["member_management_modal_open"] = False
-            st.rerun()
         return
 
     profile = get_member_profile(user_id)
     if not profile:
         st.warning("회원 정보를 확인하지 못했습니다. 다시 로그인해 주세요.")
-        if st.button("닫기", key="member_modal_close_missing_profile"):
-            st.session_state["member_management_modal_open"] = False
-            st.rerun()
         return
 
     st.caption("아이디와 로그인 이메일은 계정 보안을 위해 이 창에서 변경하지 않습니다. 이메일 변경은 관리자 문의로 처리합니다.")
@@ -6853,10 +6928,6 @@ def _render_member_management_window_content():
         st.markdown("#### 업로드한 사진 관리")
         _render_member_profile_photo_manager(user_id)
 
-    st.divider()
-    if st.button("마이페이지 창 닫기", key="member_modal_close", use_container_width=True):
-        st.session_state["member_management_modal_open"] = False
-        st.rerun()
 
 
 def _show_member_management_window():
@@ -6881,6 +6952,7 @@ def _show_member_management_window():
 
 def _render_member_password_window_content():
     """비밀번호 찾기와 로그인 후 변경을 한 개의 독립 창 안에서 제공합니다."""
+    _render_member_dialog_top_close("member_password_modal_open", "password_modal_top_close")
     reset_tab, change_tab = st.tabs(["비밀번호 찾기", "비밀번호 변경"])
 
     with reset_tab:
@@ -6964,11 +7036,6 @@ def _render_member_password_window_content():
                     except Exception as exc:
                         st.error(str(exc))
 
-    st.divider()
-    if st.button("비밀번호 창 닫기", key="password_modal_close", use_container_width=True):
-        st.session_state["member_password_modal_open"] = False
-        _set_member_portal_view(MEMBER_PORTAL_LOGIN)
-        st.rerun()
 
 
 def _show_member_password_window():
@@ -7079,11 +7146,8 @@ def render_sidebar_member_portal():
 with st.sidebar:
     render_sidebar_member_portal()
 
-# 로그인 상태를 유지하는 큰 회원 관리 창은 사이드바 밖에서 렌더링합니다.
-if st.session_state.get("member_management_modal_open"):
-    _show_member_management_window()
-if st.session_state.get("member_password_modal_open"):
-    _show_member_password_window()
+# 로그인 상태를 유지하는 큰 회원 관리 창은 Word 문서 생성 함수까지 모두 선언된 뒤,
+# 파일 맨 아래에서 렌더링합니다. 마이페이지의 저장 기록도 즉시 Word로 내보낼 수 있게 하기 위함입니다.
 
 # =========================
 # TAB 2. 기록 요정
@@ -9773,6 +9837,205 @@ def build_record_word_document(
     return output_buffer.getvalue()
 
 
+def _member_saved_notes_dict(value) -> dict[str, str]:
+    """Supabase가 JSON 컬럼을 문자열로 돌려주는 경우까지 포함해 선택 메모를 복원합니다."""
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                value = json.loads(raw)
+            except Exception:
+                value = {}
+    return _as_note_dict(value)
+
+
+def _member_saved_work_section(raw_text: str, headings: list[str]) -> str:
+    """저장된 plain_text의 [소제목] 구간을 안전하게 되찾습니다."""
+    text_value = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    for heading in headings:
+        match = re.search(rf"(?:^|\n)\[{re.escape(str(heading))}\]\s*\n?", text_value)
+        if not match:
+            continue
+        start = match.end()
+        next_heading = re.search(r"\n\s*\[[^\]\n]+\]\s*\n?", text_value[start:])
+        end = start + next_heading.start() if next_heading else len(text_value)
+        value = text_value[start:end].strip()
+        if value:
+            return value
+    return ""
+
+
+def _member_saved_work_curriculum_links(raw_text: str, age_group: str, areas: list[str]) -> list[dict]:
+    framework = curriculum_framework_short_label(age_group)
+    body = _member_saved_work_section(raw_text, [framework, "표준보육과정 연계", "누리과정 연계", "교육과정 연계"])
+    parsed = []
+    for line in body.splitlines():
+        match = re.match(r"\s*[-•]\s*([^:：]+?)\s*[:：]\s*(.+?)\s*$", line)
+        if match:
+            parsed.append({"area": match.group(1).strip(), "description": match.group(2).strip()})
+    return _normalize_curriculum_links(parsed, age_group, areas)
+
+
+def _member_saved_notice_examples(raw_text: str) -> list[str]:
+    """알림장 저장 문자열에서 예시 1~3의 본문을 복원합니다."""
+    value = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    pattern = re.compile(
+        r"(?:^|\n)알림장 예시\s*([1-3])\s*\n(.*?)(?=\n\s*알림장 예시\s*[1-3]\s*\n|\n\s*추천 이모지\s*\n|\Z)",
+        flags=re.DOTALL,
+    )
+    examples = [re.sub(r"\s+", " ", match.group(2)).strip() for match in pattern.finditer(value)]
+    return [item for item in examples if item][:3]
+
+
+def _member_saved_notice_emojis(raw_text: str, play_name: str) -> list[str]:
+    value = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    match = re.search(r"(?:^|\n)추천 이모지\s*\n(.+?)(?:\n\s*\[[^\]\n]+\]|\Z)", value, flags=re.DOTALL)
+    parsed = _normalize_recommended_emojis(match.group(1) if match else "")
+    if len(parsed) < 10:
+        fallback = _fallback_recommended_emojis(play_name)
+        parsed = (parsed + [emoji for emoji in fallback if emoji not in parsed])[:10]
+    return parsed
+
+
+def _member_saved_work_word_payload(user_id: str, record: dict, session: dict | None) -> tuple[bytes, str]:
+    """마이페이지의 저장 기록을 원래 Word 형식으로 다시 구성합니다.
+
+    generated_texts에는 최종 결과가 plain_text로, play_sessions에는 기록 기본 정보와
+    교사 입력이 남아 있으므로 DB 구조를 바꾸지 않고도 과거 기록을 다시 내려받을 수 있습니다.
+    """
+    record = record or {}
+    session = session or {}
+    output_type = str(record.get("output_type") or session.get("record_type") or "기록").strip() or "기록"
+    play_name = str(session.get("play_name") or f"{output_type} 기록").strip() or f"{output_type} 기록"
+    age_group = str(session.get("age_group") or "").strip()
+    child_alias = str(session.get("child_alias") or "").strip()
+    curriculum_areas = _as_text_list(session.get("curriculum_areas"))
+    play_subcategories = _as_text_list(session.get("play_subcategories"))
+    teacher_supports = _as_text_list(session.get("teacher_supports"))
+    session_id = str(record.get("session_id") or session.get("session_id") or "").strip()
+    photo_match_status = str(session.get("photo_match_status") or "").strip()
+    text_only_daily = output_type == "일지" and photo_match_status == "사진 미사용"
+    raw_result = str(record.get("result_text") or "")
+    first_draft = str(record.get("edited_text") or record.get("source_text") or session.get("ai_summary") or "").strip()
+    analysis_caption = str(session.get("ai_caption") or "").strip()
+    observed = str(session.get("teacher_observed_situation") or "").strip()
+    next_plan = str(session.get("next_play_support_plan") or "").strip()
+
+    context = {
+        "output_type": output_type,
+        "play_name": play_name,
+        "age_group": age_group,
+        "child_alias": child_alias,
+        "curriculum_areas": curriculum_areas,
+        "play_subcategories": play_subcategories,
+        "teacher_supports": teacher_supports,
+        "play_subcategory_notes": _member_saved_notes_dict(session.get("play_subcategory_notes")),
+        "teacher_support_notes": _member_saved_notes_dict(session.get("teacher_support_notes")),
+        "teacher_observed_situation": observed,
+        "parent_delivery_message": observed,
+        "next_play_support_plan": next_plan,
+        "daily_life_source_text": "",
+        "uses_photo_analysis": not text_only_daily,
+        "photo_analysis": {
+            "ai_caption": analysis_caption,
+            "photo_match_status": photo_match_status or "-",
+            "photo_match_reason": str(session.get("photo_match_reason") or "-").strip(),
+        },
+    }
+
+    if text_only_daily:
+        source_text = _member_saved_work_section(raw_result, ["사진 속 일상·놀이·활동 장면", "교사가 입력한 일상생활 장면"])
+        context["daily_life_source_text"] = source_text or analysis_caption or first_draft
+
+    if output_type == "알림장":
+        examples = _member_saved_notice_examples(raw_result)
+        if len(examples) < 3:
+            fallback = _member_work_preview_text(raw_result, max_length=420)
+            examples = (examples + [fallback] * 3)[:3]
+        output = {
+            "output_type": "알림장",
+            "examples": examples[:3],
+            "recommended_emojis": _member_saved_notice_emojis(raw_result, play_name),
+            "plain_text": raw_result,
+            "photo_play_content": analysis_caption or str(record.get("source_text") or "").strip(),
+            "teacher_observed_situation": observed or str(record.get("source_text") or "").strip(),
+            "parent_delivery_message": observed or str(record.get("source_text") or "").strip(),
+        }
+    else:
+        source_heading = "사진 속 놀이 내용" if output_type == "놀이 이야기" else "사진 속 일상·놀이·활동 장면"
+        source_text = _member_saved_work_section(raw_result, [source_heading])
+        observed_text = _member_saved_work_section(raw_result, ["교사가 관찰한 놀이 상황", "교사가 관찰한 일상생활 상황"])
+        child_label = "영아" if normalize_age(age_group) in ["0세", "1세", "2세"] else "유아"
+        observation_label = f"{child_label} 관찰 및 평가"
+        observation_text = _member_saved_work_section(raw_result, [observation_label, "영유아 관찰 및 평가"])
+        record_label = _record_label(output_type)
+        integrated_record = _member_saved_work_section(raw_result, [record_label, "일지 기록 예시 (종합)", "놀이 이야기 기록 예시", "최종 기록"])
+        if not integrated_record:
+            integrated_record = _member_work_preview_text(raw_result, max_length=1200)
+        output = {
+            "output_type": output_type,
+            "photo_play_content": source_text or analysis_caption or str(record.get("source_text") or "").strip(),
+            "teacher_observed_situation": observed_text or observed,
+            "framework_label": curriculum_framework_short_label(age_group),
+            "observation_label": observation_label,
+            "curriculum_links": _member_saved_work_curriculum_links(raw_result, age_group, curriculum_areas),
+            "observation_evaluation": observation_text or first_draft or "기록 결과를 바탕으로 영유아의 관심과 경험을 정리했습니다.",
+            "next_play_support_plan": next_plan,
+            "record_label": record_label,
+            "integrated_record": integrated_record,
+            "plain_text": raw_result,
+        }
+
+    selected_photo_records = load_session_selected_photo_records(user_id, session_id)
+    selected_photo_names = [str(item.get("original_file_name") or "사진") for item in selected_photo_records]
+    selected_photo_assets = load_session_photo_assets_for_document(user_id, session_id, selected_photo_records)
+    document_bytes = build_record_word_document(
+        context,
+        first_draft,
+        output,
+        selected_photo_names,
+        selected_photo_assets=selected_photo_assets,
+    )
+    safe_title = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", play_name)[:40] or "놀이기록"
+    filename = f"{safe_title}_{output_type}_기록.docx"
+    return document_bytes, filename
+
+
+def _render_member_generated_work_word_download(user_id: str, record: dict, session: dict | None):
+    """생성 결과 카드 안에서 필요할 때만 Word 파일을 만들고 내려받습니다."""
+    record_id = str(record.get("id") or record.get("session_id") or record.get("created_at") or "record")
+    safe_record_id = re.sub(r"[^0-9A-Za-z_-]+", "_", record_id)[-64:] or "record"
+    cache_key = f"member_work_doc_cache_{current_member_user_id()}_{safe_record_id}"
+    prepare_key = f"member_work_doc_prepare_{safe_record_id}"
+    clear_key = f"member_work_doc_rebuild_{safe_record_id}"
+    cached = st.session_state.get(cache_key)
+
+    if isinstance(cached, dict) and cached.get("data"):
+        st.download_button(
+            "Word 문서 다운로드",
+            data=cached["data"],
+            file_name=str(cached.get("file_name") or "놀이기록_기록.docx"),
+            mime=WORD_MIME_TYPE,
+            key=f"member_work_doc_download_{safe_record_id}",
+            use_container_width=True,
+        )
+        if st.button("Word 문서 다시 만들기", key=clear_key, use_container_width=True):
+            st.session_state.pop(cache_key, None)
+            st.rerun()
+        return
+
+    st.caption("기록 생성 당시의 기본 정보·교사 입력·보관 사진을 반영해 Word 문서를 다시 만듭니다.")
+    if st.button("Word 문서 만들기", key=prepare_key, use_container_width=True):
+        try:
+            with witti_hourglass_loading("저장된 기록으로 Word 문서를 만들고 있습니다."):
+                document_bytes, file_name = _member_saved_work_word_payload(user_id, record, session)
+            st.session_state[cache_key] = {"data": document_bytes, "file_name": file_name}
+            st.rerun()
+        except Exception as exc:
+            st.error("Word 문서를 만들지 못했습니다.")
+            st.caption(str(exc))
+
+
 def _preview_html_text(value) -> str:
     return html.escape(str(value or "-")).replace("\n", "<br>")
 
@@ -10979,3 +11242,13 @@ with tab7:
 
             with admin_console_tabs[2]:
                 render_admin_popup_manager()
+
+# =========================
+# 회원 서비스 별도 창
+# - Word 문서 생성 함수까지 모두 선언된 뒤 렌더링해야 마이페이지의 과거 기록도 다시 내려받을 수 있습니다.
+# =========================
+if st.session_state.get("member_management_modal_open"):
+    _show_member_management_window()
+if st.session_state.get("member_password_modal_open"):
+    _show_member_password_window()
+
