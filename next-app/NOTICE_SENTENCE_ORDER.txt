@@ -1,0 +1,52 @@
+알림장 문장 순서 편집 — 2026-10-03
+
+확인한 앱과 지침
+- 실제 서비스 소스: next-app (Next.js 16.3.4 / React 19)
+- next-app/AGENTS.md 및 설치된 Next.js use-client 문서 확인.
+- /records/new -> record-wizard.tsx -> generated-record-editor.tsx.
+- 결과 상태: RecordWizard의 result.finalNotice. 복사와 writing-draft도 같은 값을 사용.
+- 저장: save-record-controls.tsx -> /api/records/save -> save-contract.ts
+  -> generated_texts.result_text의 버전 1 envelope.
+- 다시 조회: saved-record-library.tsx의 unpackRecord / SavedRecordCard.
+- Word: word-download.tsx -> /api/records/word -> story-word-document.ts.
+  다운로드 요청과 문서 생성 모두 result.finalNotice를 사용.
+
+구현
+- notice-sentence-order.ts: Intl.Segmenter 한국어 문장 분리, 순서 이동,
+  원래 공백/줄바꿈 구분자를 유지한 재조립. 문장 내용은 바꾸지 않음.
+- notice-sentence-editor.tsx / module.css: 문장 카드 전체를 Pointer Events로
+  이동. 마우스·터치·방향키, 중복 문장별 독립 ID, FLIP 위치 애니메이션,
+  동작 줄이기 설정, 터치 취소 시 원래 순서 복원, 가장자리 스크롤 지원.
+- generated-record-editor.tsx: 기존 수정 textarea 앞에 순서 편집 추가.
+  기존 텍스트 수정·이모지·복사와 생성 방식은 유지.
+- save-record-controls.tsx: HTTP 성공뿐 아니라 saved:true 확인 후 완료 표시.
+  실패/불완전 응답에서는 재시도 가능. 변경된 finalNotice는 기존 버전 비교로
+  저장 완료 표시가 해제되어 다시 저장할 수 있음.
+- 기존 저장/조회/Word 형식 변경 및 DB 마이그레이션 없음.
+- CSS 모듈 도입에 맞춰 writing-reset / writing-workflow 테스트 로더만 보완.
+
+검증
+- npx tsc --noEmit: 통과.
+- 변경한 소스 4개 파일 대상 ESLint: 통과.
+- 기능 및 관련 회귀 테스트 35개: 모두 통과.
+- 전체 node 테스트: 134개 중 133개 통과.
+  기존 fairy-comment.test.mjs의 로더가 ./fairy-image를 resolve하지 못해
+  1개 실패. 해당 소스와 테스트는 이번 작업에서 수정하지 않음.
+- node tests/notice-sentence-browser.cjs: 설치된 Edge로 통과.
+  실제 프로덕션 컴포넌트를 테스트 번들에 사용하며 별도 서비스 앱/라우트 없음.
+  마우스, Chromium 실제 터치 이벤트, 방향키, 위치 애니메이션,
+  reduced-motion, 터치 취소, 중복 카드 DOM 정체성, 저장 실패/재시도,
+  순서 변경 후 재저장 상태, 최신 Word 요청, 모바일 폭 검증.
+- 테스트 DB 없이 save schema -> merge -> JSON 저장/복원 -> unpackRecord
+  -> 실제 docx XML을 통해 순서 일치 확인. 운영 DB 저장은 실행하지 않음.
+- 브라우저 테스트 API는 가짜 응답을 사용하며 AI 호출/외부 저장 없음.
+
+Git 범위와 제약
+- 작업 브랜치: codex/notice-sentence-order.
+- 시작 시 next-app 전체가 미추적 상태였으며 원격 main에도 존재하지 않았음.
+  이번 변경에 해당하는 파일만 추가했으므로 PR은 서비스 앱의 전체 기준
+  코드가 누락된 초안이다. 기존 서비스 소스를 별도 반영한 후 통합해야 함.
+- 변경한 기존 미추적 파일들은 Git 기준으로 신규 파일로 표시됨.
+- 나머지 기존 미커밋 파일은 추가/삭제/되돌림 없이 보존.
+- streamlit_app.py 수정/연동 없음. main 병합 및 배포 없음.
+- 테스트 fixture와 번들은 기존 .gitignore의 .qa 아래에만 생성됨.
