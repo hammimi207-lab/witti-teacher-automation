@@ -1,0 +1,9 @@
+.editor { margin-block: 1rem; }
+.card { margin-block: .5rem; border: 1px solid var(--line, #ded8cd); border-radius: 12px; background: var(--paper, #fffdf8); }
+.handle { display: flex; gap: .75rem; align-items: center; width: 100%; padding: .85rem; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: left; cursor: grab; touch-action: none; }
+.handle:focus-visible { outline: 2px solid #946a42; outline-offset: 2px; }
+.handle:disabled { cursor: default; opacity: .65; }
+.active { box-shadow: 0 5px 16px #0002; position: relative; z-index: 1; }
+.active .handle { cursor: grabbing; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
