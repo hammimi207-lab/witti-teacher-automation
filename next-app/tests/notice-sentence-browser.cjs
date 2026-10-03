@@ -13,6 +13,7 @@ fs.writeFileSync(path.join(qa, 'css-loader.cjs'), `module.exports = function(sou
 fs.writeFileSync(path.join(qa, 'entry.tsx'), `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import '../../src/app/globals.css';
 import { GeneratedRecordEditor } from '../../src/features/records/generated-record-editor';
 import { SaveRecordControls } from '../../src/features/records/save-record-controls';
 import { WordDownload } from '../../src/features/records/word-download';
@@ -23,7 +24,7 @@ function Fixture() {
  const snapshot = {input,files:[],createdAt:'2026-10-03',consent:{aiAccepted:true,photoAccepted:false}};
  return <><GeneratedRecordEditor result={result} onChange={setResult} disabled={busy} isNotice />
  <SaveRecordControls generationId="6f7c88a9-107e-4f75-803c-9dcf9d532f66" result={result} snapshot={snapshot} onRecordDecision={()=>{}} languageTarget={null} dialogTarget={null} onBusyChange={setBusy} onPhotosSaved={()=>{}} />
- <WordDownload title="블록 놀이" result={result} input={input} />
+ <output data-testid='final-text'>{result.finalNotice}</output><WordDownload title="블록 놀이" result={result} input={input} />
  </>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
@@ -43,36 +44,49 @@ async function main() {
   const page = await context.newPage();
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.goto('http://127.0.0.1:'+server.address().port);
+  const finalValue = () => page.getByTestId('final-text').textContent();
   const cards = page.getByRole('button',{name:/번 문장 이동:/});
   await cards.first().waitFor({timeout:10000}).catch(async error=>{console.error(errors,await page.locator('body').innerText());throw error;});
   await page.evaluate(()=>{window.noticeAnimations=0;const animate=Element.prototype.animate;Element.prototype.animate=function(...args){window.noticeAnimations++;return animate.apply(this,args);};});
-  const original = await page.locator('#finalNoticeEditor').inputValue();
+  const original = await finalValue();
   const last = await cards.nth(3).boundingBox(); const first = await cards.first().boundingBox();
   await page.mouse.move(last.x+20,last.y+last.height/2); await page.mouse.down();
   await page.mouse.move(first.x+20,first.y+2,{steps:15}); await page.mouse.up();
-  assert.equal(await page.locator('#finalNoticeEditor').inputValue(),'마지막입니다. 첫 문장입니다. 같은 문장입니다. 같은 문장입니다.');
+  assert.equal(await finalValue(),'마지막입니다. 첫 문장입니다. 같은 문장입니다. 같은 문장입니다.');
   assert.ok(await page.evaluate(()=>window.noticeAnimations)>0,'Cards must animate after reordering');
   await cards.first().focus(); await page.keyboard.press('ArrowDown');
-  assert.equal(await page.locator('#finalNoticeEditor').inputValue(),'첫 문장입니다. 마지막입니다. 같은 문장입니다. 같은 문장입니다.');
+  assert.equal(await finalValue(),'첫 문장입니다. 마지막입니다. 같은 문장입니다. 같은 문장입니다.');
   // Real Chromium touch events (not mouse emulation).
+  await page.evaluate(()=>Promise.allSettled(document.getAnimations().map(animation=>animation.finished)));
   const cdp = await context.newCDPSession(page);
   const target=await cards.nth(1).boundingBox(); const end=await cards.nth(3).boundingBox();
   const point={x:Math.round(target.x+25),y:Math.round(target.y+target.height/2)};
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x,y:Math.round(end.y+end.height-2)}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  assert.equal(await page.locator('#finalNoticeEditor').inputValue(),original);
+  assert.equal(await finalValue(),original);
   // Distinct duplicate cards retain their DOM nodes after keyboard reordering.
   await cards.nth(1).evaluate(node=>node.dataset.testIdentity='duplicate');
   await cards.nth(1).focus(); await page.keyboard.press('ArrowDown');
   assert.equal(await cards.nth(2).getAttribute('data-test-identity'),'duplicate');
   // A cancelled touch restores the order before the gesture.
-  const beforeCancel=await page.locator('#finalNoticeEditor').inputValue();
+  await page.evaluate(()=>Promise.allSettled(document.getAnimations().map(animation=>animation.finished)));
+  const beforeCancel=await finalValue();
   const cancelFrom=await cards.nth(3).boundingBox(); const cancelTo=await cards.first().boundingBox();
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:cancelFrom.x+20,y:cancelFrom.y+cancelFrom.height/2}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:cancelTo.x+20,y:cancelTo.y+2}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
-  assert.equal(await page.locator('#finalNoticeEditor').inputValue(),beforeCancel);
+  assert.equal(await finalValue(),beforeCancel);
+  const sentenceInput=page.getByRole('textbox',{name:'1번 문장 수정',exact:true});
+  await sentenceInput.fill('직접 수정한 문장입니다.');
+  assert.ok((await finalValue()).startsWith('직접 수정한 문장입니다.'));
+  assert.equal(await page.locator('#finalNoticeEditor').count(),1);
+  assert.equal(await page.getByText('여기서 바로 수정하세요',{exact:true}).count(),1);
+  await sentenceInput.evaluate(node=>{node.focus();node.setSelectionRange(3,3);});
+  await page.getByRole('button',{name:'😊 넣기',exact:true}).click();
+  assert.equal(await sentenceInput.inputValue(),'직접 😊수정한 문장입니다.');
+  await sentenceInput.press('ArrowDown');
+  assert.equal(await sentenceInput.inputValue(),'직접 😊수정한 문장입니다.');
   let attempts=0; let saved;
   await page.route('**/api/records/save',route=>{
    saved=route.request().postDataJSON(); attempts++;
@@ -84,7 +98,7 @@ async function main() {
   assert.equal(await page.getByRole('button',{name:'종합 기록 저장 완료',exact:true}).count(),0);
   await page.getByRole('button',{name:'종합 기록 저장',exact:true}).click();
   await page.getByRole('button',{name:'종합 기록 저장 완료',exact:true}).waitFor();
-  assert.equal(saved.result.finalNotice,await page.locator('#finalNoticeEditor').inputValue());
+  assert.equal(saved.result.finalNotice,await finalValue());
   await cards.first().focus(); await page.keyboard.press('ArrowDown');
   assert.equal(await page.getByRole('button',{name:'종합 기록 저장',exact:true}).isEnabled(),true);
   let wordBody;
@@ -92,8 +106,10 @@ async function main() {
   const downloaded=page.waitForEvent('download');
   await page.getByRole('button',{name:'Word 문서 다운로드',exact:true}).click();
   await downloaded;
-  assert.ok(wordBody.includes(await page.locator('#finalNoticeEditor').inputValue()),'Word request uses latest result order');
+  assert.ok(wordBody.includes(await finalValue()),'Word request uses latest result order');
   await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>Promise.allSettled(document.getAnimations().map(animation=>animation.finished)));
+  await page.screenshot({path:path.join(qa,'unified-editor-mobile.png'),fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   assert.deepEqual(errors,[]);
   await page.emulateMedia({reducedMotion:'reduce'});
