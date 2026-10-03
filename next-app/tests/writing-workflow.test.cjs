@@ -18,20 +18,23 @@ const notice = { ...emptyWritingForm, recordType: "알림장", ageGroup: "3세",
 test("next child clears every individual field and requires fresh delivery choices", () => {
   const previous = { ...notice, teacherInterpretation: "이전 해석", centerSupport: "이전 지원", supportPlan: "이전 계획", homeConnection: "이전 가정", mealObservation: "식사", toiletingObservation: "배변", peerInteraction: "친구", activityLearning: "반응", classAnnouncement: "공지", playSubcategories: ["탐색과 반복"], playSubcategoryNotes: { "탐색과 반복": "이전 아이" }, teacherSupports: ["자료 지원"], teacherSupportNotes: { "자료 지원": "이전 지원" }, commonActivity: "오늘 반에서 산책했어요." };
   const next = nextChild(previous);
-  for (const key of ["childAlias", "observation", "teacherInterpretation", "centerSupport", "supportPlan", "homeConnection", "mealObservation", "toiletingObservation", "peerInteraction", "activityLearning", "classAnnouncement", "parentType", "teacherStyle"]) assert.equal(next[key], "", key);
+  for (const key of ["childAlias", "observation", "teacherInterpretation", "centerSupport", "supportPlan", "homeConnection", "mealObservation", "toiletingObservation", "peerInteraction", "activityLearning", "dailyObservation", "playObservation", "activityObservation", "parentType", "teacherStyle"]) assert.equal(next[key], "", key);
   assert.deepEqual(next.playSubcategoryNotes, {}); assert.deepEqual(next.teacherSupportNotes, {});
   assert.equal(next.commonActivity, previous.commonActivity);
+  assert.equal(next.classAnnouncement, previous.classAnnouncement, "shared announcement is retained for the next child");
   assert.equal(previous.centerSupport, "이전 지원");
 });
 test("stage observations are reused without losing dialogue or duplicating identical input", () => {
-  const input = { ...notice, observation: "", playSubcategories: ["탐색과 반복", "표현과 구성"], playSubcategoryNotes: { "탐색과 반복": notice.observation, "표현과 구성": "새 장면" } };
+  const input = { ...notice, recordType: "놀이 이야기", observation: "", playSubcategories: ["탐색과 반복", "표현과 구성"], playSubcategoryNotes: { "탐색과 반복": notice.observation, "표현과 구성": "새 장면" } };
   assert.equal(combinedObservation(input), `${notice.observation}\n\n새 장면`);
   assert.equal(combinedObservation({ ...input, observation: notice.observation }), combinedObservation(input));
   assert.equal(prepareWriting(input).observation, combinedObservation(input));
 });
-test("quick notice accepts missing interpretation and support; detailed mode requires them", () => {
+test("current notice flow keeps interpretation/support optional and requires explicit delivery style", () => {
   assert(generationInputSchema.safeParse(prepareWriting(notice)).success);
-  assert(!generationInputSchema.safeParse(prepareWriting({ ...notice, noticeMode: "detailed" })).success);
+  assert(generationInputSchema.safeParse(prepareWriting({ ...notice, noticeMode: "detailed" })).success);
+  assert.equal(prepareWriting({ ...notice, noticeMode: "quick" }).noticeMode, "detailed");
+  assert(!generationInputSchema.safeParse(prepareWriting({ ...notice, teacherStyle: "" })).success);
   assert(generationInputSchema.safeParse(prepareWriting({ ...notice, noticeMode: "detailed", teacherInterpretation: "함께 하는 과정", centerSupport: "자료 제공 예정" })).success);
 });
 test("draft round-trip retains edited final text and cannot parse corrupt drafts", () => {

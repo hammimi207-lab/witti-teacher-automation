@@ -4,6 +4,7 @@ import { Check, Pencil } from "lucide-react";
 import type { GeneratedRecord } from "./schema";
 import { recommendedEmojis } from "./result-presentation";
 import { NoticeSentenceEditor, type NoticeEditorHandle } from "./notice-sentence-editor";
+import { NoticePreview } from "./notice-preview";
 
 export function GeneratedRecordEditor({ result, onChange, disabled, isNotice, onCopy, copied, guest = false }: { guest?: boolean; result: GeneratedRecord; onChange: (result: GeneratedRecord) => void; disabled: boolean; isNotice: boolean; onCopy?: () => void; copied?: boolean }) {
   const [applied, setApplied] = useState(false);
@@ -12,6 +13,7 @@ export function GeneratedRecordEditor({ result, onChange, disabled, isNotice, on
   const fields = [["observation", "관찰"], ["interpretation", "해석"], ["connection", "연결"]] as const;
   if (isNotice) return <fieldset disabled={disabled} className="notice-final-workspace">
     <div className="final-notice-heading"><h2>부모님께 보낼 알림장</h2><button type="button" className="button primary" disabled={!result.finalNotice?.trim()} onClick={onCopy}>{copied ? "복사 완료" : "내용 복사"}</button></div>
+    <NoticePreview text={result.finalNotice || ""} />
     <NoticeSentenceEditor editorRef={noticeEditor} text={result.finalNotice ?? ""} disabled={disabled} onChange={finalNotice => onChange({ ...result, finalNotice })} />
     <div className="notice-emoji-picker"><strong>추천 이모지 10개</strong><p>원하는 이모지를 누르면 글의 커서 위치에 넣을 수 있어요.</p><div role="group" aria-label="추천 이모지">{recommendedEmojis(result.recommendedEmojis).map(emoji => <button key={emoji} type="button" className="button secondary" aria-label={`${emoji} 넣기`} onClick={() => {
       noticeEditor.current?.insert(emoji);

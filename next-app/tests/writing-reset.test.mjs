@@ -10,7 +10,7 @@ function loader(mocks) {
     const file = [".ts", ".tsx"].map(ext => new URL(`../src/features/records/${name}${ext}`, import.meta.url)).find(fs.existsSync);
     const code = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
     const target = { exports: {} };
-    new Function("require", "module", "exports", code)(id => mocks[id] || (id.startsWith("./") ? load(id.slice(2)) : require(id)), target, target.exports);
+    new Function("require", "module", "exports", code)(id => mocks[id] || (id.startsWith("../") ? load(id) : id.startsWith("./") ? load(id.slice(2)) : require(id)), target, target.exports);
     return target.exports;
   }
   return load;
@@ -18,7 +18,7 @@ function loader(mocks) {
 test("whole-form reset clears inputs, photos, consent, generated result, and local draft", () => {
   const values = [];
   let cleared = false;
-  const react = { ...require("react"), useEffect: () => {}, useCallback: fn => fn, useMemo: fn => fn(), useRef: value => ({ current: value }), useState: value => { const index = values.length; values.push(value); return [value, next => { values[index] = typeof next === "function" ? next(values[index]) : next; }]; } };
+  const react = { ...require("react"), useEffect: () => {}, useCallback: fn => fn, useMemo: fn => fn(), useRef: value => ({ current: value }), useState: value => { value = typeof value === "function" ? value() : value; const index = values.length; values.push(value); return [value, next => { values[index] = typeof next === "function" ? next(values[index]) : next; }]; } };
   const load = loader({ react, "./record-assembly": { RecordAssembly: () => null }, "./use-writing-draft": { useWritingDraft: () => ({ ready: true, clear() { cleared = true; } }) } });
   const tree = load("record-wizard").RecordWizard({ userId: "owner" });
   const { emptyWritingForm } = load("writing-workflow");

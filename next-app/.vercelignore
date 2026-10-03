@@ -1,0 +1,6 @@
+.env*
+.qa/
+.word-qa/
+docs/
+tests/
+*.tsbuildinfo
