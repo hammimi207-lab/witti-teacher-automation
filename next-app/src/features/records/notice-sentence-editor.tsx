@@ -1,15 +1,18 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { moveSentence, noticeParts, noticeText, type NoticeSentence } from "./notice-sentence-order";
 import styles from "./notice-sentence-editor.module.css";
 
-export function NoticeSentenceEditor({ text, onChange, disabled }: { text: string; onChange: (text: string) => void; disabled: boolean }) {
+export type NoticeEditorHandle = { insert: (value: string) => void };
+export function NoticeSentenceEditor({ text, onChange, disabled, editorRef }: { text: string; onChange: (text: string) => void; disabled: boolean; editorRef?: Ref<NoticeEditorHandle> }) {
   const [state, setState] = useState(() => {
     const parts = noticeParts(text);
     return { text, parts, nextId: parts.sentences.length, rows: parts.sentences.map((value, index) => ({ id: `sentence-${index}`, text: value })) };
   });
   const nodes = useRef(new Map<string, HTMLDivElement>());
+  const inputs = useRef(new Map<string, HTMLTextAreaElement>());
+  const cursor = useRef<string | null>(null);
   const before = useRef(new Map<string, number>());
   const drag = useRef<{ id: string; pointer: number; rows: NoticeSentence[] } | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -25,8 +28,10 @@ export function NoticeSentenceEditor({ text, onChange, disabled }: { text: strin
     setState({ text, parts, rows, nextId });
   }
   useLayoutEffect(() => {
+    inputs.current.forEach(node => { node.style.height = "0px"; node.style.height = `${node.scrollHeight}px`; });
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       nodes.current.forEach((node, id) => {
+        node.getAnimations().forEach(animation => animation.cancel());
         const old = before.current.get(id);
         if (old !== undefined) {
           const delta = old - node.getBoundingClientRect().top;
@@ -36,14 +41,26 @@ export function NoticeSentenceEditor({ text, onChange, disabled }: { text: strin
     }
     before.current.clear();
   }, [state.rows]);
-  function apply(rows: NoticeSentence[]) {
+  function apply(rows: NoticeSentence[], animate = true) {
     if (rows === state.rows) return;
-    nodes.current.forEach((node, id) => before.current.set(id, node.getBoundingClientRect().top));
+    if (animate) nodes.current.forEach((node, id) => before.current.set(id, node.getBoundingClientRect().top));
     const value = noticeText(rows, state.parts);
     setState({ ...state, text: value, rows }); onChange(value);
   }
-  return <div className={styles.editor} aria-label="알림장 문장 순서 편집">
-    <p>문장 카드를 잡아 위아래로 옮기세요. 키보드에서는 위·아래 방향키를 사용하세요.</p>
+  useImperativeHandle(editorRef, () => ({ insert(value) {
+    if (disabled) return;
+    const row = state.rows.find(item => item.id === cursor.current) ?? state.rows.at(-1);
+    if (!row) { onChange(value); return; }
+    const node = inputs.current.get(row.id);
+    const start = node?.selectionStart ?? row.text.length;
+    const end = node?.selectionEnd ?? start;
+    apply(state.rows.map(item => item.id === row.id ? { ...item, text: item.text.slice(0, start) + value + item.text.slice(end) } : item), false);
+    requestAnimationFrame(() => { node?.focus({ preventScroll: true }); node?.setSelectionRange(start + value.length, start + value.length); });
+  } }));
+  return <div className={styles.editor} id="finalNoticeEditor" role="group" aria-labelledby="notice-editor-label">
+    <strong id="notice-editor-label">여기서 바로 수정하세요</strong>
+    <p>문장을 눌러 수정하고, 왼쪽 ⠿ 손잡이를 잡아 순서를 옮기세요. 손잡이에서는 위·아래 방향키도 사용할 수 있어요.</p>
+    <div className={styles.paper}>
     {state.rows.map((row, index) => <div key={row.id} ref={node => { if (node) nodes.current.set(row.id, node); else nodes.current.delete(row.id); }} className={`${styles.card} ${active === row.id ? styles.active : ""}`}>
       <button type="button" className={styles.handle} disabled={disabled} aria-label={`${index + 1}번 문장 이동: ${row.text}`} aria-pressed={active === row.id}
         onKeyDown={event => {
@@ -74,8 +91,14 @@ export function NoticeSentenceEditor({ text, onChange, disabled }: { text: strin
         onPointerUp={() => { if (drag.current) setAnnouncement(`${index + 1}번째 위치로 이동했습니다.`); drag.current = null; setActive(null); }}
         onPointerCancel={() => { if (drag.current) apply(drag.current.rows); drag.current = null; setActive(null); }}
         onLostPointerCapture={() => { drag.current = null; setActive(null); }}
-      ><span aria-hidden="true">⠿</span><span className={styles.text}>{row.text}</span></button>
+      ><span aria-hidden="true">⠿</span></button>
+      <textarea className={styles.text} rows={1} disabled={disabled} aria-label={`${index + 1}번 문장 수정`} value={row.text}
+        ref={node => { if (node) inputs.current.set(row.id, node); else inputs.current.delete(row.id); }}
+        onFocus={() => { cursor.current = row.id; }}
+        onChange={event => apply(state.rows.map(item => item.id === row.id ? { ...item, text: event.target.value } : item), false)} />
     </div>)}
+    {!state.rows.length && <textarea className={styles.text} rows={4} disabled={disabled} aria-label="알림장 내용 입력" value={text} onChange={event => onChange(event.target.value)} />}
+    </div>
     <span className={styles.status} role="status">{announcement}</span>
   </div>;
 }
