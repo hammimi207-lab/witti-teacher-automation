@@ -193,8 +193,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <p>전사문을 원본과 비교하고 선택하면 현재 관찰에 추가됩니다. 사진과 관찰은 이후 단계에서도 유지됩니다.</p>
         </>}
         {step === 2 && <>
-          <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} />{AI_CONSENT_TEXT}</label>
-          <label className={styles.check}><input type="checkbox" checked={photoAccepted} onChange={event => setPhotoAccepted(event.target.checked)} />{PHOTO_CONSENT_TEXT}</label>
+          <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} /><span>{AI_CONSENT_TEXT}</span></label>
+          <label className={styles.check}><input type="checkbox" checked={photoAccepted} onChange={event => setPhotoAccepted(event.target.checked)} /><span>{PHOTO_CONSENT_TEXT}</span></label>
           <button className="button primary" type="button" disabled={!observation.trim() || !photoIds.length && !files.length || !aiAccepted || !photoAccepted} onClick={() => void analyze()}>{analysis ? "다시 분석하기" : "사진과 관찰 함께 분석"}</button>
           {(!observation.trim() || !photoIds.length && !files.length) && <p>사진 1장 이상과 직접 관찰한 내용을 입력해 주세요.</p>}
           {candidate && <section className={styles.candidate}><h3>새 분석 후보</h3><p>기존 카드만 교체합니다. 확인 관찰·해석·제안·과정 초안의 교사 수정은 유지됩니다.</p><pre>{candidate.analysis.cards.map(card => `${card.area}: ${card.interpretation}`).join("\n\n") || "관련 영역은 추가 관찰이 필요합니다."}</pre><button type="button" onClick={() => {
@@ -233,7 +233,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <button type="button" className="button secondary" disabled={!confirmed.trim()} onClick={makeDraft}>확인한 과정으로 초안 만들기</button>
           {field("과정 중심 관찰기록 초안 · 직접 수정", draft, setDraft, 25000)}
           <p>관찰·배움의 해석·확장 계획은 각각 별도 저장됩니다. 초안에도 제안이 실행 사실로 들어가지 않았는지 확인하세요.</p>
-          <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} />초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</label>
+          <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /><span>초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</span></label>
           {(!aiAccepted || !photoAccepted) && <p>STEAM 읽기 단계에서 AI·사진 활용 동의를 확인해 주세요.</p>}
           <button type="button" className="button primary" disabled={!analysis || stale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10 || !alias.trim()} onClick={() => void save()}>확인한 기록 저장</button>
           <button type="button" className="button secondary" disabled={confirmed.trim().length < 10 || !reviewed} onClick={() => { try { openObservationRecord(userId, confirmed); } catch (cause) { setError(failure(cause)); } }}>확인된 관찰로 놀이 이야기 만들기</button>

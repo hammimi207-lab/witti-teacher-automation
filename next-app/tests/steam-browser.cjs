@@ -97,6 +97,14 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("button", { name: "3. STEAM 읽기", exact: true }).click();
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert(await page.locator('input[type="checkbox"]').first().evaluate(element => element.getBoundingClientRect().width <= 24));
+    for (const width of [320, 390, 1024]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      const consent = page.getByRole("checkbox", { name: /입력한 관찰 내용과/ }).locator("..");
+      assert(await consent.locator("span").evaluate(element => element.getBoundingClientRect().width >= 150), `Consent text collapsed at ${width}px`);
+      assert(await consent.locator("input").evaluate(element => element.getBoundingClientRect().width <= 24));
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(root, "../outputs/steam-analysis-mobile.png"), fullPage: true });
     assert.deepEqual(errors, []);
   } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
