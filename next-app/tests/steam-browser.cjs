@@ -36,7 +36,9 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.route("**/api/photos?*", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ photos: [{ id: 1, original_file_name: "보관 사진", url: "/api/photos/1" }], hasMore: false }) }));
     await page.route("**/api/steam/analyze", route => {
       analyses++;
-      const result = { ...analysis, cards: analysis.cards.map(card => ({ ...card, interpretation: analyses > 2 ? "새 분석 후보" : card.interpretation })) };
+      const first = { ...analysis, cards: analysis.cards.map(card => ({ ...card, interpretation: analyses > 2 ? "새 분석 후보" : card.interpretation })) };
+      const second = { ...analysis, photoFacts: [{ photo: 2, fact: "집게를 손에 잡고 있다." }], cards: [{ ...analysis.cards[0], area: "T 기술", evidence: [{ source: "observation", photo: 0, quote: "집게로 천을 집었다" }], interpretation: "집게로 천을 집는 방법을 알아가는 중일 수 있어요." }] };
+      const result = { ...first, photoFacts: [...first.photoFacts, ...second.photoFacts], cards: [...first.cards, ...second.cards], plays: [{ photo: 1, analysis: first }, { photo: 2, analysis: second }] };
       const run = { runId: `11111111-1111-4111-8111-${String(analyses).padStart(12, "0")}`, model: "offline-fixture", promptVersion: "steam-play-ko-v1", schemaVersion: "steam-v1", generatedAt: "2026-10-05T00:00:00Z", inputHash: "a".repeat(64), photoHashes: ["b".repeat(64), "c".repeat(64)], originalAnalysis: result, checks: [{ area: "E 공학", source: "observation", quote: "블록을 올려놓았다", verdict: "passed", reason: "교사 관찰 인용 일치", startOffset: 4, endOffset: 14 }] };
       return route.fulfill({ status: failAnalysis ? 502 : 200, contentType: "application/json", body: JSON.stringify(failAnalysis ? { error: "분석 실패 테스트 · 다시 시도해 주세요" } : { analysis: result, run }) });
     });
@@ -69,9 +71,18 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("button", { name: "기존 사진 보관함 열기" }).click(); await page.getByLabel("보관 사진", { exact: true }).check();
     await page.getByLabel("새 사진 선택").setInputFiles({ name: "new.jpg", mimeType: "image/jpeg", buffer: image });
     await page.getByRole("heading", { name: "선택 사진 2장" }).waitFor();
+    await page.getByLabel("새 사진 선택").setInputFiles([3, 4, 5].map(index => ({ name: `photo-${index}.jpg`, mimeType: "image/jpeg", buffer: image })));
+    await page.getByRole("heading", { name: "선택 사진 5장" }).waitFor();
     await page.getByRole("button", { name: "2. 관찰 더하기", exact: true }).click();
-    await page.getByLabel("아이의 말·행동·놀이 흐름 (직접 확인한 내용)").fill("아이가 블록을 올려놓았다.");
-    await page.getByRole("button", { name: "관찰 녹음 · 녹음 파일 업로드" }).click();
+    for (let number = 1; number <= 5; number++) { assert.equal(await page.getByLabel(`사진 ${number} · 아이의 말`, { exact: true }).count(), 1); assert.equal(await page.getByLabel(`사진 ${number} · 아이의 행동`, { exact: true }).count(), 1); assert.equal(await page.getByLabel(`사진 ${number} · 놀이 흐름`, { exact: true }).count(), 1); }
+    await page.getByLabel("사진 5 · 아이의 말").fill("제거한 사진의 말은 분석에 포함하지 않음");
+    await page.getByRole("button", { name: "1. 사진 올리기", exact: true }).click();
+    for (let index = 0; index < 3; index++) await page.getByRole("button", { name: "선택 해제", exact: true }).last().click();
+    await page.getByRole("button", { name: "2. 관찰 더하기", exact: true }).click();
+    await page.getByLabel("사진 1 · 아이의 행동").fill("아이가 블록을 올려놓았다.");
+    await page.getByLabel("사진 2 · 아이의 행동").fill("집게로 천을 집었다.");
+    await page.getByLabel("사진 2 · 아이의 말").fill("다시 해 볼래.");
+    await page.getByRole("button", { name: "사진 1 관찰 녹음 · 파일 업로드" }).click();
     await page.getByLabel("녹음 파일 업로드").setInputFiles({ name: "observation.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("offline audio fixture") });
     await page.getByRole("checkbox", { name: "음성 파일을 AI 전사 서비스에 전송하는 데 동의합니다." }).check();
     await page.getByRole("button", { name: "전사하기", exact: true }).click();
@@ -81,7 +92,8 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     assert.equal(await page.getByLabel("교사 확인 전사문").isVisible(), true);
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "STEAM 관찰에 추가" }).click();
-    assert.match(await page.getByLabel("아이의 말·행동·놀이 흐름 (직접 확인한 내용)").inputValue(), /다시 내려놓았다/);
+    assert.match(await page.getByLabel("사진 1 · 놀이 흐름").inputValue(), /다시 내려놓았다/);
+    assert.equal(await page.getByLabel("사진 2 · 놀이 흐름").inputValue(), "");
     await page.getByRole("button", { name: "관찰 녹음 · 녹음 파일 업로드" }).click();
     assert.equal(await page.getByLabel("교사 확인 전사문").count(), 0);
     assert.equal(await page.locator("dialog audio").count(), 0);
@@ -99,11 +111,14 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.waitForTimeout(750);
     fs.mkdirSync(path.join(root, "../outputs"), { recursive: true });
     await analysisProgress.screenshot({ path: path.join(root, "../outputs/steam-analysis-progress.png") });
-    try { await page.getByLabel("배움의 해석 · 잠정적 가능성", { exact: true }).fill("교사가 수정한 구성 탐색 가능성"); }
+    try { await page.getByRole("region", { name: "사진 1의 놀이 분석", exact: true }).getByLabel("이 행동에서 배울 수 있는 것 · 교사의 해석", { exact: true }).fill("교사가 수정한 구성 탐색 가능성"); }
     catch (error) { throw new Error(`${error.message}\nBrowser errors: ${JSON.stringify(errors)}\nBody: ${await page.locator("body").innerText()}`); }
-    await page.getByLabel("과정 기록의 해석으로 선택").check(); await page.getByRole("button", { name: "선택한 해석 가져오기" }).click();
+    await page.getByRole("region", { name: "사진 1의 놀이 분석", exact: true }).getByLabel("과정 기록의 해석으로 선택").check(); await page.getByRole("button", { name: "선택한 해석 가져오기" }).click();
+    await page.getByRole("heading", { name: "T 기술 · 도구를 써 보는 놀이" }).waitFor();
+    await page.getByRole("heading", { name: "E 공학 · 놓고 이어 만드는 놀이" }).waitFor();
+    assert.doesNotMatch(await page.getByLabel("기록에 사용할 교사 해석").inputValue(), /집게/);
     await page.getByRole("button", { name: "4. 놀이 이어가기", exact: true }).click();
-    await page.getByRole("button", { name: "제안을 내 지원 계획으로 가져오기" }).click();
+    await page.getByRole("button", { name: "사진 1의 제안을 내 계획으로 가져오기" }).click();
     await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click();
     assert.equal(await page.getByLabel("아이 별칭", { exact: true }).count(), 0);
     await page.getByRole("button", { name: "확인한 과정으로 초안 만들기" }).click();
@@ -112,7 +127,7 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await draftField.fill((await draftField.inputValue()) + "\n교사 수정 내용 유지");
     await page.getByRole("button", { name: "3. STEAM 읽기", exact: true }).click();
     await page.getByRole("button", { name: "다시 분석하기" }).click(); await page.getByRole("heading", { name: "새 분석 후보" }).waitFor();
-    assert.equal(await page.getByLabel("배움의 해석 · 잠정적 가능성", { exact: true }).inputValue(), "교사가 수정한 구성 탐색 가능성");
+    assert.equal(await page.getByRole("region", { name: "사진 1의 놀이 분석", exact: true }).getByLabel("이 행동에서 배울 수 있는 것 · 교사의 해석", { exact: true }).inputValue(), "교사가 수정한 구성 탐색 가능성");
     await page.getByRole("button", { name: "새 카드 반영" }).click();
     assert.match(await page.getByLabel("기록에 사용할 교사 해석").inputValue(), /교사가 수정한/);
     await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click(); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
@@ -136,22 +151,31 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     failStory = true; page.once("dialog", dialog => dialog.accept()); await storyButton.click();
     await page.getByRole("alert").filter({ hasText: "이야기 실패 테스트" }).waitFor();
     assert.match(await storyField.inputValue(), /놀이 이야기 교사 수정/); failStory = false;
+    const confirmedBeforeChange = await page.getByLabel("확인된 관찰", { exact: true }).inputValue();
     await page.getByLabel("확인된 관찰", { exact: true }).fill("아이가 블록을 올려놓고 내려놓았다. 직접 확인한 관찰.");
     assert.equal(await page.getByRole("button", { name: "확인한 기록 저장" }).isDisabled(), true);
     await page.getByRole("alert").filter({ hasText: "이야기의 근거" }).waitFor();
-    await page.getByLabel("확인된 관찰", { exact: true }).fill("아이가 블록을 올려놓았다.\n\n블록을 다시 내려놓았다.");
+    await page.getByLabel("확인된 관찰", { exact: true }).fill(confirmedBeforeChange);
     await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check(); await page.getByRole("button", { name: "확인한 기록 저장" }).click();
     await page.getByRole("alert").filter({ hasText: "사진 보관 실패 테스트" }).waitFor();
     assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     failUpload = false; await page.getByRole("button", { name: "확인한 기록 저장" }).click(); await page.getByRole("status").filter({ hasText: "과정 기록과 사진 연결을 저장" }).waitFor();
     assert.equal(saveCalls, 3); assert.equal(uploads, 2); assert.deepEqual(stored.steam.photoIds, [1, 2]); assert.deepEqual(stored.steam.recordingIds, [recordingId]);
     assert.equal(stored.input.childAlias, "놀이 관찰");
+    assert.equal(stored.steam.photoObservations[0].action, "아이가 블록을 올려놓았다.");
+    assert.equal(stored.steam.photoObservations[1].action, "집게로 천을 집었다.");
+    assert.equal(stored.steam.photoObservations[1].flow, "");
+    assert.doesNotMatch(stored.steam.sourceObservation, /제거한 사진의 말/);
     assert.match(stored.result.integratedRecord, /놀이 이야기 교사 수정/); assert.match(stored.steam.draft, /교사 수정 내용 유지/);
     assert.doesNotMatch(stored.result.observation, /큰 블록/); assert.match(stored.result.connection, /큰 블록/); assert.match(stored.result.interpretation, /교사가 수정한/);
     assert.equal(stored.steam.previousRuns.length, 1); assert.equal(stored.steam.run.originalAnalysis.cards[0].interpretation, "새 분석 후보");
     assert.equal(stored.steam.previousRuns[0].promptVersion, "steam-play-ko-v1");
     await page.reload(); await draftField.waitFor(); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     assert.match(await storyField.inputValue(), /놀이 이야기 교사 수정/);
+    await page.getByRole("button", { name: "2. 관찰 더하기", exact: true }).click();
+    assert.equal(await page.getByLabel("사진 1 · 아이의 행동").inputValue(), "아이가 블록을 올려놓았다.");
+    assert.equal(await page.getByLabel("사진 2 · 아이의 행동").inputValue(), "집게로 천을 집었다.");
+    await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "확인한 기록 저장" }).isDisabled(), true);
     await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check();
     assert.equal(await storyButton.isDisabled(), true);

@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     const userId = auth.user.id;
     if (input.steam) {
       const steam = input.steam;
+      if (JSON.stringify(steam.photoObservations) !== JSON.stringify(steam.analyzedInput.photoObservations)) return Response.json({ error: "사진별 관찰이 분석 당시 입력과 다릅니다. 다시 분석하고 확인해 주세요." }, { status: 400 });
       if (input.kind !== "record" || !input.consent.photoAccepted || steam.age !== input.input.ageGroup || steam.age !== steam.analyzedInput.age || steam.sourceObservation !== steam.analyzedInput.observation || JSON.stringify(steam.photoIds) !== JSON.stringify(steam.analyzedInput.photoIds) || input.input.observation !== steam.confirmedObservation || input.input.teacherInterpretation !== steam.interpretation || input.input.supportPlan !== steam.extension || input.result.observation !== steam.confirmedObservation || input.result.interpretation !== steam.interpretation || input.result.connection !== steam.extension || input.result.integratedRecord !== (steam.story?.text || steam.draft) || (steam.story && JSON.stringify(steam.story.source) !== JSON.stringify(storySource(steam)))) return Response.json({ error: "관찰·해석·제안의 저장 내용을 확인하고, 입력을 바꿨다면 다시 분석해 주세요." }, { status: 400 });
       try { await ownedSteamPhotos(userId, steam.photoIds); } catch { return Response.json({ error: "선택 사진이 삭제되었거나 접근할 수 없습니다." }, { status: 404 }); }
       if (steam.recordingIds.length) {

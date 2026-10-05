@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const text = z.string().max(4000);
-export const steamAnalysisSchema = z.object({
+export const steamSingleAnalysisSchema = z.object({
   photoFacts: z.array(z.object({ photo: z.number().int().min(1).max(5), fact: text })).max(20),
   cards: z.array(z.object({
     area: z.enum(["S 과학", "T 기술", "E 공학", "A 예술", "M 수학"]),
@@ -11,6 +11,9 @@ export const steamAnalysisSchema = z.object({
   })).max(5),
   support: z.object({ materials: z.array(text).min(2).max(3), teacher: text, watch: z.array(text).min(2).max(3), safety: text }),
 });
+export const steamPhotoObservationSchema = z.object({ photo: z.number().int().min(1).max(5), speech: z.string().max(1500), action: z.string().max(1500), flow: z.string().max(1500) });
+export const steamGroupedAnalysisSchema = z.object({ plays: z.array(z.object({ photo: z.number().int().min(1).max(5), analysis: steamSingleAnalysisSchema })).min(1).max(5) });
+export const steamAnalysisSchema = steamSingleAnalysisSchema.extend({ photoFacts: steamSingleAnalysisSchema.shape.photoFacts.max(100), cards: steamSingleAnalysisSchema.shape.cards.max(25), plays: steamGroupedAnalysisSchema.shape.plays.optional() });
 export type SteamAnalysis = z.infer<typeof steamAnalysisSchema>;
 export const steamVerificationSchema = z.object({
   area: z.string().max(30), source: z.enum(["photo", "observation"]), quote: text,
@@ -21,7 +24,7 @@ export const steamRunSchema = z.object({
   runId: z.string().uuid(), model: z.string().max(100), promptVersion: z.string().max(100), schemaVersion: z.string().max(100),
   generatedAt: z.iso.datetime(), inputHash: z.string().regex(/^[a-f0-9]{64}$/),
   photoHashes: z.array(z.string().regex(/^[a-f0-9]{64}$/)).min(1).max(5),
-  originalAnalysis: steamAnalysisSchema, checks: z.array(steamVerificationSchema).max(40),
+  originalAnalysis: steamAnalysisSchema, checks: z.array(steamVerificationSchema).max(200),
 });
 export type SteamRun = z.infer<typeof steamRunSchema>;
 export const steamStoryInputSchema = z.object({
@@ -38,15 +41,19 @@ export const steamInputSchema = z.object({
   age: z.enum(["0세", "1세", "2세", "3세", "4세", "5세"]),
   observation: z.string().trim().min(1).max(15000),
   photoIds: z.array(z.number().int().positive().safe()).max(5),
+  photoObservations: z.array(steamPhotoObservationSchema).max(5).optional(),
 });
 export const steamSavedSchema = z.object({
   version: z.literal(1), age: steamInputSchema.shape.age,
   sourceObservation: steamInputSchema.shape.observation,
+  commonObservation: z.string().max(15000).optional(),
   photoIds: steamInputSchema.shape.photoIds,
+  photoObservations: steamInputSchema.shape.photoObservations,
   recordingIds: z.array(z.string().uuid()).max(50),
   analysis: steamAnalysisSchema,
   confirmedObservation: z.string().trim().min(10).max(15000),
   selectedAreas: z.array(z.enum(["S 과학", "T 기술", "E 공학", "A 예술", "M 수학"])).max(5),
+  selectedCards: z.array(z.string().max(50)).max(25).optional(),
   interpretation: z.string().max(3000), extension: z.string().max(2000),
   process: z.object({ interest: text, attempt: text, change: text, repeat: text, teacher: text, next: text }),
   draft: z.string().trim().min(10).max(25000),
@@ -61,8 +68,10 @@ export const steamDraftSchema = z.object({
   step: z.number().int().min(0).max(5), age: steamInputSchema.shape.age,
   observation: z.string().max(15000), title: z.string().max(100),
   photoIds: steamInputSchema.shape.photoIds, recordingIds: steamSavedSchema.shape.recordingIds,
-  analysis: steamAnalysisSchema.nullable(), analyzedSignature: z.string().max(20000),
+  photoNotes: z.record(z.string(), steamPhotoObservationSchema.omit({ photo: true })).optional(),
+  analysis: steamAnalysisSchema.nullable(), analyzedSignature: z.string().max(120000),
   confirmed: z.string().max(15000), selectedAreas: steamSavedSchema.shape.selectedAreas,
+  selectedCards: steamSavedSchema.shape.selectedCards,
   interpretation: steamSavedSchema.shape.interpretation, extension: steamSavedSchema.shape.extension,
   process: steamSavedSchema.shape.process, draft: z.string().max(25000),
   story: steamStorySchema.nullable().optional(),
@@ -76,7 +85,26 @@ export const steamDraftSchema = z.object({
 export function groundAnalysis(result: SteamAnalysis, observation: string, photoCount: number): SteamAnalysis {
   const photoFacts = result.photoFacts.filter(item => item.photo <= photoCount && item.fact.trim());
   const cards = result.cards.map(card => ({ ...card, evidence: card.evidence.filter(item => item.quote.trim() && (item.source === "observation" ? observation.includes(item.quote) : item.photo > 0 && item.photo <= photoCount && photoFacts.some(fact => fact.photo === item.photo && fact.fact === item.quote))) })).filter(card => card.evidence.length);
-  return { ...result, photoFacts, cards: cards.filter((card, index) => cards.findIndex(other => other.area === card.area) === index) };
+  return { ...result, photoFacts, cards: cards.filter((card, index) => cards.findIndex(other => other.area === card.area && other.evidence[0]?.photo === card.evidence[0]?.photo) === index) };
+}
+
+export function photoObservationText(value: z.infer<typeof steamPhotoObservationSchema>) {
+  return [["아이의 말", value.speech], ["행동", value.action], ["놀이 흐름", value.flow]].filter(([, content]) => content.trim()).map(([label, content]) => `${label}: ${content}`).join("\n");
+}
+export function groupSteamAnalysis(raw: z.infer<typeof steamGroupedAnalysisSchema>, notes: z.infer<typeof steamPhotoObservationSchema>[], count: number) {
+  if (raw.plays.length !== count || new Set(raw.plays.map(play => play.photo)).size !== count || raw.plays.some(play => play.photo > count)) throw new Error("INVALID_PLAY_GROUPS");
+  const checks: z.infer<typeof steamVerificationSchema>[] = [];
+  const original = raw.plays.slice().sort((a, b) => a.photo - b.photo);
+  const plays = original.map(play => {
+    const observation = photoObservationText(notes.find(note => note.photo === play.photo) || { photo: play.photo, speech: "", action: "", flow: "" });
+    for (const card of play.analysis.cards) for (const evidence of card.evidence) if (evidence.source === "photo" && evidence.photo !== play.photo) checks.push({ area: `사진 ${play.photo} · ${card.area}`, source: "photo", quote: evidence.quote, verdict: "failed", reason: "다른 사진의 근거라 이 놀이의 카드에서 제외했습니다.", startOffset: null, endOffset: null });
+    const candidate = { ...play.analysis, photoFacts: play.analysis.photoFacts.filter(fact => fact.photo === play.photo), cards: play.analysis.cards.map(card => ({ ...card, evidence: card.evidence.filter(evidence => evidence.source === "observation" || evidence.photo === play.photo) })) };
+    const verified = verifySteamAnalysis(candidate, observation, count);
+    checks.push(...verified.checks.map(check => ({ ...check, area: `사진 ${play.photo} · ${check.area}` })));
+    return { photo: play.photo, analysis: verified.analysis };
+  });
+  const merge = (groups: typeof original) => ({ photoFacts: groups.flatMap(play => play.analysis.photoFacts), cards: groups.flatMap(play => play.analysis.cards), support: groups[0].analysis.support, plays: groups });
+  return { analysis: merge(plays), originalAnalysis: merge(original), checks };
 }
 
 // Following Childcare Insight, verify against the source rather than trusting AI citations.

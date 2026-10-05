@@ -20,6 +20,22 @@ const observation = "아이가 블록을 올려놓고 다시 내려놓았다.";
 const analysis = { photoFacts: [{ photo: 1, fact: "손으로 블록을 잡고 있다." }], cards: [{ area: "E 공학", evidence: [{ source: "observation", photo: 0, quote: "블록을 올려놓고" }], interpretation: "구성 방법을 탐색하는 가능성", watch: "놓는 방법을 바꾸는지", extension: "큰 블록을 제공해 보기", status: "배움의 가능성" }], support: { materials: ["큰 블록", "낮은 매트"], teacher: "여기에 놓아 볼까?", watch: ["놓는 위치", "반복 시도"], safety: "작은 부품 제외" } };
 const uuid = "11111111-1111-4111-8111-111111111111";
 
+test("five photos are five independent plays; other photo evidence and teacher quotes cannot cross", () => {
+  const notes = Array.from({ length: 5 }, (_, index) => ({ photo: index + 1, speech: `사진 ${index + 1}에서 직접 들은 말`, action: `행동 ${index + 1}`, flow: "" }));
+  const raw = { plays: notes.map(note => ({ photo: note.photo, analysis: { ...structuredClone(analysis), photoFacts: [{ photo: note.photo, fact: `사진 ${note.photo}에서 보인 모습` }], cards: [{ ...structuredClone(analysis.cards[0]), evidence: [{ source: "observation", photo: 0, quote: note.speech }] }] } })) };
+  raw.plays[0].analysis.cards[0].evidence.push({ source: "observation", photo: 0, quote: notes[1].speech });
+  raw.plays[0].analysis.cards[0].evidence.push({ source: "photo", photo: 2, quote: "사진 2에서 보인 모습" });
+  const grouped = schema.groupSteamAnalysis(raw, notes, 5);
+  assert.equal(grouped.analysis.plays.length, 5); assert.equal(grouped.analysis.cards.length, 5);
+  assert.deepEqual(grouped.analysis.plays[0].analysis.cards[0].evidence.map(item => item.quote), [notes[0].speech]);
+  assert.equal(grouped.checks.filter(check => check.verdict === "failed").length, 2);
+  assert.equal(schema.steamAnalysisSchema.safeParse(grouped.analysis).success, true);
+  assert.throws(() => schema.groupSteamAnalysis({ plays: raw.plays.slice(0, 4) }, notes, 5));
+  assert.throws(() => schema.groupSteamAnalysis({ plays: [raw.plays[0], raw.plays[0]] }, notes.slice(0, 2), 2));
+  const prompt = load(path.join(root, "features/steam/prompt.ts")).STEAM_PROMPT;
+  assert.match(prompt, /어떤 도구를 어떻게 써 보았나요/); assert.match(prompt, /어떻게 놓거나 이어서 만들어 보았나요/);
+});
+
 test("STEAM menu keeps four slots and includes the new entry", () => {
   const { readQuickMenu } = load(path.join(root, "features/home/quick-menu.ts"));
   assert.deepEqual(readQuickMenu(["steam", "observation", "new", "records"]), ["steam", "observation", "new", "records"]);
@@ -68,7 +84,7 @@ test("analysis gates auth, origin, consent and photos before AI; structured resu
     const response = await post(); assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /no-store/);
     const payload = await response.json();
     assert.deepEqual(payload.analysis, analysis); assert.equal(called.store, false);
-    assert.equal(payload.run.promptVersion, "steam-play-ko-v1"); assert.match(payload.run.inputHash, /^[a-f0-9]{64}$/); assert.equal(payload.run.photoHashes.length, 1);
+    assert.equal(payload.run.promptVersion, "steam-photo-plays-ko-v2"); assert.match(payload.run.inputHash, /^[a-f0-9]{64}$/); assert.equal(payload.run.photoHashes.length, 1);
     assert.deepEqual(payload.run.originalAnalysis, analysis); assert.equal(payload.run.checks[0].verdict, "passed");
     assert.equal(called.input[1].content[1].type, "input_image");
     aiError = true; const failed = await post(); assert.equal(failed.status, 502); assert.doesNotMatch((await failed.json()).error, /private failure/);
