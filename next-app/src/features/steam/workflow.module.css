@@ -1,4 +1,7 @@
 .workflow { display: grid; gap: 1rem; min-width: 0; }
+.workflow h3 { margin: 1.25rem 0 .75rem; font-size: 1.2rem; line-height: 1.5; font-weight: 700; color: #163a5f; }
+.workflow h4 { margin: 1rem 0 .6rem; font-size: 1.05rem; line-height: 1.5; font-weight: 700; color: #163a5f; }
+.card h3 { margin-top: 0; padding-bottom: .75rem; border-bottom: 1px solid #d6e1d8; }
 .recordResult { margin: 1.5rem 0; padding: 1.25rem; border: 2px solid #a4d8dd; border-radius: 16px; background: #f1fafb; scroll-margin-top: 1rem; }
 .recordResult h3 { font-size: 1.2rem; font-weight: 700; margin: 0 0 .75rem; }
 .recordResult p { line-height: 1.75; }
