@@ -1,4 +1,4 @@
-export const QUICK_MENU_IDS = ["observation", "audio", "video", "photos", "new", "records"] as const;
+export const QUICK_MENU_IDS = ["observation", "audio", "video", "photos", "new", "records", "steam"] as const;
 export type QuickMenuId = typeof QUICK_MENU_IDS[number];
 export type QuickMenuSlots = (QuickMenuId | null)[];
 export const EMPTY_QUICK_MENU: QuickMenuSlots = [null, null, null, null];

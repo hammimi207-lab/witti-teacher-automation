@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import type { GeneratedRecord, RecordInput } from "./schema";
 
-export function WordDownload({ title, result, input, recordType, createdAt, plain = "", edited = "", files = [], sessionId }: { title: string; result: GeneratedRecord; input?: RecordInput | null; recordType?: string | null; createdAt?: string | null; plain?: string; edited?: string; files?: File[]; sessionId?: string | null }) {
+export function WordDownload({ title, result, input, recordType, createdAt, plain = "", edited = "", files = [], sessionId, photoIds }: { title: string; result: GeneratedRecord; input?: RecordInput | null; recordType?: string | null; createdAt?: string | null; plain?: string; edited?: string; files?: File[]; sessionId?: string | null; photoIds?: number[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);
@@ -11,7 +11,7 @@ export function WordDownload({ title, result, input, recordType, createdAt, plai
     lock.current = true; setBusy(true); setError("");
     try {
       const form = new FormData();
-      form.set("record", JSON.stringify({ title, result, input, recordType, createdAt, plain, edited, sessionId }));
+      form.set("record", JSON.stringify({ title, result, input, recordType, createdAt, plain, edited, sessionId, photoIds }));
       if (!sessionId) for (const file of files) form.append("photo", file);
       const response = await fetch("/api/records/word", { method: "POST", body: form, cache: "no-store" });
       if (!response.ok) {

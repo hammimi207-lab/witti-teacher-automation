@@ -2,8 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { mergeSavedRecord, savedEnvelopeSchema, saveRequestSchema } from "@/features/records/save-contract";
 import { AI_CONSENT_TEXT, PHOTO_CONSENT_TEXT } from "@/features/records/ai-consent";
+import { ownedSteamPhotos } from "@/lib/steam-photos";
 
 export async function POST(request: Request) {
+  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "허용되지 않은 요청입니다." }, { status: 403 });
   let stage = "입력 확인";
   if (!hasSupabaseConfig()) return Response.json({ error: "저장하려면 로그인 서비스 연결이 필요합니다." }, { status: 503 });
   try {
@@ -18,6 +20,15 @@ export async function POST(request: Request) {
     if (!input.consent) return Response.json({ error: "AI 활용 동의 후 기록을 저장해 주세요.", field: "aiConsent" }, { status: 403 });
     if (input.kind === "language" && !input.result.observationRefinementRows.length) return Response.json({ error: "저장할 비교표가 없습니다." }, { status: 400 });
     const userId = auth.user.id;
+    if (input.steam) {
+      const steam = input.steam;
+      if (input.kind !== "record" || !input.consent.photoAccepted || steam.age !== input.input.ageGroup || steam.age !== steam.analyzedInput.age || steam.sourceObservation !== steam.analyzedInput.observation || JSON.stringify(steam.photoIds) !== JSON.stringify(steam.analyzedInput.photoIds) || input.input.observation !== steam.confirmedObservation || input.input.teacherInterpretation !== steam.interpretation || input.input.supportPlan !== steam.extension || input.result.observation !== steam.confirmedObservation || input.result.interpretation !== steam.interpretation || input.result.connection !== steam.extension || input.result.integratedRecord !== steam.draft) return Response.json({ error: "관찰·해석·제안의 저장 내용을 확인하고, 입력을 바꿨다면 다시 분석해 주세요." }, { status: 400 });
+      try { await ownedSteamPhotos(userId, steam.photoIds); } catch { return Response.json({ error: "선택 사진이 삭제되었거나 접근할 수 없습니다." }, { status: 404 }); }
+      if (steam.recordingIds.length) {
+        const recordings = await supabase.from("record_fragments").select("fragment_id").eq("user_id", userId).eq("record_type", "voice").is("deleted_at", null).in("fragment_id", steam.recordingIds);
+        if (recordings.error || recordings.data?.length !== new Set(steam.recordingIds).size) return Response.json({ error: "연결 녹음이 삭제되었거나 접근할 수 없습니다." }, { status: 404 });
+      }
+    }
     stage = "기존 기록 조회";
     // 생성별 고정 세션을 사용해 저장 버튼의 재시도에서도 같은 기록을 찾습니다.
     const existing = await supabase.from("generated_texts").select("id,result_text").eq("user_id", userId).eq("session_id", input.generationId).eq("deleted", false).limit(1);

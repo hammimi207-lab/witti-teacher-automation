@@ -4,6 +4,7 @@ import { TeacherGrowthTable } from "./teacher-growth-table";
 import { WordDownload } from "./word-download";
 import { teacherDocumentSections } from "./teacher-document-sections";
 import { PhotoGallery } from "./photo-gallery";
+import Link from "next/link";
 
 export type SavedRecord = { id: number; session_id?: string | null; output_type: string | null; result_text: string | null; edited_text: string | null; created_at: string | null };
 export function unpackRecord(record: SavedRecord) {
@@ -17,11 +18,14 @@ export function unpackRecord(record: SavedRecord) {
   return { sessionId: record.session_id, teacherRevisions: undefined, kinds: ["record", ...(result.observationRefinementRows.length ? ["language"] : [])], result, title: record.output_type || "생성 기록", plain: isResult ? "" : record.result_text || "내용 없음", input: null };
 }
 export function SavedRecordCard({ record, language }: { record: SavedRecord; language: boolean }) {
+  let steam;
+  try { steam = savedEnvelopeSchema.parse(JSON.parse(record.result_text || "null")).steam; } catch { /* Older records remain readable. */ }
   const { result, title, plain, input, teacherRevisions, sessionId } = unpackRecord(record);
   const finalText = (record.output_type === "알림장" ? result.finalNotice : result.integratedRecord) || result.integratedRecord || plain || record.edited_text || "";
   return <article className="panel result saved-record-card">
     <header className="saved-record-header"><h2>{title}</h2><span className="section-kicker">{record.output_type || "기록"}</span></header>
     <p className="saved-record-meta">{input?.writingDate || (record.created_at ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" }).format(new Date(record.created_at)) : "작성일 없음")}{input && <> · 아이 별칭 {input.childAlias} · {input.ageGroup}</>}</p>
+    {steam && sessionId && <Link className="button secondary" href={`/records/steam?session=${encodeURIComponent(sessionId)}`}>STEAM 과정 기록 다시 열기</Link>}
     {language ? <TeacherGrowthTable revisions={teacherRevisions} /> : <>
       <p className="saved-record-excerpt">{finalText || "자세히 보기에서 저장된 내용을 확인해 주세요."}</p>
       <details className="saved-record-details"><summary>생성 결과 자세히 보기</summary><div className="saved-record-body">
@@ -35,8 +39,8 @@ export function SavedRecordCard({ record, language }: { record: SavedRecord; lan
           <section><h3>교사가 관찰한 실제 장면</h3><pre>{input.observation}</pre></section>
           {[...input.playSubcategories.map(key => [key, input.playSubcategoryNotes[key]]), ...input.teacherSupports.map(key => [key, input.teacherSupportNotes[key]]), ...teacherDocumentSections(input)].map(([label, value]) => value && <section key={label}><h3>{label}</h3><pre>{value}</pre></section>)}
         </div></details>}
-        {sessionId && <PhotoGallery sessionId={sessionId} lazy />}
-        <WordDownload title={title} result={result} input={input} recordType={record.output_type} createdAt={record.created_at} plain={plain} edited={record.edited_text || ""} sessionId={sessionId} />
+        {sessionId && <PhotoGallery sessionId={sessionId} photoIds={steam?.photoIds} lazy />}
+        <WordDownload title={title} result={result} input={input} recordType={record.output_type} createdAt={record.created_at} plain={plain} edited={record.edited_text || ""} sessionId={sessionId} photoIds={steam?.photoIds} />
       </div></details>
     </>}
   </article>;

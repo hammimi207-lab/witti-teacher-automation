@@ -8,9 +8,13 @@ export async function GET(request: Request) {
   try {
     const { userId, admin } = await photoAccess();
     const sessionId = new URL(request.url).searchParams.get("sessionId");
+    const rawIds = new URL(request.url).searchParams.get("ids");
+    const ids = rawIds ? z.array(z.coerce.number().int().positive().safe()).min(1).max(5).safeParse(rawIds.split(",")) : null;
+    if (ids && !ids.success) return Response.json({ error: "사진 번호를 확인해 주세요." }, { status: 400 });
     if (sessionId && !z.string().uuid().safeParse(sessionId).success) return Response.json({ error: "기록 번호를 확인해 주세요." }, { status: 400 });
     let query = admin.from("photo_records").select("id,session_id,original_file_name,created_at").eq("user_id", userId).eq("deleted", false).order("created_at", { ascending: true });
-    if (sessionId) query = query.eq("session_id", sessionId);
+    if (ids?.success) query = query.in("id", ids.data);
+    else if (sessionId) query = query.eq("session_id", sessionId);
     // Paginate the personal gallery; a saved record contains at most five new photos.
     const offset = Math.max(0, Math.min(1000000, Number(new URL(request.url).searchParams.get("offset")) || 0));
     const { data, error } = await query.range(offset, offset + 99);
@@ -34,7 +38,10 @@ export async function POST(request: Request) {
     const envelope = JSON.parse(record.result_text);
     try { readAIConsent(envelope.consent, true); } catch { return Response.json({ error: "사진 활용 동의가 필요합니다." }, { status: 403 }); }
     if (!envelope.savedKinds?.includes("record")) return Response.json({ error: "종합 기록 저장 후 사진을 보관할 수 있습니다." }, { status: 400 });
-    const path = `${userId}/${sessionId}/web-${slot}.jpg`;
+    const photoKey = form.get("photoKey");
+    // STEAM uses stable file keys so retries and added photos never reuse another photo's slot.
+    const steamKey = typeof photoKey === "string" && photoKey.length <= 500 && envelope.steam ? (await import("node:crypto")).createHash("sha256").update(photoKey).digest("hex").slice(0, 32) : null;
+    const path = `${userId}/${sessionId}/${steamKey ? `steam-${steamKey}` : `web-${slot}`}.jpg`;
     const { data: existing, error: existingError } = await admin.from("photo_records").select("id,deleted").eq("user_id", userId).eq("file_path", path).limit(1).maybeSingle();
     if (existingError) throw existingError;
     if (existing) return Response.json({ saved: !existing.deleted, deleted: existing.deleted, id: existing.id }, { headers: privateHeaders });

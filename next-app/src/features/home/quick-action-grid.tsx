@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileAudio, FilePlus2, FolderOpen, Images, Mic, Plus, Video } from "lucide-react";
+import { FileAudio, FilePlus2, FolderOpen, Images, Mic, Plus, Video, Sparkles } from "lucide-react";
 import { QuickActionCard } from "./quick-action-card";
 import { ObservationRecorder, type ObservationRecorderHandle } from "./observation-recorder";
 import { PhotoSelector, type PhotoSelectorHandle } from "./photo-selector";
@@ -10,6 +10,7 @@ import { VideoObservation } from "./video-observation";
 import { AudioFileAnalysis } from "./audio-file-analysis";
 import { readQuickMenu, EMPTY_QUICK_MENU, type QuickMenuId, type QuickMenuSlots } from "./quick-menu";
 const actions = [
+  { id: "steam", title: "STEAM 적용하기", description: "놀이 사진에서 배움의 가능성을 살펴보고, 다음 놀이와 관찰기록으로 이어가요.", icon: Sparkles },
   { id: "observation", title: "관찰 녹음", description: "지금 관찰한 행동과 말을 바로 녹음해요.", icon: Mic },
   { id: "audio", title: "녹음 파일 분석", description: "저장한 녹음을 전사하고 기록에 연결해요.", icon: FileAudio },
   { id: "video", title: "놀이 영상 분석", description: "영상 속 말과 장면으로 놀이 과정을 살펴봐요.", icon: Video },
@@ -52,8 +53,8 @@ export function QuickActionGrid({ userId = "", initialSlots = EMPTY_QUICK_MENU }
   function card(id: QuickMenuId) {
     const action = actions.find(item => item.id === id)!;
     const variant = id === "new" || id === "records" ? "record" as const : "capture" as const;
-    return id === "new" || id === "records"
-      ? <QuickActionCard {...action} variant={variant} href={id === "records" ? "/records" : userId ? "/records/new" : "/records/new?guest=1"} />
+    return id === "new" || id === "records" || id === "steam"
+      ? <QuickActionCard {...action} variant={variant} href={id === "steam" ? "/records/steam" : id === "records" ? "/records" : userId ? "/records/new" : "/records/new?guest=1"} />
       : <QuickActionCard {...action} variant={variant} onClick={() => open(id)} />;
   }
   return <>

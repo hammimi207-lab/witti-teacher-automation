@@ -12,6 +12,7 @@ const payloadSchema = z.object({
   input: recordInputSchema.nullish(), recordType: z.string().max(100).nullish(),
   createdAt: z.string().max(100).nullish(), plain: z.string().max(100000).default(""),
   edited: z.string().max(100000).default(""), sessionId: z.string().uuid().nullish(),
+  photoIds: z.array(z.number().int().positive().safe()).max(5).optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,7 +29,9 @@ export async function POST(request: Request) {
     const sources: Blob[] = [];
     if (record.sessionId) {
       // Stored photos are authoritative: never resurrect a deleted photo from a stale preview.
-      const { data, error } = await admin.from("photo_records").select("storage_bucket,file_path").eq("user_id", userId).eq("session_id", record.sessionId).eq("deleted", false).order("created_at", { ascending: true });
+      let query = admin.from("photo_records").select("storage_bucket,file_path").eq("user_id", userId).eq("deleted", false);
+      query = record.photoIds ? query.in("id", record.photoIds) : query.eq("session_id", record.sessionId);
+      const { data, error } = await query.order("created_at", { ascending: true });
       if (error) throw error;
       for (const photo of data || []) {
         if (photo.storage_bucket !== PHOTO_BUCKET) throw new Error("PHOTO");

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { recordInputSchema } from "./schema";
 import { generatedSchema } from "./result-schema";
 import { aiConsentSchema } from "./ai-consent";
+import { steamSavedSchema } from "./steam-schema";
 const teacherRevisions = z.array(z.object({ context: z.string(), before: z.string(), after: z.string() })).optional();
 
 export const saveRequestSchema = z.object({
@@ -12,6 +13,7 @@ export const saveRequestSchema = z.object({
   createdAt: z.string().max(100),
   teacherRevisions,
   consent: aiConsentSchema.optional(),
+  steam: steamSavedSchema.optional(),
 });
 export const savedEnvelopeSchema = z.object({
   version: z.literal(1),
@@ -22,6 +24,7 @@ export const savedEnvelopeSchema = z.object({
   createdAt: z.string(),
   teacherRevisions,
   consent: aiConsentSchema.extend({ acceptedAt: z.string().optional(), aiText: z.string().optional(), photoText: z.string().optional() }).optional(),
+  steam: steamSavedSchema.optional(),
 });
 export type SavedEnvelope = z.infer<typeof savedEnvelopeSchema>;
 
@@ -33,5 +36,5 @@ export function mergeSavedRecord(request: z.infer<typeof saveRequestSchema>, pre
     Object.assign(result, request.result);
     result.observationRefinementRows = rows;
   } else result.observationRefinementRows = request.result.observationRefinementRows;
-  return { version: 1, generationId: request.generationId, savedKinds, input: request.input, result, createdAt: request.createdAt, teacherRevisions: request.teacherRevisions ?? previous?.teacherRevisions, consent: previous?.consent ?? request.consent };
+  return { version: 1, generationId: request.generationId, savedKinds, input: request.input, result, createdAt: request.createdAt, teacherRevisions: request.teacherRevisions ?? previous?.teacherRevisions, consent: previous?.consent ?? request.consent, steam: request.steam ?? previous?.steam };
 }

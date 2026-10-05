@@ -15,7 +15,7 @@ function fixture(user = "owner") {
     from(name) {
       let filters = [], mutation, values, single = false, start = 0, end = Infinity;
       const q = {
-        select() { return q; }, eq(key, value) { filters.push(row => row[key] === value); return q; },
+        select() { return q; }, eq(key, value) { filters.push(row => row[key] === value); return q; }, in(key, values) { filters.push(row => values.includes(row[key])); return q; },
         order() { return q; }, range(a, b) { start = a; end = b; return q; }, limit(n) { end = n - 1; return q; },
         maybeSingle() { single = true; return q; }, single() { single = true; return q; },
         update(value) { mutation = "update"; values = value; return q; }, insert(value) { mutation = "insert"; values = value; return q; },
@@ -63,6 +63,29 @@ async function uploadBody() {
   const body = new FormData(); body.set("sessionId", session); body.set("slot", "0"); body.set("photo", new File([image], "sample.jpg", { type: "image/jpeg" }));
   return new Request("https://app.test/api/photos", { method: "POST", body, headers: { origin: "https://app.test" } });
 }
+
+test("STEAM referenced gallery photos remain owner-scoped and exclude deleted photos", async () => {
+  const f = fixture();
+  const response = await f.list().GET(new Request("https://app.test/api/photos?ids=1,2"));
+  assert.deepEqual((await response.json()).photos.map(photo => photo.id), [1]);
+  f.state.rows[0].deleted = true;
+  assert.deepEqual((await (await f.list().GET(new Request("https://app.test/api/photos?ids=1,2"))).json()).photos, []);
+  assert.equal((await f.list().GET(new Request("https://app.test/api/photos?ids=1,2,3,4,5,6"))).status, 400);
+});
+
+test("STEAM photo upload keys deduplicate retries and distinguish later photos", async () => {
+  const f = fixture();
+  f.state.records[0].result_text = JSON.stringify({ savedKinds: ["record"], consent, input: {}, steam: { version: 1 } });
+  async function upload(key) {
+    const form = await (await uploadBody()).formData(); form.set("photoKey", key);
+    return f.list().POST(new Request("https://app.test/api/photos", { method: "POST", body: form, headers: { origin: "https://app.test" } }));
+  }
+  const first = await (await upload("first-file")).json();
+  assert.equal(first.saved, true);
+  const again = await (await upload("first-file")).json();
+  assert.equal(again.id, first.id);
+  const other = await (await upload("second-file")).json(); assert.notEqual(other.id, first.id);
+});
 test("private gallery and image bytes require the owner; no public URLs or caching", async () => {
   const f = fixture();
   const response = await f.list().GET(new Request(`https://app.test/api/photos?sessionId=${session}`));
@@ -197,4 +220,22 @@ test("server Word export embeds unsaved photos and rejects invalid requests", as
   body.set("record", "invalid");
   assert.equal((await route.POST(new Request("https://app.test/api/records/word", { method: "POST", body }))).status, 400);
   assert.equal((await route.POST(new Request("https://app.test/api/records/word", { method: "POST", body, headers: { origin: "https://other.test" } }))).status, 403);
+});
+
+test("STEAM Word export reuses selected owned photos across sessions and honors deletion", async () => {
+  const f = fixture();
+  f.state.rows[0].session_id = "660e8400-e29b-41d4-a716-446655440000";
+  f.state.stored.set("owner/old.jpg", await sharp({ create: { width: 50, height: 40, channels: 3, background: "white" } }).jpeg().toBuffer());
+  async function exportRecord() {
+    const body = new FormData();
+    body.set("record", JSON.stringify({ title: "STEAM 과정 기록", result: { integratedRecord: "교사가 확인한 과정" }, sessionId: session, photoIds: [1, 2] }));
+    return f.load("app/api/records/word/route").POST(new Request("https://app.test/api/records/word", { method: "POST", body }));
+  }
+  const response = await exportRecord(); assert.equal(response.status, 200);
+  const zip = await JSZip.loadAsync(await response.arrayBuffer());
+  assert.equal(Object.keys(zip.files).filter(name => name.startsWith("word/media/") && !zip.files[name].dir).length, 1);
+  assert.equal(f.state.storageCalls, 1);
+  f.state.rows[0].deleted = true;
+  const deleted = await exportRecord(); const deletedZip = await JSZip.loadAsync(await deleted.arrayBuffer());
+  assert.equal(Object.keys(deletedZip.files).filter(name => name.startsWith("word/media/") && !deletedZip.files[name].dir).length, 0);
 });

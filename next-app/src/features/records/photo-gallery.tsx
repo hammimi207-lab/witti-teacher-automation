@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SavedPhoto } from "./document-photos";
 
-export function PhotoGallery({ sessionId, lazy = false }: { sessionId?: string | null; lazy?: boolean }) {
+export function PhotoGallery({ sessionId, lazy = false, photoIds }: { sessionId?: string | null; lazy?: boolean; photoIds?: number[] }) {
   const [open, setOpen] = useState(!lazy);
   const [photos, setPhotos] = useState<SavedPhoto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ export function PhotoGallery({ sessionId, lazy = false }: { sessionId?: string |
   const load = useCallback(async (start = 0) => {
     setLoading(true); setError("");
     try {
-      const query = new URLSearchParams({ offset: String(start), ...(sessionId ? { sessionId } : {}) });
+      const query = new URLSearchParams({ offset: String(start), ...(photoIds?.length ? { ids: photoIds.join(",") } : sessionId ? { sessionId } : {}) });
       const response = await fetch(`/api/photos?${query}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "사진을 불러오지 못했습니다.");
@@ -23,7 +23,7 @@ export function PhotoGallery({ sessionId, lazy = false }: { sessionId?: string |
       setOffset(start + payload.photos.length); setHasMore(payload.hasMore); setLoaded(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "사진 조회 실패"); }
     finally { setLoading(false); }
-  }, [sessionId]);
+  }, [sessionId, photoIds]);
   // Fetching this private gallery is an external synchronization on first open.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open && !loaded) void load(); }, [open, loaded, load]);
