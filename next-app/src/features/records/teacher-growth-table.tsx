@@ -1,0 +1,5 @@
+import { revisionDiff } from "./revision-diff";
+import { describeGrowth, type TeacherRevision } from "./teacher-revisions";
+export function TeacherGrowthTable({ revisions }: { revisions?: TeacherRevision[] }) {
+  return <section className="refinement-section"><h2>어떤 표현이 달라졌을까요?</h2><p>처음 작성을 마친 문장과 선생님이 수정한 문장을 그대로 비교합니다. 추가·변경한 표현은 파란색으로 표시합니다.</p>{revisions?.length ? <div className="refinement-table-wrap"><table className="refinement-table"><thead><tr><th>가장 처음 작성한 관찰 문구</th><th>수정된 관찰 문구</th><th>선생님의 성장 과정</th></tr></thead><tbody>{revisions.map((row, i) => <tr key={i}><td style={{ whiteSpace: "pre-wrap", color: "#111" }}>{row.before}</td><td style={{ whiteSpace: "pre-wrap", color: "#111" }}>{revisionDiff(row.before, row.after).map((part, index) => <span key={index} className={part.added ? "revision-added" : undefined}>{part.text}</span>)}</td><td>{describeGrowth(row).map((text, index) => <p key={index}>{text}</p>)}</td></tr>)}</tbody></table></div> : <p>이 기록에는 처음 작성한 문구와 수정 이력이 저장되어 있지 않아 실제 변화 과정을 비교할 수 없습니다.</p>}</section>;
+}

@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+
+# Private Supabase exports
+backups/
+
+# Local dependencies and generated app files
+node_modules/
+.next/
+.vercel/
+.qa/
+.word-qa/
+*.tsbuildinfo
+
+# Local Python verification environment
+/.patch-test-venv/
+/.venv/
+/venv/
+
+# Preserved local snapshots, evidence and verification outputs
+/versions/
+/outputs/
+/.deploy-tools/
+/docs/patent-preparation/
+/video-review*.png
+/video-review.cjs

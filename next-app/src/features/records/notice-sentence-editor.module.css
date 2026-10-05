@@ -1,0 +1,12 @@
+.editor { margin-block: 1rem; }
+.paper { padding: .75rem; border: 1px solid var(--line, #ded8cd); border-radius: 12px; background: #fbfdff; min-height: 12rem; }
+.card { display: flex; align-items: flex-start; border-radius: 6px; margin-block: .3rem; }
+.card:focus-within { background: #f1f7fc; }
+.handle { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; min-height: 44px; padding: .4rem; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; cursor: grab; touch-action: none; }
+.handle:focus-visible { outline: 2px solid #946a42; outline-offset: 2px; }
+.handle:disabled { cursor: default; opacity: .65; }
+.active { box-shadow: 0 5px 16px #0002; position: relative; z-index: 1; }
+.active .handle { cursor: grabbing; }
+.text { flex: 1; width: 100%; min-width: 0; min-height: 44px; padding: .6rem .4rem; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; resize: none; overflow: hidden; box-sizing: border-box; }
+.text:focus-visible { outline: 2px solid #946a42; outline-offset: -2px; }
+.status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
