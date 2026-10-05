@@ -23,7 +23,6 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [age, setAge] = useState<SteamSaved["age"]>(saved?.age || "2세");
   const [observation, setObservation] = useState(saved?.sourceObservation || "");
   const [title, setTitle] = useState(initial?.input.playName || "STEAM 놀이 과정");
-  const [alias, setAlias] = useState(initial?.input.childAlias || "");
   const [gallery, setGallery] = useState<SavedPhoto[]>([]);
   const [galleryOffset, setGalleryOffset] = useState(0), [hasMore, setHasMore] = useState(false);
   const [photoIds, setPhotoIds] = useState(saved?.photoIds || []);
@@ -51,7 +50,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const draftKey = `record-fairy:steam:v1:${userId}:${initial?.generationId || "new"}`;
   const signature = JSON.stringify({ age, observation: observation.trim(), photoIds, files: files.map(file => file.key) });
   const stale = Boolean(analysis) && analyzedSignature !== signature;
-  const payload = JSON.stringify({ step, age, observation, title, alias, photoIds, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, interpretation, extension, process, draft, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
+  const payload = JSON.stringify({ step, age, observation, title, photoIds, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, interpretation, extension, process, draft, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
   useEffect(() => {
     const allocated = urls.current;
     return () => allocated.forEach(url => URL.revokeObjectURL(url));
@@ -79,7 +78,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     try {
       const value = steamDraftSchema.parse(JSON.parse(recovery!));
       const result = value.analysis ? steamAnalysisSchema.parse(value.analysis) : null;
-      setAge(value.age); setObservation(value.observation); setTitle(value.title); setAlias(value.alias); setPhotoIds(value.photoIds); setRecordingIds(value.recordingIds); setAnalysis(result); setAnalyzedSignature(value.analyzedSignature);
+      setAge(value.age); setObservation(value.observation); setTitle(value.title); setPhotoIds(value.photoIds); setRecordingIds(value.recordingIds); setAnalysis(result); setAnalyzedSignature(value.analyzedSignature);
       setConfirmed(value.confirmed); setSelectedAreas(value.selectedAreas); setInterpretation(value.interpretation); setExtension(value.extension); setProcess(value.process); setDraft(value.draft); setGenerationId(value.generationId); setCreatedAt(value.createdAt); setStep(value.step);
       setRun(value.run || null); setPreviousRuns(value.previousRuns || []);
       setNotice(value.missingPhotos?.length ? `글은 복원했습니다. 새 사진 ${value.missingPhotos.length}장은 다시 첨부한 뒤 분석해 주세요.` : "작성 내용과 수정 내용을 복원했습니다.");
@@ -137,7 +136,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     setGenerationId(id); setCreatedAt(date);
     let recordWritten = false;
     try {
-      const input = recordInputSchema.parse({ playName: title, ageGroup: age, childAlias: alias, recordType: "놀이 이야기", observation: confirmed, curriculumAreas: [], teacherInterpretation: interpretation, supportPlan: extension });
+      const input = recordInputSchema.parse({ playName: title, ageGroup: age, childAlias: "놀이 관찰", recordType: "놀이 이야기", observation: confirmed, curriculumAreas: [], teacherInterpretation: interpretation, supportPlan: extension });
       const result = generatedSchema.parse({ observation: confirmed, interpretation, connection: extension, integratedRecord: draft });
       let ids = [...photoIds];
       const body = () => ({ generationId: id, createdAt: date, kind: "record", input, result, consent: { version: AI_CONSENT_VERSION, aiAccepted, photoAccepted },
@@ -226,7 +225,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           {field("교사가 조절할 확장 계획 · 관찰 사실과 별도 저장", extension, setExtension, 2000)}
         </> : <p>먼저 사진과 관찰을 분석해 주세요.</p>)}
         {step === 4 && <>
-          <label className={styles.field}>기록명<input value={title} maxLength={100} onChange={event => { setTitle(event.target.value); edit(); }} /></label><label className={styles.field}>아이 별칭<input value={alias} maxLength={50} onChange={event => { setAlias(event.target.value); edit(); }} /></label>
+          <label className={styles.field}>기록명<input value={title} maxLength={100} onChange={event => { setTitle(event.target.value); edit(); }} /></label>
           {field("확인된 관찰", confirmed, setConfirmed, 15000)}{field("교사가 선택·수정한 배움의 해석", interpretation, setInterpretation, 3000)}
           <p>입력되지 않은 과정은 채우지 않습니다. 실제 확인한 과정만 보충해 주세요.</p>
           {([ ["interest", "처음 무엇에 관심을 보였나요?"], ["attempt", "어떤 행동을 시도했나요?"], ["change", "시도 중 무엇이 달라졌나요?"], ["repeat", "무엇을 반복하거나 바꾸었나요?"], ["teacher", "교사가 실제로 어떻게 지원했나요?"], ["next", "다음에 더 관찰할 점 (아직 실행하지 않음)"] ] as const).map(([key, label]) => <div key={key}>{field(label, process[key], value => setProcess(current => ({ ...current, [key]: value })))}</div>)}
@@ -235,7 +234,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <p>관찰·배움의 해석·확장 계획은 각각 별도 저장됩니다. 초안에도 제안이 실행 사실로 들어가지 않았는지 확인하세요.</p>
           <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /><span>초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</span></label>
           {(!aiAccepted || !photoAccepted) && <p>STEAM 읽기 단계에서 AI·사진 활용 동의를 확인해 주세요.</p>}
-          <button type="button" className="button primary" disabled={!analysis || stale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10 || !alias.trim()} onClick={() => void save()}>확인한 기록 저장</button>
+          <button type="button" className="button primary" disabled={!analysis || stale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
           <button type="button" className="button secondary" disabled={confirmed.trim().length < 10 || !reviewed} onClick={() => { try { openObservationRecord(userId, confirmed); } catch (cause) { setError(failure(cause)); } }}>확인된 관찰로 놀이 이야기 만들기</button>
           <Link className="button secondary" href="/records">내 기록 보기</Link>
         </>}

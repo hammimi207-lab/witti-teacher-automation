@@ -69,7 +69,7 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("button", { name: "4. 놀이 이어가기", exact: true }).click();
     await page.getByRole("button", { name: "제안을 내 지원 계획으로 가져오기" }).click();
     await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click();
-    await page.getByLabel("아이 별칭", { exact: true }).fill("아이 A");
+    assert.equal(await page.getByLabel("아이 별칭", { exact: true }).count(), 0);
     await page.getByRole("button", { name: "확인한 과정으로 초안 만들기" }).click();
     const draftField = page.getByLabel("과정 중심 관찰기록 초안 · 직접 수정", { exact: true });
     assert.match(await draftField.inputValue(), /교사 보충 필요/); assert.doesNotMatch(await draftField.inputValue(), /큰 블록/);
@@ -85,6 +85,7 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     failUpload = false; await page.getByRole("button", { name: "확인한 기록 저장" }).click(); await page.getByRole("status").filter({ hasText: "과정 기록과 사진 연결을 저장" }).waitFor();
     assert.equal(saveCalls, 3); assert.equal(uploads, 2); assert.deepEqual(stored.steam.photoIds, [1, 2]); assert.deepEqual(stored.steam.recordingIds, [recordingId]);
+    assert.equal(stored.input.childAlias, "놀이 관찰");
     assert.doesNotMatch(stored.result.observation, /큰 블록/); assert.match(stored.result.connection, /큰 블록/); assert.match(stored.result.interpretation, /교사가 수정한/);
     assert.equal(stored.steam.previousRuns.length, 1); assert.equal(stored.steam.run.originalAnalysis.cards[0].interpretation, "새 분석 후보");
     assert.equal(stored.steam.previousRuns[0].promptVersion, "steam-play-ko-v1");

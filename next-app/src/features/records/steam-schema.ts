@@ -48,7 +48,7 @@ export const steamSavedSchema = z.object({
 export type SteamSaved = z.infer<typeof steamSavedSchema>;
 export const steamDraftSchema = z.object({
   step: z.number().int().min(0).max(5), age: steamInputSchema.shape.age,
-  observation: z.string().max(15000), title: z.string().max(100), alias: z.string().max(50),
+  observation: z.string().max(15000), title: z.string().max(100),
   photoIds: steamInputSchema.shape.photoIds, recordingIds: steamSavedSchema.shape.recordingIds,
   analysis: steamAnalysisSchema.nullable(), analyzedSignature: z.string().max(20000),
   confirmed: z.string().max(15000), selectedAreas: steamSavedSchema.shape.selectedAreas,
