@@ -37,8 +37,8 @@ export function NoticeGreetings({ input, onChange, onApply, disabled = false }: 
     })}
     </div>
     {onApply && <button type="button" className="button primary" disabled={disabled} onClick={onApply}>인사말을 알림장에 적용</button>}
-    <details className="notice-greetings-help"><summary>날씨·공휴일 추천 안내</summary><p>기관 지역과 해당 날짜의 날씨 연동이 없어 날씨를 추측하지 않아요. 날씨 인사를 선택하면 일반 인사가 나타나며, 확인한 날씨는 직접 적을 수 있어요.</p>
-    {(!calendar || calendar.date !== date || !calendar.available) && <p role="status">공휴일 정보를 확인하지 못했어요. 일반·주말 인사와 직접 작성을 사용할 수 있어요.</p>}
+    <details className="notice-greetings-help"><summary>날씨·공휴일 추천 안내</summary><p>날씨 문구는 실제 날씨를 확인한 뒤 선택해 주세요. 날씨를 자동으로 확인하거나 문구에 적용하지 않습니다. 설날·추석 인사는 날짜와 관계없이 직접 선택할 수 있습니다.</p>
+    {(!calendar || calendar.date !== date || !calendar.available) && <p role="status">공휴일 정보를 확인하지 못했어요. 설날·추석을 포함한 모든 인사말을 직접 선택할 수 있어요.</p>}
     <small>공휴일 추천은 기관의 휴원 안내가 아니에요.</small></details>
   </section>;
 }

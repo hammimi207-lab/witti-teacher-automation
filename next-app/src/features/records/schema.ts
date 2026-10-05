@@ -32,8 +32,8 @@ export const recordInputSchema = z.object({
   inheritedObservation: z.string().trim().max(15000).default(""),
   openingGreeting: z.string().trim().max(500).default(""),
   closingGreeting: z.string().trim().max(500).default(""),
-  openingKind: z.enum(["basic", "season", "weather", "custom", "none"]).default("none"),
-  closingKind: z.enum(["basic", "weekend", "holiday", "custom", "none"]).default("none"),
+  openingKind: z.enum(["basic", "season", "weather", "seollal", "chuseok", "custom", "none"]).default("none"),
+  closingKind: z.enum(["basic", "weekend", "holiday", "seollal", "chuseok", "gratitude", "health", "custom", "none"]).default("none"),
 });
 
 // Keep older saved records readable; require explicit choices for new notices.

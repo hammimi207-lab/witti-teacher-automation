@@ -17,6 +17,34 @@ const { toggleAnnouncement, applyAnnouncements, announcementText } = require("..
 const { koreanHolidays } = require("../src/lib/korean-holidays.ts");
 const notice = { ...emptyWritingForm, recordType: "알림장", ageGroup: "3세", childAlias: "첫 아이", parentType: "일반형", teacherStyle: "팩트 중심형", writingDate: "2030-01-04", dailyObservation: "점심에 밥 두 숟가락을 먹었다." };
 
+test("greetings offer explicit festivals, polite emoji choices and persist every new kind", () => {
+  for (const date of ["2030-01-04", "2030-04-04", "2030-07-04", "2030-10-04"]) {
+    const options = greetingOptions(date);
+    for (const side of ["opening", "closing"]) {
+      for (const festival of ["seollal", "chuseok"]) {
+        const choice = options[side].find(item => item.id === festival);
+        assert(choice, "festivals must remain available without calendar data");
+        assert.equal(choice.recommended, false);
+      }
+      for (const option of options[side].filter(item => !["custom", "none"].includes(item.id))) {
+        assert(option.candidates.length >= 4);
+        assert.equal(new Set(option.candidates).size, option.candidates.length);
+        for (const candidate of option.candidates) {
+          assert(!/(?:하세요|보내세요|나누세요)/.test(candidate.replaceAll("안녕하세요", "")));
+          assert(/\p{Extended_Pictographic}/u.test(candidate));
+        }
+        const input = recordInputSchema.parse({ ...prepareWriting(notice), [side === "opening" ? "openingKind" : "closingKind"]: option.id, [side === "opening" ? "openingGreeting" : "closingGreeting"]: option.candidates[0] });
+        assert.equal(input[side === "opening" ? "openingKind" : "closingKind"], option.id);
+      }
+    }
+  }
+  for (const [name, id] of [["설날", "seollal"], ["추석", "chuseok"]]) {
+    const options = greetingOptions("2030-01-04", [{ date: "2030-01-05", name }]);
+    assert(options.opening.find(item => item.id === id).recommended);
+    assert(options.closing.find(item => item.id === id).recommended);
+  }
+});
+
 test("three observations are reused once, without required interpretation or curriculum choices", () => {
   const input = prepareWriting(notice);
   assert.equal(input.observation, notice.dailyObservation);
