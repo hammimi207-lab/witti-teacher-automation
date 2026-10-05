@@ -3,6 +3,7 @@ import { useState } from "react";
 import { z } from "zod";
 import { playSearchQuery, referenceSchema, type PlayReference } from "./references";
 import styles from "./workflow.module.css";
+import { RecordAssembly } from "../records/record-assembly";
 
 export function PlayReferences({ observation, age }: { observation: string; age: string }) {
   const [customQuery, setCustomQuery] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export function PlayReferences({ observation, age }: { observation: string; age:
     <label className={styles.field}>놀이 참고문헌 검색어<input value={query} maxLength={150} onChange={event => setCustomQuery(event.target.value)} /></label>
     <p>놀이 주제만 입력하세요. 아이 이름이나 관찰 문장은 넣지 마세요. 공개 국제 학술 자료는 영어 놀이 검색어로 찾는 것이 좋습니다.</p>
     <button type="button" className="button primary" disabled={busy || query.trim().length < 3} onClick={() => void search()}>{busy ? "참고문헌 찾는 중…" : "이 놀이의 참고문헌 찾기"}</button>
-    {busy && <p role="status">실제 학술 자료를 검색하고 있습니다.</p>}{error && <p role="alert" className="error">{error}</p>}
+    {busy && <RecordAssembly mode="daily" task="놀이 참고문헌 검색" fragments={[{ label: "놀이 검색어", text: query }, { label: "확인할 자료", text: "실제 학술 자료의 제목과 등록 초록을 찾아요." }]} onComplete={() => {}} />}{error && <p role="alert" className="error">{error}</p>}
     {result && <><p>Crossref 서지·초록 정보 확인 · {new Date(result.checkedAt).toLocaleString("ko-KR")} · 검색어: {result.query}</p>
       {result.query !== query && <p role="status">놀이 검색어가 달라졌습니다. 아래는 이전 검색 결과입니다. 다시 검색해 주세요.</p>}
       {!result.references.length && <p role="status">놀이와 연관된 참고문헌을 찾지 못했습니다. 검색어를 바꿔 다시 찾아보세요.</p>}

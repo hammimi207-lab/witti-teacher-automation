@@ -92,6 +92,13 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("checkbox", { name: /입력한 관찰 내용과/ }).check(); await page.getByRole("checkbox", { name: /사진 속 아동의/ }).check();
     failAnalysis = true; await page.getByRole("button", { name: "사진과 관찰 함께 분석" }).click(); await page.getByRole("alert").filter({ hasText: "분석 실패 테스트" }).waitFor();
     failAnalysis = false; await page.getByRole("button", { name: "사진과 관찰 함께 분석" }).click();
+    const analysisProgress = page.getByRole("region", { name: "사진과 관찰에서 STEAM 읽기", exact: true });
+    await analysisProgress.waitFor();
+    assert.equal(await analysisProgress.getAttribute("aria-busy"), "true");
+    assert(await analysisProgress.getByRole("status").evaluate(element => parseFloat(getComputedStyle(element).fontSize) >= 16));
+    await page.waitForTimeout(750);
+    fs.mkdirSync(path.join(root, "../outputs"), { recursive: true });
+    await analysisProgress.screenshot({ path: path.join(root, "../outputs/steam-analysis-progress.png") });
     try { await page.getByLabel("배움의 해석 · 잠정적 가능성", { exact: true }).fill("교사가 수정한 구성 탐색 가능성"); }
     catch (error) { throw new Error(`${error.message}\nBrowser errors: ${JSON.stringify(errors)}\nBody: ${await page.locator("body").innerText()}`); }
     await page.getByLabel("과정 기록의 해석으로 선택").check(); await page.getByRole("button", { name: "선택한 해석 가져오기" }).click();

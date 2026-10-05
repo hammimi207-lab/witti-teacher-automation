@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { CaptureDialog, type CaptureDialogHandle } from "./capture-dialog";
 import { ObservationPlayChoice, type Play } from "./observation-play-choice";
 import { openObservationRecord } from "./observation-handoff";
+import { RecordAssembly } from "../records/record-assembly";
 
 export type ObservationRecorderHandle = { open: () => void };
 type Saved = { fragment_id: string; recorded_at: string; play_topic: string | null };
@@ -149,6 +150,7 @@ export const ObservationRecorder = forwardRef<ObservationRecorderHandle, { onAct
       {phase === "requesting" && <button className="button secondary" type="button" onClick={() => stop(true)}>권한 요청 취소</button>}
       {phase === "idle" && !draft && <button className="button primary" type="button" onClick={() => void start()}>녹음 시작</button>}
     </div>
+    {busy === "transcribing" && <RecordAssembly mode="daily" task="녹음 내용을 글로 옮기기" fragments={[{ label: "선택한 음성", text: "녹음된 말과 관찰 내용을 듣고 있어요." }, { label: "교사 확인 전사문", text: "전사가 끝나면 원본과 비교하고 직접 수정할 수 있어요." }]} onComplete={() => {}} />}
     {error && <p role="alert" className="error">{error}</p>}
     <p className="capture-note">원본 녹음과 전사문은 기록요정에 자동 저장되지 않습니다. 실행 이력과 연결한 놀이명만 남습니다. 필요한 녹음은 따로 내려받으면 추후 STEAM 분석에도 활용할 수 있습니다.</p>
     <label className="capture-memo">녹음 파일 업로드<input type="file" accept="audio/*,.mp3,.m4a,.wav,.webm,.ogg,.mp4" disabled={!!busy || phase !== "idle"} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ""; }} /></label>

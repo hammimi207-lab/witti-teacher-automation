@@ -15,6 +15,7 @@ type Props = {
   result?: GeneratedRecord | null;
   weeklyResult?: WeeklyResult;
   onComplete: () => void;
+  task?: string;
 };
 
 function LocalPhoto({ file }: { file: File }) {
@@ -29,7 +30,7 @@ function LocalPhoto({ file }: { file: File }) {
   return <img ref={ref} alt="교사가 첨부한 관찰 사진" />;
 }
 
-export function RecordAssembly({ mode, fragments, observation = "", files = [], sources = [], result, weeklyResult, onComplete }: Props) {
+export function RecordAssembly({ mode, fragments, observation = "", files = [], sources = [], result, weeklyResult, onComplete, task }: Props) {
   const root = useRef<HTMLElement>(null);
   const [phase, setPhase] = useState("gather");
   const [longWait, setLongWait] = useState(false);
@@ -76,11 +77,11 @@ export function RecordAssembly({ mode, fragments, observation = "", files = [], 
     : phase === "meaning" ? weekly ? "관련된 관찰 사이에 놀이의 흐름이 드러나요." : "관찰 속 의미를 기록에 담고 있어요."
     : weekly ? "한 주 동안 쌓인 놀이의 순간들을 살펴보고 있어요." : mode === "play" ? "확인된 관찰과 실제 과정을 모으고 있어요." : "오늘 남긴 순간들을 모으고 있어요.";
 
-  return <section ref={root} className={`${styles.assembly} ${weekly ? styles.weekly : styles.daily}`} data-phase={phase} aria-label={weekly ? "주간 관찰 지도 만들기" : mode === "play" ? "확인된 관찰을 놀이 이야기로 연결하기" : "아이별 기록 모으기"} aria-busy="true">
-    <div className={styles.heading}><span><Sparkles size={15} />{weekly ? "한 주의 관찰 지도" : mode === "play" ? "확인된 순간, 하나의 놀이 이야기" : "오늘의 순간, 하나의 이야기"}</span><h2 role="status" aria-live="polite">{message}</h2></div>
+  return <section ref={root} className={`${styles.assembly} ${weekly ? styles.weekly : styles.daily}`} data-phase={phase} aria-label={task || (weekly ? "주간 관찰 지도 만들기" : mode === "play" ? "확인된 관찰을 놀이 이야기로 연결하기" : "아이별 기록 모으기")} aria-busy="true">
+    <div className={styles.heading}><span><Sparkles size={15} />{task || (weekly ? "한 주의 관찰 지도" : mode === "play" ? "확인된 순간, 하나의 놀이 이야기" : "오늘의 순간, 하나의 이야기")}</span><h2 role="status" aria-live="polite">{task && phase === "gather" ? `${task} · 자료를 살펴보고 있어요.` : task && phase === "meaning" ? "확인한 자료에서 관련 요소를 연결하고 있어요." : task && phase === "assemble" ? "확인한 내용을 결과로 정리하고 있어요." : message}</h2></div>
     <div className={styles.stage} aria-hidden="true">
       {(weekly || mode === "play") && <svg className={styles.connections} viewBox="0 0 100 100" preserveAspectRatio="none">{lines.map(([a, b]) => <line key={`${a}-${b}`} x1={positions[a].x} y1={positions[a].y} x2={positions[b].x} y2={positions[b].y} pathLength="1" />)}</svg>}
-      <div className={styles.paper}><BookOpen size={30} /><span>{weekly ? "한 주의 놀이 이야기" : mode === "play" ? "관찰을 연결한 놀이 이야기" : "오늘의 관찰 기록"}</span><i /><i /><i /></div>
+      <div className={styles.paper}><BookOpen size={30} /><span>{task ? "확인한 자료와 분석 결과" : weekly ? "한 주의 놀이 이야기" : mode === "play" ? "관찰을 연결한 놀이 이야기" : "오늘의 관찰 기록"}</span><i /><i /><i /></div>
       {cards.map((card, i) => {
         const group = mode === "play" ? 0 : groups.findIndex(group => group.sourceIds.includes(card.id));
         const excerpt = card.text.length > 90 ? `${card.text.slice(0, 90)}…` : card.text;
@@ -93,6 +94,6 @@ export function RecordAssembly({ mode, fragments, observation = "", files = [], 
       })}
     </div>
     <div className={styles.tags}>{ready && tags.slice(0, 3).map((tag, i) => <span key={`${tag}-${i}`}>{tag}</span>)}</div>
-    <p className={styles.note}>{!ready && longWait ? "관찰을 꼼꼼히 읽고 있어요. 자료의 양에 따라 조금 더 걸릴 수 있어요." : weekly ? `실제 저장된 관찰 ${sources.length}건${sources.length > 6 ? " 중 일부를 보여드려요" : "을 함께 살펴봐요"} · 날짜는 저장일 기준` : mode === "play" ? "확인한 관찰과 실제 과정을 연결하고 해석은 구분해요." : "선생님이 남긴 관찰과 사진을 바탕으로 기록해요."}</p>
+    <p className={styles.note}>{!ready && longWait ? "자료를 확인하고 있어요. 자료의 양과 연결 상태에 따라 조금 더 걸릴 수 있어요." : task ? "작업이 끝나면 이 화면에서 결과를 확인할 수 있어요." : weekly ? `실제 저장된 관찰 ${sources.length}건${sources.length > 6 ? " 중 일부를 보여드려요" : "을 함께 살펴봐요"} · 날짜는 저장일 기준` : mode === "play" ? "확인한 관찰과 실제 과정을 연결하고 해석은 구분해요." : "선생님이 남긴 관찰과 사진을 바탕으로 기록해요."}</p>
   </section>;
 }

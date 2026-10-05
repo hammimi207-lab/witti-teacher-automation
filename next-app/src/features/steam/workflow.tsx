@@ -44,6 +44,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [story, setStory] = useState<SteamSaved["story"] | null>(saved?.story || null);
   const [storyCandidate, setStoryCandidate] = useState<SteamSaved["story"] | null>(null);
   const [storyPending, setStoryPending] = useState(false);
+  const [analysisPending, setAnalysisPending] = useState(false);
+  const [analysisReady, setAnalysisReady] = useState<{ curriculumLinks: { area: string; description: string }[] } | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [aiAccepted, setAiAccepted] = useState(false), [photoAccepted, setPhotoAccepted] = useState(false);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -52,6 +54,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [recovery, setRecovery] = useState<string | null>(null), [ready, setReady] = useState(false);
   const recorder = useRef<ObservationRecorderHandle>(null);
   const revealStory = useRef(false);
+  const revealAnalysis = useRef(false);
   const lock = useRef(false), urls = useRef(new Set<string>());
   const draftKey = `record-fairy:steam:v1:${userId}:${initial?.generationId || "new"}`;
   const signature = JSON.stringify({ age, observation: observation.trim(), photoIds, files: files.map(file => file.key) });
@@ -80,6 +83,16 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     return () => window.removeEventListener("beforeunload", warn);
   }, [files.length, observation, draft]);
   const onActivity = useCallback(() => {}, []);
+  useEffect(() => {
+    if (analysisPending || !revealAnalysis.current) return;
+    revealAnalysis.current = false;
+    const target = document.getElementById("steam-analysis-result");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+  }, [analysisPending]);
+  const finishAnalysis = useCallback(() => {
+    revealAnalysis.current = true; setAnalysisPending(false); setAnalysisReady(null); setBusy(""); lock.current = false;
+  }, []);
   useEffect(() => {
     if (storyPending || !story || !revealStory.current) return;
     revealStory.current = false;
@@ -126,7 +139,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   }
   async function analyze() {
     if (lock.current) return;
-    lock.current = true; setBusy("STEAM 분석 중"); setError(""); setCandidate(null);
+    lock.current = true; setBusy("STEAM 분석 중"); setAnalysisPending(true); setAnalysisReady(null); setError(""); setNotice(""); setCandidate(null);
     try {
       const form = new FormData(); form.set("input", JSON.stringify({ age, observation, photoIds }));
       form.set("consent", JSON.stringify({ version: AI_CONSENT_VERSION, aiAccepted, photoAccepted }));
@@ -138,7 +151,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       if (analysis) { setCandidate({ analysis: next, signature, run: nextRun }); setNotice("새 분석 후보를 받았습니다. 기존 카드·교사 수정 글은 유지됩니다."); }
       else { setAnalysis(next); setRun(nextRun); setAnalyzedSignature(signature); setConfirmed(observation.trim()); }
       setReviewed(false);
-    } catch (cause) { setError(failure(cause)); } finally { lock.current = false; setBusy(""); }
+      setAnalysisReady({ curriculumLinks: next.cards.map(card => ({ area: card.area, description: card.interpretation })) });
+    } catch (cause) { setError(failure(cause)); setAnalysisPending(false); lock.current = false; setBusy(""); }
   }
   function makeDraft() {
     if (draft && !window.confirm("과정 초안을 새로 만들면 현재 초안이 바뀝니다. 계속할까요?")) return;

@@ -1,4 +1,9 @@
 .workflow { display: grid; gap: 1rem; min-width: 0; }
+.progress { display: flex; align-items: center; gap: 1rem; padding: 1.5rem; border: 1px solid #a4d8dd; border-radius: 20px; background: #edf9fa; font-size: 1.15rem; }
+.progress p { font-size: .95rem; margin: .4rem 0 0; }
+.spinner { width: 32px; height: 32px; flex: 0 0 32px; border: 3px solid #c4e8eb; border-top-color: #00a2b9; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 .workflow input[type="checkbox"] { width: 18px; height: 18px; padding: 0; flex: 0 0 18px; }
 .workflow p, .workflow li { overflow-wrap: anywhere; }
 .steps { display: flex; flex-wrap: wrap; gap: .5rem; }
