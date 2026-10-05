@@ -28,7 +28,7 @@ export function PlayReferences({ observation, age }: { observation: string; age:
     {result && <><p>Crossref 서지·초록 정보 확인 · {new Date(result.checkedAt).toLocaleString("ko-KR")} · 검색어: {result.query}</p>
       {result.query !== query && <p role="status">놀이 검색어가 달라졌습니다. 아래는 이전 검색 결과입니다. 다시 검색해 주세요.</p>}
       {!result.references.length && <p role="status">놀이와 연관된 참고문헌을 찾지 못했습니다. 검색어를 바꿔 다시 찾아보세요.</p>}
-      {result.references.map(item => <article className={styles.card} key={item.doi}><h3>{item.title}</h3><p>{item.authors} · {item.year || "연도 미등록"}</p><p>{item.publication} · {item.type === "journal-article" ? "연구논문" : item.type === "report" ? "보고서" : "학술 참고자료"}</p>
+      {result.references.map(item => <article className={styles.card} key={item.doi}><h3>{item.title}</h3>{item.originalTitle && <p lang="en" className={styles.supportHint}>영문 제목: {item.originalTitle}</p>}{item.titleSource && <p><a href={item.titleSource} target="_blank" rel="noopener noreferrer">한글 제목 확인 출처 · KCI</a></p>}{item.koreanTitleMissing && <p className={styles.supportHint}>국내 자료로 추정되지만 등록된 한글 제목을 확인하지 못해 원문 제목을 표시합니다.</p>}<p>{item.authors} · {item.year || "연도 미등록"}</p><p>{item.publication} · {item.type === "journal-article" ? "연구논문" : item.type === "report" ? "보고서" : "학술 참고자료"}</p>
         <p><strong>확인 범위:</strong> {item.abstract ? "서지 정보와 등록 초록 일부 확인 · 원문 미열람" : "서지 정보만 확인 · 초록·원문 미열람"}</p>
         {item.abstract && <details><summary>핵심 내용 확인을 위한 초록 발췌 · 원문 언어</summary><p>{item.abstract}{item.abstract.length >= 1000 ? "…" : ""}</p></details>}
         <p><strong>연구 대상 연령:</strong> 별도 확인 필요. 만 {age} 직접 근거로 확인하지 않았습니다.</p>

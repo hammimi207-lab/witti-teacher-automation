@@ -2,6 +2,13 @@ const {test} = require('node:test'), assert = require('node:assert/strict'), fs 
 function load(file, mocks = {}) { const module = {exports:{}}; const code = ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText; new Function('require','module','exports',code)(id => mocks[id] || require(id),module,module.exports); return module.exports; }
 const lib = load(path.join(__dirname,'../src/features/steam/references.ts'));
 const work = {DOI:'10.1234/fixture',title:['<b>Children block play</b>'],type:'journal-article',author:[{given:'Test',family:'Author'}],published:{'date-parts':[[2020]]},abstract:'<p>Preschool children built blocks.</p>'};
+test('Korean registered titles appear first with English alongside and explicit missing-title fallback',()=>{
+  const verified=lib.readReferences([{...work,DOI:'10.16978/ecec.2010.5.1.006',title:['Block play with play theme in three-year-old kindergarten children']}],'block play')[0];
+  assert.equal(verified.title,'주제 제시에 따른 3세 유아의 쌓기놀이');assert.match(verified.originalTitle,/Block play/);assert.match(verified.titleSource,/www.kci.go.kr/);
+  const metadata=lib.readReferences([{...work,'alternative-title':['유아의 블록 놀이']}],'block play')[0];assert.equal(metadata.title,'유아의 블록 놀이');assert.equal(metadata.originalTitle,'Children block play');
+  const missing=lib.readReferences([{...work,language:'ko',author:[{name:'김연구'}]}],'block play')[0];assert.equal(missing.title,'Children block play');assert.equal(missing.koreanTitleMissing,true);
+  const foreign=lib.readReferences([work],'block play')[0];assert.equal(foreign.koreanTitleMissing,false);assert.equal(foreign.originalTitle,undefined);
+});
 test('references use registered metadata, reject malformed/irrelevant/duplicate/correction works', () => {
   const results = lib.readReferences([work,work,{...work,DOI:'javascript:unsafe'},{...work,DOI:'10.1234/unrelated',title:['Adult water management'],abstract:''},{...work,DOI:'10.1234/correction',title:['Correction: Children block play']}], 'block play early childhood');
   assert.equal(results.length,1); assert.equal(results[0].url,'https://doi.org/10.1234/fixture'); assert.equal(results[0].year,2020); assert.equal(results[0].authors,'Test Author'); assert.doesNotMatch(results[0].title,/<b>/);
