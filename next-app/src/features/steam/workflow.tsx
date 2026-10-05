@@ -63,7 +63,6 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [storyPending, setStoryPending] = useState(false);
   const [analysisPending, setAnalysisPending] = useState(false);
   const [analysisReady, setAnalysisReady] = useState<{ curriculumLinks: { area: string; description: string }[] } | null>(null);
-  const [reviewed, setReviewed] = useState(false);
   const [aiAccepted, setAiAccepted] = useState(false), [photoAccepted, setPhotoAccepted] = useState(false);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [generationId, setGenerationId] = useState(initial?.generationId || "");
@@ -114,11 +113,11 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     revealAnalysis.current = true; setAnalysisPending(false); setAnalysisReady(null); setBusy(""); lock.current = false;
   }, []);
   useEffect(() => {
-    if (storyPending || !story || !revealStory.current) return;
+    if (storyPending) { document.getElementById("steam-play-story")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); return; }
+    if (!story || !revealStory.current) return;
     revealStory.current = false;
     const result = document.getElementById("steam-play-story");
     result?.focus({ preventScroll: true });
-    result?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
   }, [storyPending, story]);
 
   function restore() {
@@ -156,7 +155,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
         const url = URL.createObjectURL(result.file); urls.current.add(url);
         prepared.push({ key: `${file.name}:${file.size}:${file.lastModified}`, file: result.file, url });
       }
-      setFiles(current => [...current, ...prepared]); setReviewed(false);
+      setFiles(current => [...current, ...prepared]);
     } catch (cause) { setError(failure(cause)); } finally { lock.current = false; setBusy(""); }
   }
   async function analyze() {
@@ -172,22 +171,22 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       const nextRun = data.run ? steamRunSchema.parse(data.run) : null;
       if (analysis) { setCandidate({ analysis: next, signature, run: nextRun }); setNotice("새 분석 후보를 받았습니다. 기존 카드·교사 수정 글은 유지됩니다."); }
       else { setAnalysis(next); setRun(nextRun); setAnalyzedSignature(signature); setConfirmed(sourceObservation.trim()); }
-      setReviewed(false);
       setAnalysisReady({ curriculumLinks: next.cards.map(card => ({ area: card.area, description: card.interpretation })) });
     } catch (cause) { setError(failure(cause)); setAnalysisPending(false); lock.current = false; setBusy(""); }
   }
   function makeDraft() {
     if (draft && !window.confirm("과정 초안을 새로 만들면 현재 초안이 바뀝니다. 계속할까요?")) return;
-    setDraft(processDraft({ ...process, attempt: process.attempt || confirmed }, interpretation)); setReviewed(false);
+    setDraft(processDraft({ ...process, attempt: process.attempt || confirmed }, interpretation));
+    window.requestAnimationFrame(() => { const result = document.getElementById("steam-process-draft"); result?.focus({ preventScroll: true }); result?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); });
   }
   const finishStory = useCallback(() => {
     revealStory.current = true;
-    setStory(storyCandidate); setStoryCandidate(null); setStoryPending(false); setReviewed(false);
+    setStory(storyCandidate); setStoryCandidate(null); setStoryPending(false);
     setBusy(""); lock.current = false;
     setNotice("놀이 이야기를 만들었습니다. 실제 관찰과 비교해 수정하고 확인한 뒤 저장하세요.");
   }, [storyCandidate]);
   async function makeStory() {
-    if (lock.current || stale || !analysis || !aiAccepted || !reviewed) return;
+    if (lock.current || stale || !analysis || !aiAccepted) return;
     if (story && !window.confirm("놀이 이야기를 다시 만들면 현재 이야기의 수정 글이 바뀝니다. 계속할까요?")) return;
     lock.current = true; setBusy("관찰을 연결해 놀이 이야기 만드는 중"); setStoryPending(true); setStoryCandidate(null); setError("");
     try {
@@ -201,7 +200,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     } catch (cause) { setError(failure(cause)); setStoryPending(false); setBusy(""); lock.current = false; }
   }
   async function save() {
-    if (lock.current || !analysis || stale || storyStale || !reviewed) return;
+    if (lock.current || !analysis || stale || storyStale) return;
     lock.current = true; setBusy("과정 기록 저장 중"); setError("");
     const id = generationId || crypto.randomUUID(), date = createdAt || new Date().toISOString();
     setGenerationId(id); setCreatedAt(date);
@@ -229,7 +228,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       window.history.replaceState(null, "", `/records/steam?session=${id}`);
     } catch (cause) { setError(`${recordWritten ? "기록 글은 저장됐지만 사진 연결 또는 최종 갱신을 완료하지 못했습니다. 사진과 글을 유지했으니 저장을 다시 시도해 주세요. " : ""}${failure(cause)}`); } finally { lock.current = false; setBusy(""); }
   }
-  const edit = () => { setReviewed(false); setNotice(""); };
+  const edit = () => { setNotice(""); };
   const analysisGroups = analysis?.plays ? analysis.plays.map((play, index) => ({ photo: play.photo, cards: play.analysis.cards, offset: analysis.plays!.slice(0, index).reduce((total, item) => total + item.analysis.cards.length, 0) })) : [{ photo: 0, cards: analysis?.cards || [], offset: 0 }];
   function updateCard(index: number, key: "interpretation" | "watch" | "extension", value: string) {
     setAnalysis(current => {
@@ -249,7 +248,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     {busy && !analysisPending && !storyPending && <div className={styles.progress} role="status"><span className={styles.spinner} aria-hidden="true" /><div><strong>{busy}…</strong><p>완료되면 이 화면에서 이어집니다.</p></div></div>}{error && <p className="error" role="alert">{error}</p>}{notice && !analysisPending && !storyPending && <p role="status">{notice}</p>}
     {analysisPending && <RecordAssembly mode="play" task="사진과 관찰에서 STEAM 읽기" fragments={[{ label: "교사가 입력한 관찰", text: observation }, { label: "함께 살펴볼 사진", text: `선택한 놀이 사진 ${photoIds.length + files.length}장` }, { label: "놀이 지원 연령", text: `만 ${age}의 직접 시도와 반복을 살펴봐요.` }]} files={files.map(photo => photo.file)} result={analysisReady} onComplete={finishAnalysis} />}
     {stale && <p className="error" role="alert">사진·연령·관찰 입력이 달라졌습니다. 기존 수정 글은 유지됩니다. 다시 분석하고 새 후보를 반영한 뒤 글을 확인해 주세요.</p>}
-    {storyPending && <RecordAssembly mode="play" fragments={[{ label: "확인된 관찰", text: confirmed }, { label: "실제로 확인한 과정", text: [process.interest, process.attempt, process.change, process.repeat].filter(Boolean).join("\n") }, { label: "실제 교사 지원", text: process.teacher }, { label: "잠정적 배움의 해석", text: interpretation }]} files={files.map(photo => photo.file)} result={storyCandidate ? { integratedRecord: storyCandidate.text } : null} onComplete={finishStory} />}
+
     <fieldset disabled={Boolean(busy)} className={styles.controls}>
       <label>연령 <select aria-label="연령" value={age} onChange={event => { setAge(event.target.value as SteamSaved["age"]); edit(); }}>{["0세", "1세", "2세", "3세", "4세", "5세"].map(value => <option key={value} value={value}>만 {value}</option>)}</select></label>
       <section className="panel" id={step === 2 ? "steam-analysis-result" : undefined} tabIndex={step === 2 ? -1 : undefined}><h2>{step + 1}. {steps[step]}</h2>
@@ -321,17 +320,16 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <p>입력되지 않은 과정은 채우지 않습니다. 실제 확인한 과정만 보충해 주세요.</p>
           {([ ["interest", "처음 무엇에 관심을 보였나요?"], ["attempt", "어떤 행동을 시도했나요?"], ["change", "시도 중 무엇이 달라졌나요?"], ["repeat", "무엇을 반복하거나 바꾸었나요?"], ["teacher", "교사가 실제로 어떻게 지원했나요?"], ["next", "다음에 더 관찰할 점 (아직 실행하지 않음)"] ] as const).map(([key, label]) => <div key={key}>{field(label, process[key], value => setProcess(current => ({ ...current, [key]: value })))}</div>)}
           <button type="button" className="button secondary" disabled={!confirmed.trim()} onClick={makeDraft}>확인한 과정으로 초안 만들기</button>
-          {field("과정 중심 관찰기록 초안 · 직접 수정", draft, setDraft, 25000)}
-          {story && <section id="steam-play-story" tabIndex={-1} aria-label="생성된 놀이 이야기"><h3>연결된 놀이 이야기</h3>{field("놀이 이야기 · 직접 수정", story.text, text => setStory(current => current ? { ...current, text } : null), 25000, 12)}<p>과정 초안은 그대로 보존됩니다. 저장하면 이 이야기가 내 기록과 문서의 본문으로 연결됩니다.</p>{storyStale && <p role="alert">이야기의 근거 관찰·과정·해석이 바뀌었습니다. 수정 글은 유지됩니다. 다시 생성하거나 이야기를 제외한 뒤 저장하세요.</p>}<button type="button" onClick={() => { if (window.confirm("이야기를 제외하고 과정 초안만 저장할까요?")) { setStory(null); edit(); } }}>이야기 제외하고 과정 초안 유지</button></section>}
+          <section id="steam-process-draft" className={styles.recordResult} tabIndex={-1} aria-label="과정 기록 초안 결과"><h3>{draft ? "생성된 과정 기록 초안" : "과정 기록 초안이 표시될 곳"}</h3><p>{draft ? "초안 생성이 완료되었습니다. 아래 결과를 읽고 실제 관찰에 맞게 수정해 주세요." : "위에서 확인한 과정을 입력하고 초안 만들기를 누르면 여기에 결과가 표시됩니다."}</p>{field("과정 중심 관찰기록 초안 · 직접 수정", draft, setDraft, 25000, 10)}</section>
+          {(storyPending || story) && <section className={styles.recordResult} id="steam-play-story" tabIndex={-1} aria-label="생성된 놀이 이야기"><h3>{storyPending ? "놀이 이야기를 만들고 있어요" : "생성된 놀이 이야기"}</h3>{storyPending && <RecordAssembly mode="play" scrollOnMount={false} fragments={[{ label: "확인된 관찰", text: confirmed }, { label: "실제로 확인한 과정", text: [process.interest, process.attempt, process.change, process.repeat].filter(Boolean).join("\n") }, { label: "실제 교사 지원", text: process.teacher }, { label: "잠정적 배움의 해석", text: interpretation }]} files={files.map(photo => photo.file)} result={storyCandidate ? { integratedRecord: storyCandidate.text } : null} onComplete={finishStory} />}{!storyPending && story && <>{field("놀이 이야기 · 직접 수정", story.text, text => setStory(current => current ? { ...current, text } : null), 25000, 12)}<p>과정 초안은 그대로 보존됩니다. 저장하면 이 이야기가 내 기록과 문서의 본문으로 연결됩니다.</p>{storyStale && <p role="alert">이야기의 근거 관찰·과정·해석이 바뀌었습니다. 수정 글은 유지됩니다. 다시 생성하거나 이야기를 제외한 뒤 저장하세요.</p>}<button type="button" onClick={() => { if (window.confirm("이야기를 제외하고 과정 초안만 저장할까요?")) { setStory(null); edit(); } }}>이야기 제외하고 과정 초안 유지</button></>}</section>}
           <p>관찰·배움의 해석·확장 계획은 각각 별도 저장됩니다. 초안에도 제안이 실행 사실로 들어가지 않았는지 확인하세요.</p>
-          <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /><span>초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</span></label>
           <h3>AI 활용 확인</h3>
           <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} /><span>{AI_CONSENT_TEXT}</span></label>
           <label className={styles.check}><input type="checkbox" checked={photoAccepted} onChange={event => setPhotoAccepted(event.target.checked)} /><span>{PHOTO_CONSENT_TEXT}</span></label>
           {(!aiAccepted || !photoAccepted) && <p>위 동의 항목을 확인하면 이 화면에서 바로 놀이 이야기를 만들고 저장할 수 있습니다.</p>}
-          {!reviewed && <p>실제 관찰과 초안을 비교한 뒤 위의 초안 확인란을 체크해 주세요.</p>}
-          <button type="button" className="button primary" disabled={!analysis || stale || storyStale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
-          <button type="button" className="button secondary" disabled={!analysis || stale || !aiAccepted || confirmed.trim().length < 10 || !reviewed} onClick={() => void makeStory()}>확인된 관찰로 놀이 이야기 만들기</button>
+          <p className={styles.saveConfirmation}>실제 관찰과 결과를 비교해 수정한 뒤 저장해 주세요. ‘확인한 기록 저장’을 누르면 해석과 미실행 제안을 구분하여 확인한 내용으로 저장합니다.</p>
+          <button type="button" className="button primary" disabled={!analysis || stale || storyStale || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
+          <button type="button" className="button secondary" disabled={!analysis || stale || !aiAccepted || confirmed.trim().length < 10} onClick={() => void makeStory()}>확인된 관찰로 놀이 이야기 만들기</button>
           <Link className="button secondary" href="/records">내 기록 보기</Link>
         </>}
         <div hidden={step !== 5}><PlayReferences observation={confirmed || observation} age={age} /></div>

@@ -16,6 +16,7 @@ type Props = {
   weeklyResult?: WeeklyResult;
   onComplete: () => void;
   task?: string;
+  scrollOnMount?: boolean;
 };
 
 function LocalPhoto({ file }: { file: File }) {
@@ -30,16 +31,16 @@ function LocalPhoto({ file }: { file: File }) {
   return <img ref={ref} alt="교사가 첨부한 관찰 사진" />;
 }
 
-export function RecordAssembly({ mode, fragments, observation = "", files = [], sources = [], result, weeklyResult, onComplete, task }: Props) {
+export function RecordAssembly({ mode, fragments, observation = "", files = [], sources = [], result, weeklyResult, onComplete, task, scrollOnMount = true }: Props) {
   const root = useRef<HTMLElement>(null);
   const [phase, setPhase] = useState("gather");
   const [longWait, setLongWait] = useState(false);
   const ready = mode !== "weekly" ? Boolean(result) : Boolean(weeklyResult);
   useEffect(() => {
-    root.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" });
+    if (scrollOnMount) root.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" });
     const timer = window.setTimeout(() => setLongWait(true), 15000);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [scrollOnMount]);
   useEffect(() => {
     if (!ready) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

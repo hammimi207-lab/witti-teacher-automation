@@ -1,4 +1,9 @@
 .workflow { display: grid; gap: 1rem; min-width: 0; }
+.recordResult { margin: 1.5rem 0; padding: 1.25rem; border: 2px solid #a4d8dd; border-radius: 16px; background: #f1fafb; scroll-margin-top: 1rem; }
+.recordResult h3 { font-size: 1.2rem; font-weight: 700; margin: 0 0 .75rem; }
+.recordResult p { line-height: 1.75; }
+.recordResult textarea { background: #fff; }
+.saveConfirmation { padding: 1rem; background: #f0f5f1; border-radius: 10px; line-height: 1.75; }
 .guide { padding: 1rem 1.25rem; border-left: 4px solid #62856b; border-radius: 10px; background: #f0f5f1; line-height: 1.75; }
 .guide p { margin: .5rem 0 0; }
 .supportCard { padding: 1.25rem; margin: 1.25rem 0; border: 1px solid #d6e1d8; border-radius: 16px; background: #fff; }
