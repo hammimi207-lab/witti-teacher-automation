@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ObservationRecorder, type ObservationRecorderHandle } from "../home/observation-recorder";
-import { appendObservation, openObservationRecord } from "../home/observation-handoff";
+import { appendObservation } from "../home/observation-handoff";
+import { RecordAssembly } from "../records/record-assembly";
 import { preparePhoto, type SavedPhoto } from "../records/document-photos";
 import { AI_CONSENT_TEXT, PHOTO_CONSENT_TEXT, AI_CONSENT_VERSION } from "../records/ai-consent";
 import { recordInputSchema } from "../records/schema";
 import { generatedSchema } from "../records/result-schema";
 import type { SavedEnvelope } from "../records/save-contract";
-import { steamAnalysisSchema, steamDraftSchema, steamRunSchema, processDraft, type SteamAnalysis, type SteamSaved, type SteamRun } from "../records/steam-schema";
+import { steamAnalysisSchema, steamDraftSchema, steamRunSchema, steamStorySchema, storySource, processDraft, type SteamAnalysis, type SteamSaved, type SteamRun } from "../records/steam-schema";
 import styles from "./workflow.module.css";
 
 const steps = ["사진 올리기", "관찰 더하기", "STEAM 읽기", "놀이 이어가기", "과정 기록하기", "근거 더 보기"];
@@ -39,6 +40,9 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [extension, setExtension] = useState(saved?.extension || "");
   const [process, setProcess] = useState(saved?.process || emptyProcess);
   const [draft, setDraft] = useState(saved?.draft || "");
+  const [story, setStory] = useState<SteamSaved["story"] | null>(saved?.story || null);
+  const [storyCandidate, setStoryCandidate] = useState<SteamSaved["story"] | null>(null);
+  const [storyPending, setStoryPending] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [aiAccepted, setAiAccepted] = useState(false), [photoAccepted, setPhotoAccepted] = useState(false);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -50,7 +54,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const draftKey = `record-fairy:steam:v1:${userId}:${initial?.generationId || "new"}`;
   const signature = JSON.stringify({ age, observation: observation.trim(), photoIds, files: files.map(file => file.key) });
   const stale = Boolean(analysis) && analyzedSignature !== signature;
-  const payload = JSON.stringify({ step, age, observation, title, photoIds, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, interpretation, extension, process, draft, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
+  const storyStale = story && JSON.stringify(story.source) !== JSON.stringify({ age, confirmedObservation: confirmed.trim(), interpretation, process: { interest: process.interest, attempt: process.attempt, change: process.change, repeat: process.repeat, teacher: process.teacher } });
+  const payload = JSON.stringify({ step, age, observation, title, photoIds, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, interpretation, extension, process, draft, story, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
   useEffect(() => {
     const allocated = urls.current;
     return () => allocated.forEach(url => URL.revokeObjectURL(url));
@@ -81,6 +86,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       setAge(value.age); setObservation(value.observation); setTitle(value.title); setPhotoIds(value.photoIds); setRecordingIds(value.recordingIds); setAnalysis(result); setAnalyzedSignature(value.analyzedSignature);
       setConfirmed(value.confirmed); setSelectedAreas(value.selectedAreas); setInterpretation(value.interpretation); setExtension(value.extension); setProcess(value.process); setDraft(value.draft); setGenerationId(value.generationId); setCreatedAt(value.createdAt); setStep(value.step);
       setRun(value.run || null); setPreviousRuns(value.previousRuns || []);
+      setStory(value.story || null);
       setNotice(value.missingPhotos?.length ? `글은 복원했습니다. 새 사진 ${value.missingPhotos.length}장은 다시 첨부한 뒤 분석해 주세요.` : "작성 내용과 수정 내용을 복원했습니다.");
       setRecovery(null); setReady(true);
     } catch (cause) { setError(failure(cause)); }
@@ -129,18 +135,37 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     if (draft && !window.confirm("과정 초안을 새로 만들면 현재 초안이 바뀝니다. 계속할까요?")) return;
     setDraft(processDraft({ ...process, attempt: process.attempt || confirmed }, interpretation)); setReviewed(false);
   }
+  const finishStory = useCallback(() => {
+    setStory(storyCandidate); setStoryCandidate(null); setStoryPending(false); setReviewed(false);
+    setBusy(""); lock.current = false;
+    setNotice("놀이 이야기를 만들었습니다. 실제 관찰과 비교해 수정하고 확인한 뒤 저장하세요.");
+  }, [storyCandidate]);
+  async function makeStory() {
+    if (lock.current || stale || !analysis || !aiAccepted || !reviewed) return;
+    if (story && !window.confirm("놀이 이야기를 다시 만들면 현재 이야기의 수정 글이 바뀝니다. 계속할까요?")) return;
+    lock.current = true; setBusy("관찰을 연결해 놀이 이야기 만드는 중"); setStoryPending(true); setStoryCandidate(null); setError("");
+    try {
+      const input = storySource({ age, confirmedObservation: confirmed, interpretation, process });
+      const response = await fetch("/api/steam/story", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input, consent: { version: AI_CONSENT_VERSION, aiAccepted, photoAccepted } }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      const next = steamStorySchema.parse(data.story);
+      if (JSON.stringify(next.source) !== JSON.stringify(input)) throw new Error("이야기의 관찰 연결을 확인하지 못했습니다. 다시 시도해 주세요.");
+      setStoryCandidate(next);
+    } catch (cause) { setError(failure(cause)); setStoryPending(false); setBusy(""); lock.current = false; }
+  }
   async function save() {
-    if (lock.current || !analysis || stale || !reviewed) return;
+    if (lock.current || !analysis || stale || storyStale || !reviewed) return;
     lock.current = true; setBusy("과정 기록 저장 중"); setError("");
     const id = generationId || crypto.randomUUID(), date = createdAt || new Date().toISOString();
     setGenerationId(id); setCreatedAt(date);
     let recordWritten = false;
     try {
       const input = recordInputSchema.parse({ playName: title, ageGroup: age, childAlias: "놀이 관찰", recordType: "놀이 이야기", observation: confirmed, curriculumAreas: [], teacherInterpretation: interpretation, supportPlan: extension });
-      const result = generatedSchema.parse({ observation: confirmed, interpretation, connection: extension, integratedRecord: draft });
+      const result = generatedSchema.parse({ observation: confirmed, interpretation, connection: extension, integratedRecord: story?.text || draft });
       let ids = [...photoIds];
       const body = () => ({ generationId: id, createdAt: date, kind: "record", input, result, consent: { version: AI_CONSENT_VERSION, aiAccepted, photoAccepted },
-        steam: { version: 1, age, sourceObservation: observation.trim(), photoIds: ids, recordingIds, analysis, confirmedObservation: confirmed, selectedAreas, interpretation, extension, process, draft, reviewed: true, analyzedInput: { age, observation: observation.trim(), photoIds: ids }, run: run || undefined, previousRuns } });
+        steam: { version: 1, age, sourceObservation: observation.trim(), photoIds: ids, recordingIds, analysis, confirmedObservation: confirmed, selectedAreas, interpretation, extension, process, draft, story: story || undefined, reviewed: true, analyzedInput: { age, observation: observation.trim(), photoIds: ids }, run: run || undefined, previousRuns } });
       const write = async () => { const response = await fetch("/api/records/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body()) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); };
       // Use the existing save-before-photo policy and idempotent per-photo upload keys.
       await write();
@@ -166,6 +191,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     <nav className={styles.steps} aria-label="STEAM 단계">{steps.map((name, index) => <button key={name} type="button" aria-current={step === index ? "step" : undefined} disabled={Boolean(busy)} onClick={() => setStep(index)}>{index + 1}. {name}</button>)}</nav>
     {busy && <p role="status">{busy}…</p>}{error && <p className="error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {stale && <p className="error" role="alert">사진·연령·관찰 입력이 달라졌습니다. 기존 수정 글은 유지됩니다. 다시 분석하고 새 후보를 반영한 뒤 글을 확인해 주세요.</p>}
+    {storyPending && <RecordAssembly mode="play" fragments={[{ label: "확인된 관찰", text: confirmed }, { label: "실제로 확인한 과정", text: [process.interest, process.attempt, process.change, process.repeat].filter(Boolean).join("\n") }, { label: "실제 교사 지원", text: process.teacher }, { label: "잠정적 배움의 해석", text: interpretation }]} files={files.map(photo => photo.file)} result={storyCandidate ? { integratedRecord: storyCandidate.text } : null} onComplete={finishStory} />}
     <fieldset disabled={Boolean(busy)} className={styles.controls}>
       <label>연령 <select aria-label="연령" value={age} onChange={event => { setAge(event.target.value as SteamSaved["age"]); edit(); }}>{["0세", "1세", "2세", "3세", "4세", "5세"].map(value => <option key={value} value={value}>만 {value}</option>)}</select></label>
       <section className="panel"><h2>{step + 1}. {steps[step]}</h2>
@@ -233,9 +259,10 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           {field("과정 중심 관찰기록 초안 · 직접 수정", draft, setDraft, 25000)}
           <p>관찰·배움의 해석·확장 계획은 각각 별도 저장됩니다. 초안에도 제안이 실행 사실로 들어가지 않았는지 확인하세요.</p>
           <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /><span>초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</span></label>
+          {story && <section aria-label="생성된 놀이 이야기"><h3>연결된 놀이 이야기</h3>{field("놀이 이야기 · 직접 수정", story.text, text => setStory(current => current ? { ...current, text } : null), 25000)}<p>과정 초안은 그대로 보존됩니다. 저장하면 이 이야기가 내 기록과 문서의 본문으로 연결됩니다.</p>{storyStale && <p role="alert">이야기의 근거 관찰·과정·해석이 바뀌었습니다. 수정 글은 유지됩니다. 다시 생성하거나 이야기를 제외한 뒤 저장하세요.</p>}<button type="button" onClick={() => { if (window.confirm("이야기를 제외하고 과정 초안만 저장할까요?")) { setStory(null); edit(); } }}>이야기 제외하고 과정 초안 유지</button></section>}
           {(!aiAccepted || !photoAccepted) && <p>STEAM 읽기 단계에서 AI·사진 활용 동의를 확인해 주세요.</p>}
-          <button type="button" className="button primary" disabled={!analysis || stale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
-          <button type="button" className="button secondary" disabled={confirmed.trim().length < 10 || !reviewed} onClick={() => { try { openObservationRecord(userId, confirmed); } catch (cause) { setError(failure(cause)); } }}>확인된 관찰로 놀이 이야기 만들기</button>
+          <button type="button" className="button primary" disabled={!analysis || stale || storyStale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
+          <button type="button" className="button secondary" disabled={!analysis || stale || !aiAccepted || confirmed.trim().length < 10 || !reviewed} onClick={() => void makeStory()}>확인된 관찰로 놀이 이야기 만들기</button>
           <Link className="button secondary" href="/records">내 기록 보기</Link>
         </>}
         {step === 5 && <><p role="status">연구 자료 검색은 현재 이용할 수 없습니다.</p><p>학술 검색 및 원문·초록 확인 연동이 필요합니다. 확인하지 않은 논문·DOI·링크는 표시하지 않습니다. 사진 분석과 과정 기록은 계속 사용할 수 있습니다.</p><p>연동 시 제목·저자/기관·연도·대상 연령·핵심 결과·한계·현재 놀이와 연결점·만 2세 직접 근거 여부·초록/원문 확인 범위·원문 링크를 구분해 제공합니다.</p></>}

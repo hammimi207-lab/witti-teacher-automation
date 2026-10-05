@@ -103,6 +103,34 @@ test("save preserves facts, interpretation and unrealized proposals separately; 
   assert.doesNotMatch(reopened.result.observation, /제공해 볼 계획/); assert.equal(reopened.steam.draft, draft);
   body.steam.draft = body.result.integratedRecord = draft + "\n교사 수정";
   assert.equal((await post(body)).status, 200); assert.equal(JSON.parse(row.result_text).steam.draft, body.steam.draft); assert.equal(writes, 2);
+  body.steam.story = { text: "관찰을 연결한 놀이 이야기 교사 수정", source: schema.storySource(body.steam) };
+  body.result.integratedRecord = body.steam.story.text;
+  assert.equal((await post(body)).status, 200);
+  assert.equal(JSON.parse(row.result_text).steam.story.text, body.result.integratedRecord);
+  const changed = structuredClone(body); changed.steam.process.teacher = "실제 지원 변경";
+  assert.equal((await post(changed)).status, 400);
+});
+
+test("inline story authenticates and excludes future proposals from AI input", async () => {
+  let signedIn = true, calls = 0, called, aiError = false;
+  class AI { constructor() { this.responses = { parse: async args => { calls++; called = args; if (aiError) throw Error("private failure"); return { output_parsed: { text: "확인된 관찰을 연결한 놀이 이야기" } }; } }; } }
+  const route = load(path.join(root, "app/api/steam/story/route.ts"), {
+    openai: AI, "openai/helpers/zod": { zodTextFormat: () => ({ type: "json_schema" }) },
+    "@/lib/supabase/server": { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: signedIn ? { id: "owner" } : null }, error: null }) } }) },
+  });
+  const input = { age: "2세", confirmedObservation: observation, interpretation: "구성 탐색 가능성", process: { interest: "", attempt: observation, change: "", repeat: "", teacher: "", next: "미실행 계획" }, extension: "큰 블록 제공 계획" };
+  const post = (consent = true, origin = "https://app.test") => route.POST(new Request("https://app.test/api/steam/story", { method: "POST", headers: { origin }, body: JSON.stringify({ input, consent: { version: "2026-09-19", aiAccepted: consent, photoAccepted: true } }) }));
+  assert.equal((await post(true, "https://other.test")).status, 403);
+  signedIn = false; assert.equal((await post()).status, 401); signedIn = true;
+  assert.equal((await post(false)).status, 403); assert.equal(calls, 0);
+  const previous = process.env.OPENAI_API_KEY; process.env.OPENAI_API_KEY = "offline-fixture";
+  try {
+    const response = await post(); assert.equal(response.status, 200);
+    const result = await response.json(); assert.equal(result.story.source.process.next, undefined);
+    assert.doesNotMatch(called.input[1].content, /미실행|큰 블록/); assert.equal(called.store, false);
+    assert.match(called.input[0].content, /없는 말/);
+    aiError = true; const failed = await post(); assert.equal(failed.status, 502); assert.doesNotMatch((await failed.json()).error, /private failure/);
+  } finally { if (previous === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous; }
 });
 
 test("owned photos cannot use another owner, public/foreign bucket or deleted/missing IDs", async () => {

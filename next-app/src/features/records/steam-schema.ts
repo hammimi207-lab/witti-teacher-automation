@@ -24,6 +24,16 @@ export const steamRunSchema = z.object({
   originalAnalysis: steamAnalysisSchema, checks: z.array(steamVerificationSchema).max(40),
 });
 export type SteamRun = z.infer<typeof steamRunSchema>;
+export const steamStoryInputSchema = z.object({
+  age: z.enum(["0세", "1세", "2세", "3세", "4세", "5세"]),
+  confirmedObservation: z.string().trim().min(10).max(15000),
+  interpretation: z.string().max(3000),
+  process: z.object({ interest: text, attempt: text, change: text, repeat: text, teacher: text }),
+});
+export const steamStorySchema = z.object({ text: z.string().trim().min(10).max(25000), source: steamStoryInputSchema });
+export function storySource(value: { age: z.infer<typeof steamStoryInputSchema>["age"]; confirmedObservation: string; interpretation: string; process: z.infer<typeof steamStoryInputSchema>["process"] }) {
+  return steamStoryInputSchema.parse(value);
+}
 export const steamInputSchema = z.object({
   age: z.enum(["0세", "1세", "2세", "3세", "4세", "5세"]),
   observation: z.string().trim().min(1).max(15000),
@@ -40,6 +50,7 @@ export const steamSavedSchema = z.object({
   interpretation: z.string().max(3000), extension: z.string().max(2000),
   process: z.object({ interest: text, attempt: text, change: text, repeat: text, teacher: text, next: text }),
   draft: z.string().trim().min(10).max(25000),
+  story: steamStorySchema.optional(),
   reviewed: z.literal(true),
   analyzedInput: steamInputSchema,
   run: steamRunSchema.optional(),
@@ -54,6 +65,7 @@ export const steamDraftSchema = z.object({
   confirmed: z.string().max(15000), selectedAreas: steamSavedSchema.shape.selectedAreas,
   interpretation: steamSavedSchema.shape.interpretation, extension: steamSavedSchema.shape.extension,
   process: steamSavedSchema.shape.process, draft: z.string().max(25000),
+  story: steamStorySchema.nullable().optional(),
   generationId: z.union([z.literal(""), z.string().uuid()]), createdAt: z.string().max(100),
   missingPhotos: z.array(z.string().max(500)).max(5), updatedAt: z.number(),
   run: steamRunSchema.nullable().optional(),

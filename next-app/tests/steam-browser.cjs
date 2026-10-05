@@ -10,16 +10,16 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
       const file = path.join(directory, item.name), relative = path.relative(path.join(root, "src"), file), target = path.join(work, relative);
       if (item.isDirectory()) copy(file);
       else if (/\.tsx?$/.test(file)) { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target.replace(/\.tsx?$/, ".js"), ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText); }
-      else if (/\.module\.css$/.test(file)) { fs.mkdirSync(path.dirname(target), { recursive: true }); const css = fs.readFileSync(file, "utf8"); const names = [...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(value => value[1]); fs.writeFileSync(target, `module.exports=${JSON.stringify(Object.fromEntries(names.map(name => [name, `test-steam-${name}`])))};`); }
+      else if (/\.module\.css$/.test(file)) { fs.mkdirSync(path.dirname(target), { recursive: true }); const css = fs.readFileSync(file, "utf8"); const names = [...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(value => value[1]); const prefix = path.basename(file, ".module.css"); fs.writeFileSync(target, `module.exports=${JSON.stringify(Object.fromEntries(names.map(name => [name, `test-${prefix}-${name}`])))};`); }
     }
   }
   copy(path.join(root, "src/features"));
   fs.writeFileSync(path.join(work, "entry.js"), `window.process={env:{NODE_ENV:'development'}};const React=require('react'),{createRoot}=require('react-dom/client'),{SteamWorkflow}=require('./features/steam/workflow');createRoot(document.getElementById('root')).render(React.createElement(SteamWorkflow,{userId:'owner',initial:window.__initial}));`);
   await new Promise((resolve, reject) => webpack({ mode: "development", devtool: false, entry: path.join(work, "entry.js"), output: { path: work, filename: "bundle.js" }, resolve: { modules: [path.join(root, "node_modules")], alias: { "@": work } } }, (error, stats) => error || stats.hasErrors() ? reject(error || Error(stats.toString({ all: false, errors: true }))) : resolve()));
   const globalCss = await require("postcss")([require("@tailwindcss/postcss")()]).process(fs.readFileSync(path.join(root, "src/app/globals.css"), "utf8"), { from: path.join(root, "src/app/globals.css") });
-  const css = globalCss.css + fs.readFileSync(path.join(root, "src/features/steam/workflow.module.css"), "utf8").replace(/\.([a-zA-Z][\w-]*)/g, ".test-steam-$1");
+  const css = globalCss.css + ["steam/workflow", "records/record-assembly"].map(file => fs.readFileSync(path.join(root, `src/features/${file}.module.css`), "utf8").replace(/\.([a-zA-Z][\w-]*)/g, `.test-${path.basename(file)}-$1`)).join("\n");
   const image = await sharp({ create: { width: 50, height: 40, channels: 3, background: "#98bbaa" } }).jpeg().toBuffer();
-  let stored = null, analyses = 0, saveCalls = 0, uploads = 0, failAnalysis = false, failUpload = true;
+  let stored = null, analyses = 0, saveCalls = 0, uploads = 0, failAnalysis = false, failUpload = true, failStory = false, storyCalls = 0;
   const server = http.createServer((req, res) => {
     if (req.url === "/bundle.js") { res.setHeader("content-type", "text/javascript"); res.end(fs.readFileSync(path.join(work, "bundle.js"))); }
     else if (req.url === "/style.css") { res.setHeader("content-type", "text/css"); res.end(css); }
@@ -41,6 +41,12 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
       return route.fulfill({ status: failAnalysis ? 502 : 200, contentType: "application/json", body: JSON.stringify(failAnalysis ? { error: "분석 실패 테스트 · 다시 시도해 주세요" } : { analysis: result, run }) });
     });
     await page.route("**/api/records/save", route => { saveCalls++; const input = route.request().postDataJSON(); stored = { ...input, version: 1, savedKinds: ["record"] }; return route.fulfill({ status: 200, contentType: "application/json", body: '{"saved":true}' }); });
+    await page.route("**/api/steam/story", async route => {
+      storyCalls++; const body = route.request().postDataJSON();
+      assert.equal(body.input.process.next, undefined); assert.equal(body.input.extension, undefined); assert.equal(body.input.draft, undefined);
+      await new Promise(resolve => setTimeout(resolve, 400));
+      return route.fulfill({ status: failStory ? 502 : 200, contentType: "application/json", body: JSON.stringify(failStory ? { error: "이야기 실패 테스트" } : { story: { text: "확인된 관찰\n아이가 블록을 올리고 내려놓았다.\n\n배움의 해석 (잠정적)\n구성 탐색의 가능성이 있다.", source: body.input } }) });
+    });
     await page.route("**/api/photos", route => { uploads++; return route.fulfill({ status: failUpload ? 503 : 200, contentType: "application/json", body: JSON.stringify(failUpload ? { error: "사진 보관 실패 테스트" } : { saved: true, id: 2 }) }); });
     const recordingId = "22222222-2222-4222-8222-222222222222";
     await page.route("**/api/observations/recordings", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ recordings: [{ fragment_id: recordingId, recorded_at: "2026-10-03T00:00:00Z", play_topic: "블록", record_audio: { duration_ms: 3000, transcription_status: "done" }, record_transcriptions: [{ raw_transcription: "블록을 다시 내려놓았다.", teacher_edited_transcription: null, created_at: "2026-10-03T00:00:00Z" }] }] }) }));
@@ -80,16 +86,40 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("button", { name: "새 카드 반영" }).click();
     assert.match(await page.getByLabel("기록에 사용할 교사 해석").inputValue(), /교사가 수정한/);
     await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click(); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
+    const storyButton = page.getByRole("button", { name: "확인된 관찰로 놀이 이야기 만들기" });
+    await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check();
+    await storyButton.click();
+    await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).waitFor();
+    assert.equal(await page.locator('svg line').count() > 0, true);
+    fs.mkdirSync(path.join(root, "../outputs"), { recursive: true });
+    await page.waitForTimeout(750);
+    await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).screenshot({ path: path.join(root, "../outputs/steam-story-assembly.png") });
+    const storyField = page.getByLabel("놀이 이야기 · 직접 수정", { exact: true });
+    await storyField.waitFor(); await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).waitFor({ state: "detached" });
+    assert.equal(page.url(), url + "/records/steam"); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
+    await page.screenshot({ path: path.join(root, "../outputs/steam-story-result.png"), fullPage: true });
+    await storyField.fill((await storyField.inputValue()) + "\n놀이 이야기 교사 수정");
+    await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check();
+    page.once("dialog", dialog => dialog.dismiss()); await storyButton.click(); assert.equal(storyCalls, 1);
+    failStory = true; page.once("dialog", dialog => dialog.accept()); await storyButton.click();
+    await page.getByRole("alert").filter({ hasText: "이야기 실패 테스트" }).waitFor();
+    assert.match(await storyField.inputValue(), /놀이 이야기 교사 수정/); failStory = false;
+    await page.getByLabel("확인된 관찰", { exact: true }).fill("아이가 블록을 올려놓고 내려놓았다. 직접 확인한 관찰.");
+    assert.equal(await page.getByRole("button", { name: "확인한 기록 저장" }).isDisabled(), true);
+    await page.getByRole("alert").filter({ hasText: "이야기의 근거" }).waitFor();
+    await page.getByLabel("확인된 관찰", { exact: true }).fill("아이가 블록을 올려놓았다.\n\n블록을 다시 내려놓았다.");
     await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check(); await page.getByRole("button", { name: "확인한 기록 저장" }).click();
     await page.getByRole("alert").filter({ hasText: "사진 보관 실패 테스트" }).waitFor();
     assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     failUpload = false; await page.getByRole("button", { name: "확인한 기록 저장" }).click(); await page.getByRole("status").filter({ hasText: "과정 기록과 사진 연결을 저장" }).waitFor();
     assert.equal(saveCalls, 3); assert.equal(uploads, 2); assert.deepEqual(stored.steam.photoIds, [1, 2]); assert.deepEqual(stored.steam.recordingIds, [recordingId]);
     assert.equal(stored.input.childAlias, "놀이 관찰");
+    assert.match(stored.result.integratedRecord, /놀이 이야기 교사 수정/); assert.match(stored.steam.draft, /교사 수정 내용 유지/);
     assert.doesNotMatch(stored.result.observation, /큰 블록/); assert.match(stored.result.connection, /큰 블록/); assert.match(stored.result.interpretation, /교사가 수정한/);
     assert.equal(stored.steam.previousRuns.length, 1); assert.equal(stored.steam.run.originalAnalysis.cards[0].interpretation, "새 분석 후보");
     assert.equal(stored.steam.previousRuns[0].promptVersion, "steam-play-ko-v1");
     await page.reload(); await draftField.waitFor(); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
+    assert.match(await storyField.inputValue(), /놀이 이야기 교사 수정/);
     assert.equal(await page.getByRole("button", { name: "확인한 기록 저장" }).isDisabled(), true);
     await page.getByRole("button", { name: "6. 근거 더 보기", exact: true }).click(); await page.getByText("연구 자료 검색은 현재 이용할 수 없습니다.", { exact: true }).waitFor();
     assert.equal(await page.locator('a[href*="doi.org"]').count(), 0);
