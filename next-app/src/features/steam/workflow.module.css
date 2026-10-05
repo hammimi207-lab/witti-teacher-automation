@@ -1,4 +1,21 @@
 .workflow { display: grid; gap: 1rem; min-width: 0; }
+.guide { padding: 1rem 1.25rem; border-left: 4px solid #62856b; border-radius: 10px; background: #f0f5f1; line-height: 1.75; }
+.guide p { margin: .5rem 0 0; }
+.supportCard { padding: 1.25rem; margin: 1.25rem 0; border: 1px solid #d6e1d8; border-radius: 16px; background: #fff; }
+.supportCard h3 { margin: .75rem 0 .5rem; font-size: 1.15rem; font-weight: 700; }
+.proposalLabel { display: inline-block; padding: .35rem .7rem; border-radius: 8px; background: #e8f4f5; color: #17555b; font-size: .9rem; font-weight: 700; }
+.supportSections { display: grid; gap: 1rem; margin: 1.25rem 0; }
+.supportSections section { padding: 1rem; border: 1px solid #e0e7e2; border-radius: 12px; background: #f9fcf8; }
+.supportSections h4 { margin: 0 0 .65rem; font-weight: 700; font-size: 1rem; }
+.supportSections p, .supportSections ul { margin: 0; line-height: 1.8; white-space: pre-line; }
+.supportSections ul { padding-left: 1.25rem; list-style: disc; }
+.supportSections li + li { margin-top: .4rem; }
+.supportSections .safety { background: #fff9ed; border-color: #e7dcc3; }
+.supportHint { color: #5b6d72; font-size: .9rem; line-height: 1.7; }
+.supportSections .supportHint { margin-bottom: .75rem; }
+.planEditor { padding: 1.25rem; border: 2px solid #a4d8dd; border-radius: 16px; background: #f1fafb; }
+.planEditor h3 { margin: 0 0 .65rem; font-weight: 700; font-size: 1.15rem; }
+.planEditor p { line-height: 1.75; margin: 0; }
 .observationPhoto { display: block; width: 100%; max-height: 240px; object-fit: contain; border-radius: 12px; background: #f3f5f1; }
 .progress { display: flex; align-items: center; gap: 1rem; padding: 1.5rem; border: 1px solid #a4d8dd; border-radius: 20px; background: #edf9fa; font-size: 1.15rem; }
 .progress p { font-size: .95rem; margin: .4rem 0 0; }

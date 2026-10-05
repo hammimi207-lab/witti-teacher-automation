@@ -19,6 +19,14 @@ const emptyProcess = { interest: "", attempt: "", change: "", repeat: "", teache
 type LocalPhoto = { key: string; file: File; url: string };
 const failure = (cause: unknown) => cause instanceof Error ? cause.message : "연결하지 못했습니다. 다시 시도해 주세요.";
 const areaNames: Record<string, string> = { "S 과학": "S 과학 · 만져 보고 변화를 살피는 놀이", "T 기술": "T 기술 · 도구를 써 보는 놀이", "E 공학": "E 공학 · 놓고 이어 만드는 놀이", "A 예술": "A 예술 · 소리·몸·재료로 표현하는 놀이", "M 수학": "M 수학 · 크기·양·자리를 비교하는 놀이" };
+function PlaySupport({ support }: { support: SteamAnalysis["support"] }) {
+  return <div className={styles.supportSections}>
+    <section><h4>재료와 놀이 공간</h4><ul>{support.materials.map((item, index) => <li key={index}>{item}</li>)}</ul></section>
+    <section><h4>교사가 해볼 말과 지원</h4><p>{support.teacher}</p></section>
+    <section><h4>다음 놀이에서 관찰할 행동</h4><p className={styles.supportHint}>아직 관찰된 행동이 아닙니다. 놀이가 이어질 때 눈여겨봐 주세요.</p><ul>{support.watch.map((item, index) => <li key={index}>{item}</li>)}</ul></section>
+    <section className={styles.safety}><h4>안전하게 놀이하려면</h4><p>{support.safety}</p></section>
+  </div>;
+}
 function ObservationPhoto({ src, alt }: { src: string; alt: string }) {
   // Selected local/private photos use the existing authenticated preview route.
   // eslint-disable-next-line @next/next/no-img-element
@@ -299,12 +307,13 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           </>}
         </>}
         {step === 3 && (analysis ? <>
-          {analysis.plays?.map(play => <article className={styles.card} key={play.photo}><h3>사진 {play.photo}의 놀이 이어가기 · 다른 놀이와 별개</h3><ul>{play.analysis.support.materials.map((item, index) => <li key={index}>{item}</li>)}</ul><p>교사가 해볼 말·지원: {play.analysis.support.teacher}</p><h4>눈여겨볼 행동</h4><ul>{play.analysis.support.watch.map((item, index) => <li key={index}>{item}</li>)}</ul><p>안전: {play.analysis.support.safety}</p><button type="button" onClick={() => { const next = [`사진 ${play.photo}의 놀이 · 아직 실행하지 않은 지원 계획`, ...play.analysis.support.materials, `교사 지원 제안: ${play.analysis.support.teacher}`, ...play.analysis.support.watch.map(value => `관찰 계획: ${value}`), `안전: ${play.analysis.support.safety}`].join("\n"); if (next.length > 2000) { setError("지원 제안이 깁니다. 아래 계획 칸에 필요한 부분만 골라 적어 주세요."); return; } if (extension && !window.confirm("현재 계획을 이 사진의 지원 계획으로 바꿀까요?")) return; setExtension(next); edit(); }}>사진 {play.photo}의 제안을 내 계획으로 가져오기</button></article>)}
-          {!analysis.plays && <>
-          <h3>현재 놀이에서 이어갈 제안 · 아직 실행하지 않음</h3><ul>{analysis.support.materials.map((item, index) => <li key={index}>{item}</li>)}</ul><p>교사 말·지원: {analysis.support.teacher}</p><h3>관찰 포인트</h3><ul>{analysis.support.watch.map((item, index) => <li key={index}>{item}</li>)}</ul><p>안전 고려: {analysis.support.safety}</p>
+          <aside className={styles.guide}><strong>이 단계 안내</strong><p>앞서 확인한 관찰을 바탕으로 다음 놀이를 준비해요. 아래 내용은 AI가 제안한 지원 방법이며, 이미 일어난 관찰 사실이 아닙니다. 필요한 제안을 골라 내 지원 계획을 작성해 주세요.</p></aside>
+          {analysis.plays?.map(play => <article className={styles.supportCard} key={play.photo}><span className={styles.proposalLabel}>AI의 확장 제안 · 아직 실행하지 않음</span><h3>사진 {play.photo}의 놀이 이어가기</h3><p className={styles.supportHint}>이 사진의 놀이만을 위한 제안입니다.</p><PlaySupport support={play.analysis.support} /><button type="button" onClick={() => { const next = [`사진 ${play.photo}의 놀이 · 아직 실행하지 않은 지원 계획`, ...play.analysis.support.materials, `교사 지원 제안: ${play.analysis.support.teacher}`, ...play.analysis.support.watch.map(value => `관찰 계획: ${value}`), `안전: ${play.analysis.support.safety}`].join("\n"); if (next.length > 2000) { setError("지원 제안이 깁니다. 아래 계획 칸에 필요한 부분만 골라 적어 주세요."); return; } if (extension && !window.confirm("현재 계획을 이 사진의 지원 계획으로 바꿀까요?")) return; setExtension(next); edit(); }}>사진 {play.photo}의 제안을 내 계획으로 가져오기</button></article>)}
+          {!analysis.plays && <article className={styles.supportCard}>
+          <span className={styles.proposalLabel}>AI의 확장 제안 · 아직 실행하지 않음</span><h3>현재 놀이에서 이어갈 제안</h3><PlaySupport support={analysis.support} />
           <button type="button" onClick={() => { if (extension && !window.confirm("현재 확장 계획을 AI 제안으로 바꿀까요?")) return; setExtension([...analysis.support.materials, `교사 지원 제안: ${analysis.support.teacher}`, ...analysis.support.watch.map(value => `관찰 계획: ${value}`), `안전: ${analysis.support.safety}`].join("\n")); edit(); }}>제안을 내 지원 계획으로 가져오기</button>
-          </>}
-          {field("교사가 조절할 확장 계획 · 관찰 사실과 별도 저장", extension, setExtension, 2000)}
+          </article>}
+          <section className={styles.planEditor}><h3>내 지원 계획 · 교사 작성</h3><p>위 제안 중 필요한 내용을 가져와 아이의 관심에 맞게 수정해 주세요. 이 계획은 확인된 관찰과 별도로 저장됩니다.</p>{field("교사가 조절할 확장 계획 · 관찰 사실과 별도 저장", extension, setExtension, 2000)}</section>
         </> : <p>먼저 사진과 관찰을 분석해 주세요.</p>)}
         {step === 4 && <>
           <label className={styles.field}>기록명<input value={title} maxLength={100} onChange={event => { setTitle(event.target.value); edit(); }} /></label>

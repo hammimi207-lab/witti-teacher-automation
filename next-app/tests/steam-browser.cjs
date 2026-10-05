@@ -118,6 +118,13 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("heading", { name: "E 공학 · 놓고 이어 만드는 놀이" }).waitFor();
     assert.doesNotMatch(await page.getByLabel("기록에 사용할 교사 해석").inputValue(), /집게/);
     await page.getByRole("button", { name: "4. 놀이 이어가기", exact: true }).click();
+    assert.equal(await page.getByRole("heading", { name: "재료와 놀이 공간", exact: true }).count(), 2);
+    assert.equal(await page.getByRole("heading", { name: "다음 놀이에서 관찰할 행동", exact: true }).count(), 2);
+    await page.getByRole("heading", { name: "내 지원 계획 · 교사 작성", exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: path.join(root, "../outputs/steam-support-mobile.png"), fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await page.setViewportSize({ width: 1200, height: 900 });
     await page.getByRole("button", { name: "사진 1의 제안을 내 계획으로 가져오기" }).click();
     await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click();
     assert.equal(await page.getByLabel("아이 별칭", { exact: true }).count(), 0);
