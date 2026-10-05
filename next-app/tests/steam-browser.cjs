@@ -97,6 +97,8 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     const storyField = page.getByLabel("놀이 이야기 · 직접 수정", { exact: true });
     await storyField.waitFor(); await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).waitFor({ state: "detached" });
     assert.equal(page.url(), url + "/records/steam"); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
+    await page.waitForFunction(() => document.activeElement?.id === "steam-play-story");
+    assert.equal(await storyField.getAttribute("rows"), "12");
     await page.screenshot({ path: path.join(root, "../outputs/steam-story-result.png"), fullPage: true });
     await storyField.fill((await storyField.inputValue()) + "\n놀이 이야기 교사 수정");
     await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check();
@@ -121,6 +123,11 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.reload(); await draftField.waitFor(); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     assert.match(await storyField.inputValue(), /놀이 이야기 교사 수정/);
     assert.equal(await page.getByRole("button", { name: "확인한 기록 저장" }).isDisabled(), true);
+    await page.getByRole("checkbox", { name: /초안을 실제 관찰과/ }).check();
+    assert.equal(await storyButton.isDisabled(), true);
+    await page.getByRole("checkbox", { name: /입력한 관찰 내용과/ }).check();
+    await page.getByRole("checkbox", { name: /사진 속 아동의/ }).check();
+    assert.equal(await storyButton.isDisabled(), false);
     await page.getByRole("button", { name: "6. 근거 더 보기", exact: true }).click(); await page.getByText("연구 자료 검색은 현재 이용할 수 없습니다.", { exact: true }).waitFor();
     assert.equal(await page.locator('a[href*="doi.org"]').count(), 0);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));

@@ -50,6 +50,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const [createdAt, setCreatedAt] = useState(initial?.createdAt || "");
   const [recovery, setRecovery] = useState<string | null>(null), [ready, setReady] = useState(false);
   const recorder = useRef<ObservationRecorderHandle>(null);
+  const revealStory = useRef(false);
   const lock = useRef(false), urls = useRef(new Set<string>());
   const draftKey = `record-fairy:steam:v1:${userId}:${initial?.generationId || "new"}`;
   const signature = JSON.stringify({ age, observation: observation.trim(), photoIds, files: files.map(file => file.key) });
@@ -78,6 +79,13 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     return () => window.removeEventListener("beforeunload", warn);
   }, [files.length, observation, draft]);
   const onActivity = useCallback(() => {}, []);
+  useEffect(() => {
+    if (storyPending || !story || !revealStory.current) return;
+    revealStory.current = false;
+    const result = document.getElementById("steam-play-story");
+    result?.focus({ preventScroll: true });
+    result?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+  }, [storyPending, story]);
 
   function restore() {
     try {
@@ -136,6 +144,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     setDraft(processDraft({ ...process, attempt: process.attempt || confirmed }, interpretation)); setReviewed(false);
   }
   const finishStory = useCallback(() => {
+    revealStory.current = true;
     setStory(storyCandidate); setStoryCandidate(null); setStoryPending(false); setReviewed(false);
     setBusy(""); lock.current = false;
     setNotice("놀이 이야기를 만들었습니다. 실제 관찰과 비교해 수정하고 확인한 뒤 저장하세요.");
@@ -183,8 +192,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     } catch (cause) { setError(`${recordWritten ? "기록 글은 저장됐지만 사진 연결 또는 최종 갱신을 완료하지 못했습니다. 사진과 글을 유지했으니 저장을 다시 시도해 주세요. " : ""}${failure(cause)}`); } finally { lock.current = false; setBusy(""); }
   }
   const edit = () => { setReviewed(false); setNotice(""); };
-  function field(label: string, value: string, change: (value: string) => void, maxLength = 4000) {
-    return <label className={styles.field}>{label}<textarea aria-label={label} rows={3} maxLength={maxLength} value={value} onChange={event => { change(event.target.value); edit(); }} /></label>;
+  function field(label: string, value: string, change: (value: string) => void, maxLength = 4000, rows = 3) {
+    return <label className={styles.field}>{label}<textarea aria-label={label} rows={rows} maxLength={maxLength} value={value} onChange={event => { change(event.target.value); edit(); }} /></label>;
   }
   if (!ready) return <section className="panel"><p>이 계정의 임시 작성 내용이 있습니다. 새 사진 파일은 임시 저장에 포함되지 않습니다.</p><button className="button primary" onClick={restore}>작성 내용 복원</button><button className="button secondary" onClick={() => { setRecovery(null); setReady(true); }}>새로 시작</button>{error && <p role="alert">{error}</p>}</section>;
   return <div className={styles.workflow}>
@@ -257,10 +266,14 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           {([ ["interest", "처음 무엇에 관심을 보였나요?"], ["attempt", "어떤 행동을 시도했나요?"], ["change", "시도 중 무엇이 달라졌나요?"], ["repeat", "무엇을 반복하거나 바꾸었나요?"], ["teacher", "교사가 실제로 어떻게 지원했나요?"], ["next", "다음에 더 관찰할 점 (아직 실행하지 않음)"] ] as const).map(([key, label]) => <div key={key}>{field(label, process[key], value => setProcess(current => ({ ...current, [key]: value })))}</div>)}
           <button type="button" className="button secondary" disabled={!confirmed.trim()} onClick={makeDraft}>확인한 과정으로 초안 만들기</button>
           {field("과정 중심 관찰기록 초안 · 직접 수정", draft, setDraft, 25000)}
-          {story && <section aria-label="생성된 놀이 이야기"><h3>연결된 놀이 이야기</h3>{field("놀이 이야기 · 직접 수정", story.text, text => setStory(current => current ? { ...current, text } : null), 25000)}<p>과정 초안은 그대로 보존됩니다. 저장하면 이 이야기가 내 기록과 문서의 본문으로 연결됩니다.</p>{storyStale && <p role="alert">이야기의 근거 관찰·과정·해석이 바뀌었습니다. 수정 글은 유지됩니다. 다시 생성하거나 이야기를 제외한 뒤 저장하세요.</p>}<button type="button" onClick={() => { if (window.confirm("이야기를 제외하고 과정 초안만 저장할까요?")) { setStory(null); edit(); } }}>이야기 제외하고 과정 초안 유지</button></section>}
+          {story && <section id="steam-play-story" tabIndex={-1} aria-label="생성된 놀이 이야기"><h3>연결된 놀이 이야기</h3>{field("놀이 이야기 · 직접 수정", story.text, text => setStory(current => current ? { ...current, text } : null), 25000, 12)}<p>과정 초안은 그대로 보존됩니다. 저장하면 이 이야기가 내 기록과 문서의 본문으로 연결됩니다.</p>{storyStale && <p role="alert">이야기의 근거 관찰·과정·해석이 바뀌었습니다. 수정 글은 유지됩니다. 다시 생성하거나 이야기를 제외한 뒤 저장하세요.</p>}<button type="button" onClick={() => { if (window.confirm("이야기를 제외하고 과정 초안만 저장할까요?")) { setStory(null); edit(); } }}>이야기 제외하고 과정 초안 유지</button></section>}
           <p>관찰·배움의 해석·확장 계획은 각각 별도 저장됩니다. 초안에도 제안이 실행 사실로 들어가지 않았는지 확인하세요.</p>
           <label className={styles.check}><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /><span>초안을 실제 관찰과 비교하여 수정했고, 해석과 미실행 제안을 확인했습니다.</span></label>
-          {(!aiAccepted || !photoAccepted) && <p>STEAM 읽기 단계에서 AI·사진 활용 동의를 확인해 주세요.</p>}
+          <h3>AI 활용 확인</h3>
+          <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} /><span>{AI_CONSENT_TEXT}</span></label>
+          <label className={styles.check}><input type="checkbox" checked={photoAccepted} onChange={event => setPhotoAccepted(event.target.checked)} /><span>{PHOTO_CONSENT_TEXT}</span></label>
+          {(!aiAccepted || !photoAccepted) && <p>위 동의 항목을 확인하면 이 화면에서 바로 놀이 이야기를 만들고 저장할 수 있습니다.</p>}
+          {!reviewed && <p>실제 관찰과 초안을 비교한 뒤 위의 초안 확인란을 체크해 주세요.</p>}
           <button type="button" className="button primary" disabled={!analysis || stale || storyStale || !reviewed || !aiAccepted || !photoAccepted || confirmed.trim().length < 10 || draft.trim().length < 10} onClick={() => void save()}>확인한 기록 저장</button>
           <button type="button" className="button secondary" disabled={!analysis || stale || !aiAccepted || confirmed.trim().length < 10 || !reviewed} onClick={() => void makeStory()}>확인된 관찰로 놀이 이야기 만들기</button>
           <Link className="button secondary" href="/records">내 기록 보기</Link>
