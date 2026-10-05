@@ -47,6 +47,11 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
       await new Promise(resolve => setTimeout(resolve, 400));
       return route.fulfill({ status: failStory ? 502 : 200, contentType: "application/json", body: JSON.stringify(failStory ? { error: "이야기 실패 테스트" } : { story: { text: "확인된 관찰\n아이가 블록을 올리고 내려놓았다.\n\n배움의 해석 (잠정적)\n구성 탐색의 가능성이 있다.", source: body.input } }) });
     });
+    let failReferences = true;
+    await page.route("**/api/steam/references", route => {
+      const body = route.request().postDataJSON(); assert.deepEqual(Object.keys(body), ["query"]);
+      return route.fulfill({ status: failReferences ? 503 : 200, contentType: "application/json", body: JSON.stringify(failReferences ? { error: "참고문헌 검색 실패 테스트" } : { query: body.query, checkedAt: "2026-10-05T00:00:00Z", references: [{ doi: "10.1234/test-fixture", title: "Offline fixture: Children block play", authors: "Fixture author", year: 2020, publication: "Fixture journal", type: "journal-article", url: "https://doi.org/10.1234/test-fixture", abstract: "Fixture abstract", matched: ["block"] }] }) });
+    });
     await page.route("**/api/photos", route => { uploads++; return route.fulfill({ status: failUpload ? 503 : 200, contentType: "application/json", body: JSON.stringify(failUpload ? { error: "사진 보관 실패 테스트" } : { saved: true, id: 2 }) }); });
     let recordingId;
     await page.route("**/api/observations/recording-history", route => {
@@ -146,8 +151,18 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("checkbox", { name: /입력한 관찰 내용과/ }).check();
     await page.getByRole("checkbox", { name: /사진 속 아동의/ }).check();
     assert.equal(await storyButton.isDisabled(), false);
-    await page.getByRole("button", { name: "6. 근거 더 보기", exact: true }).click(); await page.getByText("연구 자료 검색은 현재 이용할 수 없습니다.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "6. 참고문헌 더보기", exact: true }).click();
+    assert.match(await page.getByLabel("놀이 참고문헌 검색어").inputValue(), /block/);
+    await page.getByRole("button", { name: "이 놀이의 참고문헌 찾기" }).click();
+    await page.getByRole("alert").filter({ hasText: "참고문헌 검색 실패 테스트" }).waitFor();
     assert.equal(await page.locator('a[href*="doi.org"]').count(), 0);
+    failReferences = false; await page.getByRole("button", { name: "이 놀이의 참고문헌 찾기" }).click();
+    await page.getByRole("heading", { name: "Offline fixture: Children block play" }).waitFor();
+    assert.equal(await page.getByRole("link", { name: "원문·출판사 페이지 보기" }).getAttribute("href"), "https://doi.org/10.1234/test-fixture");
+    await page.getByText(/서지 정보와 등록 초록 일부 확인 · 원문 미열람/).waitFor();
+    await page.getByRole("button", { name: "5. 과정 기록하기", exact: true }).click();
+    await page.getByRole("button", { name: "6. 참고문헌 더보기", exact: true }).click();
+    await page.getByRole("heading", { name: "Offline fixture: Children block play" }).waitFor();
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     fs.mkdirSync(path.join(root, "../outputs"), { recursive: true }); await page.screenshot({ path: path.join(root, "../outputs/steam-mobile.png"), fullPage: true });
     await page.getByRole("button", { name: "3. STEAM 읽기", exact: true }).click();

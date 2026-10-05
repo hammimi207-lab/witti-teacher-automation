@@ -12,8 +12,9 @@ import { generatedSchema } from "../records/result-schema";
 import type { SavedEnvelope } from "../records/save-contract";
 import { steamAnalysisSchema, steamDraftSchema, steamRunSchema, steamStorySchema, storySource, processDraft, type SteamAnalysis, type SteamSaved, type SteamRun } from "../records/steam-schema";
 import styles from "./workflow.module.css";
+import { PlayReferences } from "./play-references";
 
-const steps = ["사진 올리기", "관찰 더하기", "STEAM 읽기", "놀이 이어가기", "과정 기록하기", "근거 더 보기"];
+const steps = ["사진 올리기", "관찰 더하기", "STEAM 읽기", "놀이 이어가기", "과정 기록하기", "참고문헌 더보기"];
 const emptyProcess = { interest: "", attempt: "", change: "", repeat: "", teacher: "", next: "" };
 type LocalPhoto = { key: string; file: File; url: string };
 const failure = (cause: unknown) => cause instanceof Error ? cause.message : "연결하지 못했습니다. 다시 시도해 주세요.";
@@ -278,7 +279,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <button type="button" className="button secondary" disabled={!analysis || stale || !aiAccepted || confirmed.trim().length < 10 || !reviewed} onClick={() => void makeStory()}>확인된 관찰로 놀이 이야기 만들기</button>
           <Link className="button secondary" href="/records">내 기록 보기</Link>
         </>}
-        {step === 5 && <><p role="status">연구 자료 검색은 현재 이용할 수 없습니다.</p><p>학술 검색 및 원문·초록 확인 연동이 필요합니다. 확인하지 않은 논문·DOI·링크는 표시하지 않습니다. 사진 분석과 과정 기록은 계속 사용할 수 있습니다.</p><p>연동 시 제목·저자/기관·연도·대상 연령·핵심 결과·한계·현재 놀이와 연결점·만 2세 직접 근거 여부·초록/원문 확인 범위·원문 링크를 구분해 제공합니다.</p></>}
+        <div hidden={step !== 5}><PlayReferences observation={confirmed || observation} age={age} /></div>
       </section>
       <div className={styles.navigation}><button type="button" className="button secondary" disabled={step === 0} onClick={() => setStep(step - 1)}>이전 단계</button><span>{step + 1} / 6</span><button type="button" className="button primary" disabled={step === 5} onClick={() => setStep(step + 1)}>다음 단계</button></div>
     </fieldset>
