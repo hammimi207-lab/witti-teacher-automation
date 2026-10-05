@@ -6,7 +6,7 @@ import { ObservationPlayChoice, type Play } from "./observation-play-choice";
 import { openObservationRecord } from "./observation-handoff";
 
 export type ObservationRecorderHandle = { open: () => void };
-type Saved = { fragment_id: string; recorded_at: string; play_topic: string | null; record_audio: { duration_ms: number; transcription_status: string }; record_transcriptions: { raw_transcription: string; teacher_edited_transcription: string | null; created_at: string }[] };
+type Saved = { fragment_id: string; recorded_at: string; play_topic: string | null };
 type Draft = { blob: Blob; url: string; startedAt: string; endedAt: string; durationMs: number };
 type Phase = "idle" | "requesting" | "recording" | "paused" | "stopping";
 const length = (ms: number) => `${Math.floor(ms / 60000)}분 ${Math.floor(ms / 1000) % 60}초`;
@@ -30,13 +30,15 @@ export const ObservationRecorder = forwardRef<ObservationRecorderHandle, { onAct
   const [nextPlayId, setNextPlayId] = useState("");
   const [newPlayTitle, setNewPlayTitle] = useState("");
   const [creatingNextPlay, setCreatingNextPlay] = useState(false);
-  const [selected, setSelected] = useState<Record<string, string>>({});
-  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [transcript, setTranscript] = useState("");
+  const [historyId, setHistoryId] = useState("");
+  const [audioAccepted, setAudioAccepted] = useState(false);
+
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
   async function load() {
-    try { const response = await fetch("/api/observations/recordings", { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setSaved(data.recordings || []); }
+    try { const response = await fetch("/api/observations/recording-history", { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setSaved(data.recordings || []); }
     catch (cause) { setError(message(cause)); }
   }
   async function loadPlays() {
@@ -96,42 +98,44 @@ export const ObservationRecorder = forwardRef<ObservationRecorderHandle, { onAct
       };
       instance.onerror = () => { setError("녹음이 중단됐어요."); stop(); };
       instance.start(1000); setDuration(0); setPhase("recording");
+      const id = crypto.randomUUID(); setHistoryId(id); void logExecution(id, new Date(started.current).toISOString()).catch(cause => setError(message(cause)));
     } catch (cause) { if (token === attempt.current) { setPhase("idle"); setError(cause instanceof DOMException && cause.name === "NotAllowedError" ? "마이크 권한이 필요해요." : "마이크를 사용할 수 없어요."); } }
   }
-  function clearDraft() { if (draft) URL.revokeObjectURL(draft.url); setDraft(null); }
-  async function transcribe(id: string) {
-    setBusy(id); setError("");
-    try { const response = await fetch(`/api/observations/recordings/${id}`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error); await load(); }
-    catch (cause) { setError(message(cause)); await load(); } finally { setBusy(""); }
+  function clearDraft() { if (draft) URL.revokeObjectURL(draft.url); setDraft(null); setTranscript(""); setHistoryId(""); setAudioAccepted(false); }
+  async function logExecution(id: string, date: string) {
+    if (!userId) return;
+    const response = await fetch("/api/observations/recording-history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, recordedAt: date, playId: nextPlayId || null }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error);
+    await load(); await loadPlays();
   }
-  async function save(withTranscription: boolean) {
-    if (!draft || busy) return;
-    setBusy("saving"); setError("");
+  async function upload(file: File | undefined) {
+    if (!file || busy || phase !== "idle") return;
+    const types: Record<string, string> = { mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", webm: "audio/webm", ogg: "audio/ogg", mp4: "audio/mp4" };
+    const type = file.type || types[file.name.split(".").pop()?.toLowerCase() || ""];
+    if (!type || !Object.values(types).includes(type.split(";")[0]) || !file.size || file.size > 4000000) { setError("MP3·M4A·WAV·WEBM·OGG·MP4 형식의 4MB 이하 녹음 파일을 선택해 주세요."); return; }
+    if (draft && !window.confirm("현재 임시 녹음과 전사문을 새 파일로 바꿀까요? 필요한 파일은 먼저 내려받아 주세요.")) return;
+    clearDraft(); setError(""); const now = new Date().toISOString(); const blob = new Blob([file], { type });
+    const id = crypto.randomUUID(); setHistoryId(id);
+    setDraft({ blob, url: URL.createObjectURL(blob), startedAt: now, endedAt: now, durationMs: 0 });
+    try { await logExecution(id, now); } catch (cause) { setError(message(cause)); }
+  }
+  async function transcribe() {
+    if (!draft || busy || !audioAccepted || !userId) return;
+    setBusy("transcribing"); setError("");
     try {
-      const form = new FormData(); form.set("audio", draft.blob, "observation"); form.set("startedAt", draft.startedAt); form.set("endedAt", draft.endedAt); form.set("durationMs", String(draft.durationMs)); form.set("playTopic", "");
-      const response = await fetch("/api/observations/recordings", { method: "POST", body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error);
-      clearDraft(); await load(); setBusy("");
-      if (nextPlayId) await linkPlay(data.id, nextPlayId);
-      if (withTranscription) await transcribe(data.id);
+      const id = historyId || crypto.randomUUID(); setHistoryId(id);
+      await logExecution(id, draft.startedAt);
+      const form = new FormData(); form.set("audio", draft.blob, "observation"); form.set("consent", "accepted");
+      const response = await fetch("/api/observations/audio-file", { method: "POST", body: form }); const data = await response.json();
+      if (!response.ok) throw new Error(data.error); setTranscript(data.text || "");
     } catch (cause) { setError(message(cause)); } finally { setBusy(""); }
-  }
-  async function mutate(id: string, method: "PATCH" | "DELETE", body?: object) {
-    setBusy(id); setError("");
-    try { const response = await fetch(`/api/observations/recordings/${id}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }); const data = await response.json(); if (!response.ok) throw new Error(data.error); await load(); }
-    catch (cause) { setError(message(cause)); } finally { setBusy(""); }
-  }
-  async function saveFragment(id: string, kind: "child_speech" | "observation") {
-    if (!selected[id]?.trim()) { setError("저장할 문장을 먼저 붙여넣어 주세요."); return; }
-    setBusy(id); setError("");
-    try { const response = await fetch("/api/observations/fragments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceId: id, kind, text: selected[id] }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setSelected(previous => ({ ...previous, [id]: "" })); setError("기록 조각을 저장했어요."); }
-    catch (cause) { setError(message(cause)); } finally { setBusy(""); }
   }
   useImperativeHandle(ref, () => ({ open: () => { dialog.current?.open(); if (userId) { void load(); void loadPlays(); } } }));
   useEffect(() => { onActivity(saved.length + Number(Boolean(draft)), Boolean(draft) || phase !== "idle"); }, [saved.length, draft, phase, onActivity]);
   useEffect(() => { if (phase !== "recording") return; const timer = window.setInterval(() => { const ms = Date.now() - started.current - paused.current; setDuration(ms); if (ms >= 600000) stop(); }, 500); return () => clearInterval(timer); }, [phase]);
   useEffect(() => () => { attempt.current++; if (recorder.current?.state && recorder.current.state !== "inactive") recorder.current.stop(); stream.current?.getTracks().forEach(track => track.stop()); if (draft) URL.revokeObjectURL(draft.url); }, [draft]);
 
-  return <CaptureDialog ref={dialog} id="observation-title" title="관찰 녹음" onClose={() => { if (phase !== "idle") stop(); }}>
+  return <CaptureDialog ref={dialog} id="observation-title" title="관찰 녹음" beforeClose={() => !busy && window.confirm("따로 저장하지 않은 녹음 파일은 저장되지 않습니다. 필요한 녹음은 기기에 내려받아 주세요. 저장한 파일은 추후 STEAM 분석에도 활용할 수 있습니다. 닫을까요?")} onClose={() => { if (phase !== "idle") stop(true); clearDraft(); }}>
     {userId && <fieldset className="observation-play-choice"><legend>다음 녹음의 놀이</legend>
       <label><input type="radio" name="next-play" checked={!nextPlayId} onChange={() => setNextPlayId("")} /> 아직 정하지 않기</label>
       {plays.map(play => <label key={play.cluster_id}><input type="radio" name="next-play" checked={nextPlayId === play.cluster_id} onChange={() => setNextPlayId(play.cluster_id)} /> {play.title}</label>)}
@@ -146,13 +150,16 @@ export const ObservationRecorder = forwardRef<ObservationRecorderHandle, { onAct
       {phase === "idle" && !draft && <button className="button primary" type="button" onClick={() => void start()}>녹음 시작</button>}
     </div>
     {error && <p role="alert" className="error">{error}</p>}
-    {draft && <section className="observation-transcript"><audio controls src={draft.url} /><p>녹음 길이: {length(draft.durationMs)}</p>{userId ? <><p className="capture-note">저장할 때 선택한 놀이가 이 녹음에 연결돼요. 저장 후에도 바꿀 수 있어요.</p><div className="capture-actions"><button className="button primary" type="button" disabled={!!busy} onClick={() => void save(false)}>녹음 저장</button><button className="button secondary" type="button" disabled={!!busy} onClick={() => void save(true)}>전사하기</button><button className="button secondary" type="button" disabled={!!busy} onClick={() => void save(false)}>전사하지 않고 저장</button></div></> : <><p className="capture-note">비회원 녹음은 기기에 내려받을 수 있어요. 회원은 녹음 저장과 전사도 이용할 수 있어요.</p><a className="button secondary" href={draft.url} download="관찰-녹음">녹음 내려받기</a></>}<button className="button secondary" type="button" disabled={!!busy} onClick={clearDraft}>삭제</button></section>}
-    <ul className="observation-clips">{saved.map(row => { const id = row.fragment_id; const audio = Array.isArray(row.record_audio) ? row.record_audio[0] : row.record_audio; const transcript = [...(row.record_transcriptions || [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]; const linkedTitle = plays.find(play => play.cluster_id === playLinks[id])?.title; return <li key={id}><b>{linkedTitle || "놀이 연결 없음"}</b>{row.play_topic && !linkedTitle && <p className="capture-note">기존 입력 놀이명: {row.play_topic} · 연결 확인 필요</p>}<time dateTime={row.recorded_at}>{new Date(row.recorded_at).toLocaleString("ko-KR")} · {length(audio?.duration_ms || 0)}</time><audio controls src={`/api/observations/recordings/${id}`} aria-label="원본 녹음 재생" /><ObservationPlayChoice fragmentId={id} linkedId={playLinks[id] || ""} plays={plays} hasTranscript={Boolean(transcript?.raw_transcription?.trim())} disabled={!!busy} onLink={linkPlay} onCreateAndLink={createAndLink} /><div className="capture-actions"><a className="button secondary" href={`/api/observations/recordings/${id}`} download={`관찰-${id}`}>원본 내려받기</a>{audio?.transcription_status !== "done" && <button className="button secondary" type="button" disabled={!!busy} onClick={() => void transcribe(id)}>{busy === id ? "전사 중…" : "전사하기"}</button>}<button className="button secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm("이 녹음을 삭제할까요?")) void mutate(id, "DELETE"); }}>삭제</button></div>
-      {transcript && <section className="observation-transcript"><h3>녹음 원문</h3><p className="transcript-text" onMouseUp={() => { const value = window.getSelection()?.toString().trim(); if (value && transcript.raw_transcription.includes(value)) setSelected(previous => ({ ...previous, [id]: value })); }}>{transcript.raw_transcription || "인식된 말소리가 없어요."}</p><p className="capture-note">원본 음성과 비교해 확인해 주세요.</p><div className="capture-actions"><button className="button secondary" type="button" onClick={() => setSelected(previous => ({ ...previous, [id]: transcript.raw_transcription }))}>전체 붙여넣기</button><button className="button secondary" type="button" onClick={() => { const value = window.getSelection()?.toString().trim(); if (value && transcript.raw_transcription.includes(value)) setSelected(previous => ({ ...previous, [id]: value })); else setError("녹음 원문에서 문장을 먼저 선택해 주세요."); }}>선택한 부분 붙여넣기</button></div><label className="capture-memo">기록 조각으로 저장할 문장<textarea rows={3} value={selected[id] || ""} onChange={event => setSelected(previous => ({ ...previous, [id]: event.target.value }))} /></label><div className="capture-actions"><button className="button secondary" type="button" disabled={!!busy} onClick={() => void saveFragment(id, "child_speech")}>아이의 말로 저장</button><button className="button secondary" type="button" disabled={!!busy} onClick={() => void saveFragment(id, "observation")}>관찰기록으로 저장</button></div><label className="capture-memo">교사 수정 전사문<textarea rows={3} value={edited[id] ?? transcript.teacher_edited_transcription ?? transcript.raw_transcription} onChange={event => setEdited(previous => ({ ...previous, [id]: event.target.value }))} /></label><button className="button secondary" type="button" disabled={!!busy} onClick={() => void mutate(id, "PATCH", { teacherEditedTranscription: edited[id] ?? transcript.teacher_edited_transcription ?? transcript.raw_transcription })}>교사 수정본 저장</button></section>}
-      {transcript && <button className="button primary" type="button" disabled={!!busy || !userId || !(edited[id] ?? transcript.teacher_edited_transcription ?? transcript.raw_transcription).trim()} onClick={() => {
-        try { const text = edited[id] ?? transcript.teacher_edited_transcription ?? transcript.raw_transcription; if (onApply) { onApply(text, id); dialog.current?.close(); } else openObservationRecord(userId, text); }
-        catch (cause) { setError(message(cause)); }
-      }}>{onApply ? "STEAM 관찰에 추가" : "이 관찰로 새 기록 만들기"}</button>}
-    </li>; })}</ul>
+    <p className="capture-note">원본 녹음과 전사문은 기록요정에 자동 저장되지 않습니다. 실행 이력과 연결한 놀이명만 남습니다. 필요한 녹음은 따로 내려받으면 추후 STEAM 분석에도 활용할 수 있습니다.</p>
+    <label className="capture-memo">녹음 파일 업로드<input type="file" accept="audio/*,.mp3,.m4a,.wav,.webm,.ogg,.mp4" disabled={!!busy || phase !== "idle"} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ""; }} /></label>
+    <p className="capture-note">MP3·M4A·WAV·WEBM·OGG·MP4, 최대 4MB. 업로드한 파일도 전사 후 서버에 보관하지 않습니다.</p>
+    {draft && <section className="observation-transcript"><audio controls src={draft.url} /><p>{draft.durationMs ? "녹음 길이: " + length(draft.durationMs) : "업로드한 녹음 파일"}</p>
+      <a className="button secondary" href={draft.url} download={"관찰-녹음." + ({ "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav", "audio/ogg": "ogg" }[draft.blob.type.split(";")[0]] || "webm")}>녹음 파일 따로 저장</a>
+      {userId && <><label className="capture-memo"><input type="checkbox" checked={audioAccepted} onChange={event => setAudioAccepted(event.target.checked)} />음성 파일을 AI 전사 서비스에 전송하는 데 동의합니다.</label><button className="button secondary" type="button" disabled={!!busy || !audioAccepted} onClick={() => void transcribe()}>{busy === "transcribing" ? "전사 중…" : "전사하기"}</button></>}
+      <button className="button secondary" type="button" disabled={!!busy} onClick={clearDraft}>임시 녹음 지우기</button>
+      {transcript && <><label className="capture-memo">교사 확인 전사문<textarea rows={8} value={transcript} onChange={event => setTranscript(event.target.value)} /></label><p>음성과 비교해 확인해 주세요. 이 글도 닫으면 사라집니다. 필요한 글은 복사하거나 STEAM 관찰에 추가하세요.</p><button className="button primary" type="button" disabled={!!busy || !transcript.trim()} onClick={() => { if (!window.confirm("관찰 글을 연결하고 녹음 창을 닫을까요? 따로 저장하지 않은 녹음 파일은 저장되지 않습니다. 필요한 파일은 먼저 내려받아 주세요. 저장한 파일은 추후 STEAM 분석에도 활용할 수 있습니다.")) return; try { if (onApply) { onApply(transcript, historyId); dialog.current?.close(); } else openObservationRecord(userId, transcript); } catch (cause) { setError(message(cause)); } }}>{onApply ? "STEAM 관찰에 추가" : "이 관찰로 새 기록 만들기"}</button></>}
+    </section>}
+    <h3>녹음 실행 이력</h3><p className="capture-note">음성·전사문 없이 실행 일시와 놀이 연결만 표시합니다.</p>
+    <ul className="observation-clips">{saved.map(row => { const id = row.fragment_id; const linkedTitle = plays.find(play => play.cluster_id === playLinks[id])?.title; return <li key={id}><b>{linkedTitle || row.play_topic || "놀이 연결 없음"}</b><time dateTime={row.recorded_at}>{new Date(row.recorded_at).toLocaleString("ko-KR")}</time><ObservationPlayChoice fragmentId={id} linkedId={playLinks[id] || ""} plays={plays} hasTranscript={false} disabled={!!busy} onLink={linkPlay} onCreateAndLink={createAndLink} /></li>; })}</ul>
   </CaptureDialog>;
 });

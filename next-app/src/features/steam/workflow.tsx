@@ -223,8 +223,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
         </figure>)}</div></>}
         {step === 1 && <>
           {field("아이의 말·행동·놀이 흐름 (직접 확인한 내용)", observation, setObservation, 15000)}
-          <button className="button secondary" type="button" onClick={() => recorder.current?.open()}>관찰 녹음 · 기존 녹음 불러오기</button>
-          <p>전사문을 원본과 비교하고 선택하면 현재 관찰에 추가됩니다. 사진과 관찰은 이후 단계에서도 유지됩니다.</p>
+          <button className="button secondary" type="button" onClick={() => recorder.current?.open()}>관찰 녹음 · 녹음 파일 업로드</button>
+          <p>녹음하거나 따로 저장한 음성 파일을 업로드하세요. 전사문을 원본과 비교하고 선택하면 현재 관찰에 추가됩니다. 원본 음성·전사문은 자동 보관되지 않습니다.</p>
         </>}
         {step === 2 && <>
           <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} /><span>{AI_CONSENT_TEXT}</span></label>

@@ -48,8 +48,13 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
       return route.fulfill({ status: failStory ? 502 : 200, contentType: "application/json", body: JSON.stringify(failStory ? { error: "이야기 실패 테스트" } : { story: { text: "확인된 관찰\n아이가 블록을 올리고 내려놓았다.\n\n배움의 해석 (잠정적)\n구성 탐색의 가능성이 있다.", source: body.input } }) });
     });
     await page.route("**/api/photos", route => { uploads++; return route.fulfill({ status: failUpload ? 503 : 200, contentType: "application/json", body: JSON.stringify(failUpload ? { error: "사진 보관 실패 테스트" } : { saved: true, id: 2 }) }); });
-    const recordingId = "22222222-2222-4222-8222-222222222222";
-    await page.route("**/api/observations/recordings", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ recordings: [{ fragment_id: recordingId, recorded_at: "2026-10-03T00:00:00Z", play_topic: "블록", record_audio: { duration_ms: 3000, transcription_status: "done" }, record_transcriptions: [{ raw_transcription: "블록을 다시 내려놓았다.", teacher_edited_transcription: null, created_at: "2026-10-03T00:00:00Z" }] }] }) }));
+    let recordingId;
+    await page.route("**/api/observations/recording-history", route => {
+      if (route.request().method() === "POST") { const body = route.request().postDataJSON(); recordingId = body.id; assert.deepEqual(Object.keys(body).sort(), ["id", "playId", "recordedAt"]); return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: recordingId }) }); }
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ recordings: recordingId ? [{ fragment_id: recordingId, recorded_at: "2026-10-03T00:00:00Z", play_topic: "블록" }] : [] }) });
+    });
+    await page.route("**/api/observations/audio-file", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: "블록을 다시 내려놓았다." }) }));
+    await page.route("**/api/observations/recordings", () => { throw Error("Audio must not be stored"); });
     await page.route("**/api/observations/plays", route => route.fulfill({ status: 200, contentType: "application/json", body: '{"plays":[],"links":[]}' }));
     const url = `http://127.0.0.1:${server.address().port}`;
     await page.goto(url + "/records/steam");
@@ -61,9 +66,22 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     await page.getByRole("heading", { name: "선택 사진 2장" }).waitFor();
     await page.getByRole("button", { name: "2. 관찰 더하기", exact: true }).click();
     await page.getByLabel("아이의 말·행동·놀이 흐름 (직접 확인한 내용)").fill("아이가 블록을 올려놓았다.");
-    await page.getByRole("button", { name: "관찰 녹음 · 기존 녹음 불러오기" }).click();
+    await page.getByRole("button", { name: "관찰 녹음 · 녹음 파일 업로드" }).click();
+    await page.getByLabel("녹음 파일 업로드").setInputFiles({ name: "observation.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("offline audio fixture") });
+    await page.getByRole("checkbox", { name: "음성 파일을 AI 전사 서비스에 전송하는 데 동의합니다." }).check();
+    await page.getByRole("button", { name: "전사하기", exact: true }).click();
+    await page.getByLabel("교사 확인 전사문").waitFor();
+    assert.equal(await page.getByRole("link", { name: "녹음 파일 따로 저장" }).count(), 1);
+    page.once("dialog", dialog => dialog.dismiss()); await page.getByRole("button", { name: "관찰 녹음 닫기" }).click();
+    assert.equal(await page.getByLabel("교사 확인 전사문").isVisible(), true);
+    page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "STEAM 관찰에 추가" }).click();
     assert.match(await page.getByLabel("아이의 말·행동·놀이 흐름 (직접 확인한 내용)").inputValue(), /다시 내려놓았다/);
+    await page.getByRole("button", { name: "관찰 녹음 · 녹음 파일 업로드" }).click();
+    assert.equal(await page.getByLabel("교사 확인 전사문").count(), 0);
+    assert.equal(await page.locator("dialog audio").count(), 0);
+    await page.getByRole("heading", { name: "녹음 실행 이력" }).waitFor();
+    page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "관찰 녹음 닫기" }).click();
     await page.getByRole("button", { name: "3. STEAM 읽기", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "사진과 관찰 함께 분석" }).isDisabled(), true);
     await page.getByRole("checkbox", { name: /입력한 관찰 내용과/ }).check(); await page.getByRole("checkbox", { name: /사진 속 아동의/ }).check();
