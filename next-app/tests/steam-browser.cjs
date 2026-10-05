@@ -115,6 +115,9 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     catch (error) { throw new Error(`${error.message}\nBrowser errors: ${JSON.stringify(errors)}\nBody: ${await page.locator("body").innerText()}`); }
     await page.getByRole("region", { name: "사진 1의 놀이 분석", exact: true }).getByLabel("과정 기록의 해석으로 선택").check(); await page.getByRole("button", { name: "선택한 해석 가져오기" }).click();
     await page.getByRole("heading", { name: "T 기술 · 도구를 써 보는 놀이" }).waitFor();
+    const headingStyle = await page.getByRole("heading", { name: "T 기술 · 도구를 써 보는 놀이" }).evaluate(element => ({ weight: getComputedStyle(element).fontWeight, size: parseFloat(getComputedStyle(element).fontSize), body: parseFloat(getComputedStyle(element.nextElementSibling).fontSize) }));
+    assert.ok(Number(headingStyle.weight) >= 700);
+    assert.ok(headingStyle.size > headingStyle.body);
     await page.getByRole("heading", { name: "E 공학 · 놓고 이어 만드는 놀이" }).waitFor();
     assert.doesNotMatch(await page.getByLabel("기록에 사용할 교사 해석").inputValue(), /집게/);
     await page.getByRole("button", { name: "4. 놀이 이어가기", exact: true }).click();
@@ -141,14 +144,14 @@ test("STEAM photo/recording workflow preserves edits, isolates proposals, retrie
     const storyButton = page.getByRole("button", { name: "확인된 관찰로 놀이 이야기 만들기" });
     
     await storyButton.click();
-    await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).waitFor();
+    try { await page.getByRole("region", { name: /확인된 관찰을 놀이 이야기로 연결하기|STEAM 관찰을 모아 놀이 기록 작성하기/ }).waitFor(); } catch (cause) { throw new Error(`${cause.message}\nStory calls: ${storyCalls}\n${await page.locator('body').innerText()}\nErrors: ${JSON.stringify(errors)}`); }
     assert.equal(await page.locator('svg line').count() > 0, true);
-    assert.equal(await page.locator("#steam-play-story").getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).count(), 1);
+    assert.equal(await page.locator("#steam-play-story").getByRole("region", { name: /확인된 관찰을 놀이 이야기로 연결하기|STEAM 관찰을 모아 놀이 기록 작성하기/ }).count(), 1);
     fs.mkdirSync(path.join(root, "../outputs"), { recursive: true });
     await page.waitForTimeout(750);
-    await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).screenshot({ path: path.join(root, "../outputs/steam-story-assembly.png") });
+    await page.getByRole("region", { name: /확인된 관찰을 놀이 이야기로 연결하기|STEAM 관찰을 모아 놀이 기록 작성하기/ }).screenshot({ path: path.join(root, "../outputs/steam-story-assembly.png") });
     const storyField = page.getByLabel("놀이 이야기 · 직접 수정", { exact: true });
-    await storyField.waitFor(); await page.getByRole("region", { name: "확인된 관찰을 놀이 이야기로 연결하기" }).waitFor({ state: "detached" });
+    await storyField.waitFor(); await page.getByRole("region", { name: /확인된 관찰을 놀이 이야기로 연결하기|STEAM 관찰을 모아 놀이 기록 작성하기/ }).waitFor({ state: "detached" });
     assert.equal(page.url(), url + "/records/steam"); assert.match(await draftField.inputValue(), /교사 수정 내용 유지/);
     await page.waitForFunction(() => document.activeElement?.id === "steam-play-story");
     assert.equal(await storyField.getAttribute("rows"), "12");
