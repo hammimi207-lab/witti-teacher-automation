@@ -213,12 +213,13 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   if (!ready) return <section className="panel"><p>이 계정의 임시 작성 내용이 있습니다. 새 사진 파일은 임시 저장에 포함되지 않습니다.</p><button className="button primary" onClick={restore}>작성 내용 복원</button><button className="button secondary" onClick={() => { setRecovery(null); setReady(true); }}>새로 시작</button>{error && <p role="alert">{error}</p>}</section>;
   return <div className={styles.workflow}>
     <nav className={styles.steps} aria-label="STEAM 단계">{steps.map((name, index) => <button key={name} type="button" aria-current={step === index ? "step" : undefined} disabled={Boolean(busy)} onClick={() => setStep(index)}>{index + 1}. {name}</button>)}</nav>
-    {busy && <p role="status">{busy}…</p>}{error && <p className="error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {busy && !analysisPending && !storyPending && <div className={styles.progress} role="status"><span className={styles.spinner} aria-hidden="true" /><div><strong>{busy}…</strong><p>완료되면 이 화면에서 이어집니다.</p></div></div>}{error && <p className="error" role="alert">{error}</p>}{notice && !analysisPending && !storyPending && <p role="status">{notice}</p>}
+    {analysisPending && <RecordAssembly mode="play" task="사진과 관찰에서 STEAM 읽기" fragments={[{ label: "교사가 입력한 관찰", text: observation }, { label: "함께 살펴볼 사진", text: `선택한 놀이 사진 ${photoIds.length + files.length}장` }, { label: "놀이 지원 연령", text: `만 ${age}의 직접 시도와 반복을 살펴봐요.` }]} files={files.map(photo => photo.file)} result={analysisReady} onComplete={finishAnalysis} />}
     {stale && <p className="error" role="alert">사진·연령·관찰 입력이 달라졌습니다. 기존 수정 글은 유지됩니다. 다시 분석하고 새 후보를 반영한 뒤 글을 확인해 주세요.</p>}
     {storyPending && <RecordAssembly mode="play" fragments={[{ label: "확인된 관찰", text: confirmed }, { label: "실제로 확인한 과정", text: [process.interest, process.attempt, process.change, process.repeat].filter(Boolean).join("\n") }, { label: "실제 교사 지원", text: process.teacher }, { label: "잠정적 배움의 해석", text: interpretation }]} files={files.map(photo => photo.file)} result={storyCandidate ? { integratedRecord: storyCandidate.text } : null} onComplete={finishStory} />}
     <fieldset disabled={Boolean(busy)} className={styles.controls}>
       <label>연령 <select aria-label="연령" value={age} onChange={event => { setAge(event.target.value as SteamSaved["age"]); edit(); }}>{["0세", "1세", "2세", "3세", "4세", "5세"].map(value => <option key={value} value={value}>만 {value}</option>)}</select></label>
-      <section className="panel"><h2>{step + 1}. {steps[step]}</h2>
+      <section className="panel" id={step === 2 ? "steam-analysis-result" : undefined} tabIndex={step === 2 ? -1 : undefined}><h2>{step + 1}. {steps[step]}</h2>
         {step === 0 && <>
           <p>한 장 또는 여러 장을 선택하세요. 분석은 최대 5장입니다. 새 사진은 저장 확인 후 비공개 보관합니다.</p>
           <label className={styles.field}>새 사진 선택<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={event => { void addFiles(event.target.files); event.target.value = ""; }} /></label>
