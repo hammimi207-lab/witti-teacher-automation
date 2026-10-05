@@ -19,6 +19,25 @@ function load(name) {
 }
 const { WordDownload } = load("word-download");
 const { unpackRecord } = load("saved-record-library");
+test("STEAM export contains separate play judgments and grounded age-specific curriculum analysis", async () => {
+  const { steam } = require('./steam-word-fixture.cjs');
+  const { steamDocumentAnalysis } = load('steam-document-analysis');
+  const analysis = steamDocumentAnalysis(steam);
+  assert.equal(analysis.framework, '2024 개정 표준보육과정');
+  assert.equal(analysis.band, '2세');
+  assert.ok(analysis.links.some(link => link.area === '자연탐구' && /자석/.test(link.reason)));
+  assert.ok(analysis.links.some(link => link.area === '사회관계'));
+  assert.ok(!analysis.links.some(link => link.area === '예술경험'));
+  for (const link of analysis.links) for (const evidence of link.evidence) assert.ok(steam.confirmedObservation.includes(evidence));
+  const missing = steamDocumentAnalysis({...steam, confirmedObservation:'관찰 내용을 아직 자세히 기록하지 않았습니다.', interpretation:'노래를 불렀다.', extension:'친구와 함께 그림을 그릴 계획'});
+  assert.equal(missing.links.length, 0, 'Interpretations and future plans must not become observed curriculum evidence');
+  assert.equal(steamDocumentAnalysis({...steam,age:'4세'}).framework,'2019 개정 누리과정');
+  assert.equal(steamDocumentAnalysis({...steam,age:'0세'}).band,'0~1세');
+  const document = load('story-word-document').buildStoryWordDocument('기찻길 놀이', result, input, null, {steam});
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(document)); const xml = await zip.file('word/document.xml').async('string');
+  for (const text of ['사진별 STEAM 영역과 판단 근거','사진 1의 놀이','사진 2의 놀이','E 공학','S 과학','교사가 확인한 관찰','이 내용범주와 연결한 이유','생활 속에서 탐구하기','다음 놀이 제안 아직 실행하지 않음','과정 중심 관찰기록 초안','과정 기록의 해석으로 선택하지 않음']) assert.ok(xml.includes(text),text);
+  assert.doesNotMatch(xml,/생성된 교육과정 연계 설명이 없습니다/);
+});
 const input = {
   playName: "카드 꾸미기 놀이", recordType: "놀이 이야기", ageGroup: "2세", childAlias: "별님",
   curriculumAreas: ["의사소통"], observation: "아이가 종이에 스티커를 붙이며 카드를 꾸몄다.",

@@ -1,4 +1,4 @@
-export type DocumentPhoto = { data: Uint8Array; width: number; height: number };
+export type DocumentPhoto = { data: Uint8Array; width: number; height: number; number?: number };
 export type SavedPhoto = { id: number; session_id: string; original_file_name: string; created_at: string; url: string };
 
 // Re-encoding strips EXIF/location metadata and keeps requests under hosting limits.

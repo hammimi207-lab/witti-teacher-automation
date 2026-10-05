@@ -1,0 +1,7 @@
+const observation = '기찻길 블록을 길게 이어 보았다. "와 기차길이다. 이어볼까?"\n기차를 붙이려다 "선생님 기차가 왜 안붙어요?"라고 물었다. 방향을 바꾼 뒤 "아 반대로 하니까 붙네"라고 말했다.\n친구에게 "내가 도와줄게", "같이 붙일까?"라고 말했다.';
+const card = (area, quote, interpretation) => ({ area, evidence: [{ source: 'observation', photo: 0, quote }], interpretation, watch: '방법을 바꾸고 다시 시도하는지 살펴보기', extension: '큰 연결 블록을 제안해 보기', status: '배움의 가능성' });
+const support = { materials: ['큰 블록', '넓은 바닥'], teacher: '어떻게 이어 볼까?', watch: ['놓는 방향', '다시 시도하는 방법'], safety: '작은 부품을 삼키지 않도록 살피기' };
+const first = { photoFacts: [], cards: [card('E 공학', '기찻길 블록을 길게 이어 보았다.', '놓는 방향을 바꾸며 길을 구성하는 탐색으로 볼 수 있다.')], support };
+const second = { photoFacts: [], cards: [card('S 과학', '아 반대로 하니까 붙네', '붙는 방향의 차이를 직접 살펴본 가능성이 있다.')], support };
+const steam = { version: 1, age: '2세', sourceObservation: observation, photoIds: [], recordingIds: [], analysis: { photoFacts: [], cards: [...first.cards, ...second.cards], support, plays: [{photo: 1, analysis: first}, {photo: 2, analysis: second}] }, confirmedObservation: observation, selectedAreas: ['E 공학'], selectedCards: ['1:E 공학'], interpretation: '기찻길의 놓는 방법을 탐색했을 가능성이 있다.', extension: '다음에 큰 연결 블록을 제공할 계획이다.', process: {interest: '기찻길 블록', attempt: '길을 길게 이어 봄', change: '', repeat: '', teacher: '', next: '다음에 방향을 바꾸는 시도를 관찰'}, draft: '기찻길 블록을 길게 이어 보았다. 처음 관심과 방법 변화는 교사가 추가 기록할 필요가 있다.', reviewed: true, analyzedInput: {age: '2세', observation, photoIds: []} };
+module.exports={ steam, observation };

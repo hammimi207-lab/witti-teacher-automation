@@ -8,6 +8,19 @@ import JSZip from "jszip";
 const require = createRequire(import.meta.url);
 const session = "550e8400-e29b-41d4-a716-446655440000";
 const consent = { version: "2026-09-19", aiAccepted: true, photoAccepted: true };
+test("STEAM Word export loads authenticated saved analysis and refuses foreign or missing records", async () => {
+  const f=fixture();
+  const {steam}=require('./steam-word-fixture.cjs');
+  const input=f.load('features/records/schema').recordInputSchema.parse({playName:'기찻길',ageGroup:'2세',childAlias:'놀이 관찰',recordType:'놀이 이야기',observation:steam.confirmedObservation,curriculumAreas:[]});
+  f.state.records[0].result_text=JSON.stringify({version:1,generationId:session,savedKinds:['record'],input,result:{integratedRecord:steam.draft},createdAt:'2026-10-05T00:00:00Z',consent,steam});
+  async function download() { const body=new FormData();body.set('record',JSON.stringify({title:'기찻길',result:{integratedRecord:'현재 표시된 본문'},input,sessionId:session,steamRecord:true,photoIds:[2],steam:{confirmedObservation:'변조한 관찰'}}));return f.load('app/api/records/word/route').POST(new Request('https://app.test/api/records/word',{method:'POST',body})); }
+  const response=await download();assert.equal(response.status,200);
+  const zip=await JSZip.loadAsync(await response.arrayBuffer());const xml=await zip.file('word/document.xml').async('string');
+  assert.match(xml,/사진별 STEAM 영역과 판단 근거/);assert.match(xml,/기찻길 블록을 길게 이어 보았다/);assert.doesNotMatch(xml,/변조한 관찰/);
+  assert.equal(f.state.storageCalls,0,'Server saved photo IDs override stale client IDs');
+  f.state.user='other';assert.equal((await download()).status,400);
+  f.state.user=null;assert.equal((await download()).status,401);
+});
 
 function fixture(user = "owner") {
   const state = { user, rows: [{ id: 1, user_id: "owner", session_id: session, deleted: false, storage_bucket: "play-photos", file_path: "owner/old.jpg", mime_type: "image/jpeg", original_file_name: "old.jpg" }, { id: 2, user_id: "other", session_id: session, deleted: false, storage_bucket: "play-photos", file_path: "other/secret.jpg", mime_type: "image/jpeg" }], records: [{ user_id: "owner", session_id: session, deleted: false, result_text: JSON.stringify({ savedKinds: ["record"], consent, input: {} }) }], stored: new Map([["owner/old.jpg", Buffer.from("photo")], ["other/secret.jpg", Buffer.from("private")]]), private: true, failRemove: false, failInsert: false, storageCalls: 0 };

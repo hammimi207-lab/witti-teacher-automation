@@ -40,7 +40,7 @@ export function SavedRecordCard({ record, language }: { record: SavedRecord; lan
           {[...input.playSubcategories.map(key => [key, input.playSubcategoryNotes[key]]), ...input.teacherSupports.map(key => [key, input.teacherSupportNotes[key]]), ...teacherDocumentSections(input)].map(([label, value]) => value && <section key={label}><h3>{label}</h3><pre>{value}</pre></section>)}
         </div></details>}
         {sessionId && <PhotoGallery sessionId={sessionId} photoIds={steam?.photoIds} lazy />}
-        <WordDownload title={title} result={result} input={input} recordType={record.output_type} createdAt={record.created_at} plain={plain} edited={record.edited_text || ""} sessionId={sessionId} photoIds={steam?.photoIds} />
+        <WordDownload title={title} result={result} input={input} recordType={record.output_type} createdAt={record.created_at} plain={plain} edited={record.edited_text || ""} sessionId={sessionId} photoIds={steam?.photoIds} steamRecord={Boolean(steam)} />
       </div></details>
     </>}
   </article>;
