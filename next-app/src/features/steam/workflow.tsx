@@ -10,7 +10,7 @@ import { AI_CONSENT_TEXT, PHOTO_CONSENT_TEXT, AI_CONSENT_VERSION } from "../reco
 import { recordInputSchema } from "../records/schema";
 import { generatedSchema } from "../records/result-schema";
 import type { SavedEnvelope } from "../records/save-contract";
-import { steamAnalysisSchema, steamDraftSchema, steamRunSchema, steamStorySchema, storySource, processDraft, type SteamAnalysis, type SteamSaved, type SteamRun } from "../records/steam-schema";
+import { steamAnalysisSchema, steamDraftSchema, steamRunSchema, steamStorySchema, storySource, processDraft, photoObservationText, type SteamAnalysis, type SteamSaved, type SteamRun } from "../records/steam-schema";
 import styles from "./workflow.module.css";
 import { PlayReferences } from "./play-references";
 
@@ -18,25 +18,34 @@ const steps = ["사진 올리기", "관찰 더하기", "STEAM 읽기", "놀이 �
 const emptyProcess = { interest: "", attempt: "", change: "", repeat: "", teacher: "", next: "" };
 type LocalPhoto = { key: string; file: File; url: string };
 const failure = (cause: unknown) => cause instanceof Error ? cause.message : "연결하지 못했습니다. 다시 시도해 주세요.";
+const areaNames: Record<string, string> = { "S 과학": "S 과학 · 만져 보고 변화를 살피는 놀이", "T 기술": "T 기술 · 도구를 써 보는 놀이", "E 공학": "E 공학 · 놓고 이어 만드는 놀이", "A 예술": "A 예술 · 소리·몸·재료로 표현하는 놀이", "M 수학": "M 수학 · 크기·양·자리를 비교하는 놀이" };
+function ObservationPhoto({ src, alt }: { src: string; alt: string }) {
+  // Selected local/private photos use the existing authenticated preview route.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className={styles.observationPhoto} src={src} alt={alt} />;
+}
 
 export function SteamWorkflow({ userId, initial }: { userId: string; initial: SavedEnvelope | null }) {
   const saved = initial?.steam;
   const [step, setStep] = useState(saved ? 4 : 0);
   const [age, setAge] = useState<SteamSaved["age"]>(saved?.age || "2세");
-  const [observation, setObservation] = useState(saved?.sourceObservation || "");
+  const [observation, setObservation] = useState(saved?.commonObservation ?? saved?.sourceObservation ?? "");
   const [title, setTitle] = useState(initial?.input.playName || "STEAM 놀이 과정");
   const [gallery, setGallery] = useState<SavedPhoto[]>([]);
   const [galleryOffset, setGalleryOffset] = useState(0), [hasMore, setHasMore] = useState(false);
   const [photoIds, setPhotoIds] = useState(saved?.photoIds || []);
   const [files, setFiles] = useState<LocalPhoto[]>([]);
+  const [photoNotes, setPhotoNotes] = useState<Record<string, { speech: string; action: string; flow: string }>>(() => Object.fromEntries((saved?.photoIds || []).map((id, index) => [`saved:${id}`, saved?.photoObservations?.[index] || { speech: "", action: "", flow: "" }])));
+  const [recordingPhoto, setRecordingPhoto] = useState<string | null>(null);
   const [recordingIds, setRecordingIds] = useState(saved?.recordingIds || []);
   const [analysis, setAnalysis] = useState<SteamAnalysis | null>(saved?.analysis || null);
   const [run, setRun] = useState<SteamRun | null>(saved?.run || null);
   const [previousRuns, setPreviousRuns] = useState<NonNullable<SteamSaved["previousRuns"]>>(saved?.previousRuns || []);
   const [candidate, setCandidate] = useState<{ analysis: SteamAnalysis; signature: string; run: SteamRun | null } | null>(null);
-  const [analyzedSignature, setAnalyzedSignature] = useState(saved ? JSON.stringify({ age: saved.age, observation: saved.sourceObservation.trim(), photoIds: saved.photoIds, files: [] }) : "");
+  const [analyzedSignature, setAnalyzedSignature] = useState(saved ? JSON.stringify({ age: saved.age, observation: saved.sourceObservation.trim(), photoIds: saved.photoIds, files: [], photoObservations: saved.photoIds.map((_, index) => ({ photo: index + 1, speech: saved.photoObservations?.[index]?.speech || "", action: saved.photoObservations?.[index]?.action || "", flow: saved.photoObservations?.[index]?.flow || "" })) }) : "");
   const [confirmed, setConfirmed] = useState(saved?.confirmedObservation || "");
   const [selectedAreas, setSelectedAreas] = useState<string[]>(saved?.selectedAreas || []);
+  const [selectedCards, setSelectedCards] = useState<string[]>(saved?.selectedCards || (saved?.selectedAreas || []).map(area => `0:${area}`));
   const [interpretation, setInterpretation] = useState(saved?.interpretation || "");
   const [extension, setExtension] = useState(saved?.extension || "");
   const [process, setProcess] = useState(saved?.process || emptyProcess);
@@ -57,10 +66,13 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
   const revealAnalysis = useRef(false);
   const lock = useRef(false), urls = useRef(new Set<string>());
   const draftKey = `record-fairy:steam:v1:${userId}:${initial?.generationId || "new"}`;
-  const signature = JSON.stringify({ age, observation: observation.trim(), photoIds, files: files.map(file => file.key) });
+  const selectedPhotos = [...photoIds.map(id => ({ key: `saved:${id}`, url: `/api/photos/${id}` })), ...files.map(file => ({ key: file.key, url: file.url }))];
+  const photoObservations = selectedPhotos.map((photo, index) => ({ photo: index + 1, speech: photoNotes[photo.key]?.speech || "", action: photoNotes[photo.key]?.action || "", flow: photoNotes[photo.key]?.flow || "" }));
+  const sourceObservation = [observation.trim(), ...photoObservations.filter(note => photoObservationText(note)).map(note => `[사진 ${note.photo} · 별개의 놀이]\n${photoObservationText(note)}`)].filter(Boolean).join("\n\n");
+  const signature = JSON.stringify({ age, observation: sourceObservation.trim(), photoIds, files: files.map(file => file.key), photoObservations });
   const stale = Boolean(analysis) && analyzedSignature !== signature;
   const storyStale = story && JSON.stringify(story.source) !== JSON.stringify({ age, confirmedObservation: confirmed.trim(), interpretation, process: { interest: process.interest, attempt: process.attempt, change: process.change, repeat: process.repeat, teacher: process.teacher } });
-  const payload = JSON.stringify({ step, age, observation, title, photoIds, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, interpretation, extension, process, draft, story, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
+  const payload = JSON.stringify({ step, age, observation, title, photoIds, photoNotes, recordingIds, analysis, analyzedSignature, confirmed, selectedAreas, selectedCards, interpretation, extension, process, draft, story, generationId, createdAt, missingPhotos: files.map(file => file.file.name), run, previousRuns });
   useEffect(() => {
     const allocated = urls.current;
     return () => allocated.forEach(url => URL.revokeObjectURL(url));
@@ -109,6 +121,8 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       setConfirmed(value.confirmed); setSelectedAreas(value.selectedAreas); setInterpretation(value.interpretation); setExtension(value.extension); setProcess(value.process); setDraft(value.draft); setGenerationId(value.generationId); setCreatedAt(value.createdAt); setStep(value.step);
       setRun(value.run || null); setPreviousRuns(value.previousRuns || []);
       setStory(value.story || null);
+      setPhotoNotes(value.photoNotes || {});
+      setSelectedCards(value.selectedCards || value.selectedAreas.map(area => `0:${area}`));
       setNotice(value.missingPhotos?.length ? `글은 복원했습니다. 새 사진 ${value.missingPhotos.length}장은 다시 첨부한 뒤 분석해 주세요.` : "작성 내용과 수정 내용을 복원했습니다.");
       setRecovery(null); setReady(true);
     } catch (cause) { setError(failure(cause)); }
@@ -141,7 +155,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
     if (lock.current) return;
     lock.current = true; setBusy("STEAM 분석 중"); setAnalysisPending(true); setAnalysisReady(null); setError(""); setNotice(""); setCandidate(null);
     try {
-      const form = new FormData(); form.set("input", JSON.stringify({ age, observation, photoIds }));
+      const form = new FormData(); form.set("input", JSON.stringify({ age, observation: sourceObservation, photoIds, photoObservations }));
       form.set("consent", JSON.stringify({ version: AI_CONSENT_VERSION, aiAccepted, photoAccepted }));
       files.forEach(photo => form.append("images", photo.file));
       const response = await fetch("/api/steam/analyze", { method: "POST", body: form }); const data = await response.json();
@@ -149,7 +163,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       const next = steamAnalysisSchema.parse(data.analysis);
       const nextRun = data.run ? steamRunSchema.parse(data.run) : null;
       if (analysis) { setCandidate({ analysis: next, signature, run: nextRun }); setNotice("새 분석 후보를 받았습니다. 기존 카드·교사 수정 글은 유지됩니다."); }
-      else { setAnalysis(next); setRun(nextRun); setAnalyzedSignature(signature); setConfirmed(observation.trim()); }
+      else { setAnalysis(next); setRun(nextRun); setAnalyzedSignature(signature); setConfirmed(sourceObservation.trim()); }
       setReviewed(false);
       setAnalysisReady({ curriculumLinks: next.cards.map(card => ({ area: card.area, description: card.interpretation })) });
     } catch (cause) { setError(failure(cause)); setAnalysisPending(false); lock.current = false; setBusy(""); }
@@ -189,7 +203,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       const result = generatedSchema.parse({ observation: confirmed, interpretation, connection: extension, integratedRecord: story?.text || draft });
       let ids = [...photoIds];
       const body = () => ({ generationId: id, createdAt: date, kind: "record", input, result, consent: { version: AI_CONSENT_VERSION, aiAccepted, photoAccepted },
-        steam: { version: 1, age, sourceObservation: observation.trim(), photoIds: ids, recordingIds, analysis, confirmedObservation: confirmed, selectedAreas, interpretation, extension, process, draft, story: story || undefined, reviewed: true, analyzedInput: { age, observation: observation.trim(), photoIds: ids }, run: run || undefined, previousRuns } });
+        steam: { version: 1, age, sourceObservation: sourceObservation.trim(), commonObservation: observation, photoIds: ids, photoObservations, recordingIds, analysis, confirmedObservation: confirmed, selectedAreas, selectedCards, interpretation, extension, process, draft, story: story || undefined, reviewed: true, analyzedInput: { age, observation: sourceObservation.trim(), photoIds: ids, photoObservations }, run: run || undefined, previousRuns } });
       const write = async () => { const response = await fetch("/api/records/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body()) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); };
       // Use the existing save-before-photo policy and idempotent per-photo upload keys.
       await write();
@@ -201,12 +215,23 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
         ids = [...ids, data.id];
       }
       await write();
-      setPhotoIds(ids); setFiles([]); setAnalyzedSignature(JSON.stringify({ age, observation: observation.trim(), photoIds: ids, files: [] }));
+      setPhotoNotes(current => ({ ...current, ...Object.fromEntries(ids.map((id, index) => [`saved:${id}`, photoObservations[index] || { speech: "", action: "", flow: "" }])) }));
+      setPhotoIds(ids); setFiles([]); setAnalyzedSignature(JSON.stringify({ age, observation: sourceObservation.trim(), photoIds: ids, files: [], photoObservations }));
       setNotice("과정 기록과 사진 연결을 저장했습니다. 내 기록에서 다시 열 수 있습니다.");
       window.history.replaceState(null, "", `/records/steam?session=${id}`);
     } catch (cause) { setError(`${recordWritten ? "기록 글은 저장됐지만 사진 연결 또는 최종 갱신을 완료하지 못했습니다. 사진과 글을 유지했으니 저장을 다시 시도해 주세요. " : ""}${failure(cause)}`); } finally { lock.current = false; setBusy(""); }
   }
   const edit = () => { setReviewed(false); setNotice(""); };
+  const analysisGroups = analysis?.plays ? analysis.plays.map((play, index) => ({ photo: play.photo, cards: play.analysis.cards, offset: analysis.plays!.slice(0, index).reduce((total, item) => total + item.analysis.cards.length, 0) })) : [{ photo: 0, cards: analysis?.cards || [], offset: 0 }];
+  function updateCard(index: number, key: "interpretation" | "watch" | "extension", value: string) {
+    setAnalysis(current => {
+      if (!current) return current;
+      const cards = current.cards.map((item, i) => i === index ? { ...item, [key]: value } : item);
+      let offset = 0;
+      const plays = current.plays?.map(play => { const count = play.analysis.cards.length; const result = { ...play, analysis: { ...play.analysis, cards: cards.slice(offset, offset + count) } }; offset += count; return result; });
+      return { ...current, cards, plays };
+    });
+  }
   function field(label: string, value: string, change: (value: string) => void, maxLength = 4000, rows = 3) {
     return <label className={styles.field}>{label}<textarea aria-label={label} rows={rows} maxLength={maxLength} value={value} onChange={event => { change(event.target.value); edit(); }} /></label>;
   }
@@ -238,15 +263,18 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
           <img src={photo.url} alt={`새 놀이 사진 ${photoIds.length + index + 1}`} /><figcaption>사진 {photoIds.length + index + 1}<button type="button" onClick={() => { setFiles(current => current.filter(value => value.key !== photo.key)); edit(); }}>선택 해제</button></figcaption>
         </figure>)}</div></>}
         {step === 1 && <>
-          {field("아이의 말·행동·놀이 흐름 (직접 확인한 내용)", observation, setObservation, 15000)}
-          <button className="button secondary" type="button" onClick={() => recorder.current?.open()}>관찰 녹음 · 녹음 파일 업로드</button>
+          <p><strong>사진마다 서로 다른 놀이로 기록합니다.</strong> 사진을 하나의 연속된 놀이로 묶지 않습니다. 말·행동·흐름은 해당 사진에서 직접 확인한 것만 적으세요.</p>
+          {!selectedPhotos.length && <p>먼저 사진을 선택해 주세요.</p>}
+          {selectedPhotos.map((photo, index) => <article className={styles.card} key={photo.key}><h3>사진 {index + 1}의 놀이 · 다른 사진과 별개</h3><ObservationPhoto src={photo.url} alt={`관찰을 작성할 사진 ${index + 1}`} />{([ ["speech", "아이의 말"], ["action", "아이의 행동"], ["flow", "놀이 흐름"] ] as const).map(([key, label]) => <div key={key}>{field(`사진 ${index + 1} · ${label}`, photoNotes[photo.key]?.[key] || "", value => setPhotoNotes(current => ({ ...current, [photo.key]: { speech: current[photo.key]?.speech || "", action: current[photo.key]?.action || "", flow: current[photo.key]?.flow || "", [key]: value } })), 750)}</div>)}<button type="button" className="button secondary" onClick={() => { setRecordingPhoto(photo.key); recorder.current?.open(); }}>사진 {index + 1} 관찰 녹음 · 파일 업로드</button></article>)}
+          {field("공통 메모 · 사진별 분석 근거와 별도", observation, setObservation, 3000)}
+          <button className="button secondary" type="button" onClick={() => { setRecordingPhoto(null); recorder.current?.open(); }}>관찰 녹음 · 녹음 파일 업로드</button>
           <p>녹음하거나 따로 저장한 음성 파일을 업로드하세요. 전사문을 원본과 비교하고 선택하면 현재 관찰에 추가됩니다. 원본 음성·전사문은 자동 보관되지 않습니다.</p>
         </>}
         {step === 2 && <>
           <label className={styles.check}><input type="checkbox" checked={aiAccepted} onChange={event => setAiAccepted(event.target.checked)} /><span>{AI_CONSENT_TEXT}</span></label>
           <label className={styles.check}><input type="checkbox" checked={photoAccepted} onChange={event => setPhotoAccepted(event.target.checked)} /><span>{PHOTO_CONSENT_TEXT}</span></label>
-          <button className="button primary" type="button" disabled={!observation.trim() || !photoIds.length && !files.length || !aiAccepted || !photoAccepted} onClick={() => void analyze()}>{analysis ? "다시 분석하기" : "사진과 관찰 함께 분석"}</button>
-          {(!observation.trim() || !photoIds.length && !files.length) && <p>사진 1장 이상과 직접 관찰한 내용을 입력해 주세요.</p>}
+          <button className="button primary" type="button" disabled={!sourceObservation.trim() || !photoIds.length && !files.length || !aiAccepted || !photoAccepted} onClick={() => void analyze()}>{analysis ? "다시 분석하기" : "사진과 관찰 함께 분석"}</button>
+          {(!sourceObservation.trim() || !photoIds.length && !files.length) && <p>사진 1장 이상과 해당 사진에서 직접 관찰한 내용을 입력해 주세요.</p>}
           {candidate && <section className={styles.candidate}><h3>새 분석 후보</h3><p>기존 카드만 교체합니다. 확인 관찰·해석·제안·과정 초안의 교사 수정은 유지됩니다.</p><pre>{candidate.analysis.cards.map(card => `${card.area}: ${card.interpretation}`).join("\n\n") || "관련 영역은 추가 관찰이 필요합니다."}</pre><button type="button" onClick={() => {
             if (run) {
               if (previousRuns.length >= 100) { setError("보관 가능한 분석 이력을 초과했습니다. 현재 기록을 저장한 뒤 새 기록에서 이어가 주세요."); return; }
@@ -260,19 +288,22 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
             <ul>{run.checks.map((check, index) => <li key={index}><strong>{check.area} · {check.verdict === "passed" ? "원문 인용 일치" : check.verdict === "failed" ? "근거 불일치 · 카드에서 제외" : "교사 확인 필요"}</strong><p>{check.quote}</p><p>{check.reason}</p>{check.startOffset !== null && <small>교사 관찰 원문의 {check.startOffset + 1}~{check.endOffset}번째 문자</small>}</li>)}</ul>
             <h3>현재 분석의 AI 최초 제안</h3><ul>{run.originalAnalysis.cards.map((card, index) => <li key={index}>{card.area}: {card.interpretation}</li>)}</ul><p>이전 분석 실행 {previousRuns.length}회 · 최초 제안은 교사의 카드 수정과 별도로 보관합니다.</p>
           </details>}
-          {analysis && <><h3>확인된 관찰 후보 · 교사 확인 필요</h3><ul>{analysis.photoFacts.map((fact, index) => <li key={index}>사진 {fact.photo}: {fact.fact}</li>)}</ul><p>교사 입력: {observation}</p>{field("교사가 확인한 관찰 (사진 후보를 확인해 직접 추가하세요)", confirmed, setConfirmed, 15000)}
+          {analysis && <><h3>{analysis.plays ? "사진별로 다른 놀이를 읽었어요" : "이전 분석 · 사진별 구분은 다시 분석해 주세요"}</h3><p><strong>사진 {selectedPhotos.map((_, index) => index + 1).join("·")}은 각각 별개의 놀이입니다.</strong> 사진 사이의 말·행동·놀이 흐름을 서로 섞거나 연속된 과정으로 해석하지 않습니다.</p><h3>확인된 관찰 후보 · 교사 확인 필요</h3><ul>{analysis.photoFacts.map((fact, index) => <li key={index}>사진 {fact.photo}: {fact.fact}</li>)}</ul><p>교사 입력: {sourceObservation}</p>{field("교사가 확인한 관찰 (사진 후보를 확인해 직접 추가하세요)", confirmed, setConfirmed, 15000)}
             {!analysis.cards.length && <p>현재 근거로 읽을 수 있는 STEAM 영역이 없습니다. 추가 관찰이 필요합니다.</p>}
-            {analysis.cards.map((card, index) => <article className={styles.card} key={`${index}:${card.area}`}><h3>{card.area}</h3><p>{card.status}</p><h4>구체적 근거</h4><ul>{card.evidence.map((evidence, i) => <li key={i}>{evidence.source === "photo" ? `사진 ${evidence.photo}` : "교사 관찰"}: {evidence.quote}</li>)}</ul>
-              {([ ["interpretation", "배움의 해석 · 잠정적 가능성"], ["watch", "추가 관찰하면 좋은 행동"], ["extension", "확장 제안 · 아직 실행하지 않음"] ] as const).map(([key, label]) => <div key={key}>{field(label, card[key], value => setAnalysis(current => current && ({ ...current, cards: current.cards.map((item, i) => i === index ? { ...item, [key]: value } : item) })))}</div>)}
-              <label><input type="checkbox" checked={selectedAreas.includes(card.area)} onChange={event => { setSelectedAreas(current => event.target.checked ? [...current, card.area] : current.filter(area => area !== card.area)); edit(); }} />과정 기록의 해석으로 선택</label>
-            </article>)}
-            <button type="button" onClick={() => { if (interpretation && !window.confirm("선택한 카드의 해석으로 현재 해석 글을 바꿀까요?")) return; setInterpretation(analysis.cards.filter(card => selectedAreas.includes(card.area)).map(card => `${card.area}: ${card.interpretation}`).join("\n\n")); edit(); }}>선택한 해석 가져오기</button>
+            {analysisGroups.map(group => <section key={group.photo} aria-label={group.photo ? `사진 ${group.photo}의 놀이 분석` : "기존 분석"}><h3>{group.photo ? `사진 ${group.photo}의 놀이 · 다른 사진과 별개` : "이전 방식의 분석 · 다시 분석하면 사진별로 나뉩니다"}</h3>{group.photo > 0 && !stale && selectedPhotos[group.photo - 1] && <ObservationPhoto src={selectedPhotos[group.photo - 1].url} alt={`사진 ${group.photo}의 놀이 분석 미리보기`} />}{!group.cards.length && <p>이 사진은 추가 관찰이 필요합니다. 다른 사진의 근거로 채우지 않습니다.</p>}{group.cards.map((card, localIndex) => { const index = group.offset + localIndex; return <article className={styles.card} key={`${index}:${card.area}`}><h3>{areaNames[card.area]}</h3>{card.area === "T 기술" && <p>어떤 도구를 어떻게 써 보았나요? 예를 들면 숟가락으로 물을 떠 옮기거나 집게로 천을 집어 보는 모습이에요. 아래에는 이 사진에서 확인한 내용만 담습니다.</p>}{card.area === "E 공학" && <p>어떻게 놓거나 이어서 만들어 보았나요? 예를 들면 블록을 이어 길을 만들거나 무너지면 놓는 자리를 바꿔 보는 모습이에요. 아래에는 이 사진에서 확인한 내용만 담습니다.</p>}<p>{card.status}</p><h4>사진·관찰에서 본 모습</h4><ul>{card.evidence.map((evidence, i) => <li key={i}>{evidence.source === "photo" ? `사진 ${evidence.photo}` : "교사 관찰"}: {evidence.quote}</li>)}</ul>
+              {([ ["interpretation", "이 행동에서 배울 수 있는 것 · 교사의 해석"], ["watch", "다음에 눈여겨볼 행동"], ["extension", "지금 놀이에서 이어 해볼 지원 · 아직 하지 않은 제안"] ] as const).map(([key, label]) => <div key={key}>{field(label, card[key], value => updateCard(index, key, value))}</div>)}
+              <label><input type="checkbox" checked={selectedCards.includes(`${group.photo}:${card.area}`)} onChange={event => { const key = `${group.photo}:${card.area}`; const next = event.target.checked ? [...selectedCards, key] : selectedCards.filter(item => item !== key); setSelectedCards(next); setSelectedAreas([...new Set(next.map(item => item.split(":")[1]))]); edit(); }} />과정 기록의 해석으로 선택</label>
+            </article>; })}</section>)}
+            <button type="button" onClick={() => { if (interpretation && !window.confirm("선택한 카드의 해석으로 현재 해석 글을 바꿀까요?")) return; setInterpretation(analysisGroups.flatMap(group => group.cards.filter(card => selectedCards.includes(`${group.photo}:${card.area}`)).map(card => `${group.photo ? `사진 ${group.photo}의 놀이 · ` : ""}${areaNames[card.area]}: ${card.interpretation}`)).join("\n\n")); edit(); }}>선택한 해석 가져오기</button>
             {field("기록에 사용할 교사 해석", interpretation, setInterpretation, 3000)}
           </>}
         </>}
         {step === 3 && (analysis ? <>
+          {analysis.plays?.map(play => <article className={styles.card} key={play.photo}><h3>사진 {play.photo}의 놀이 이어가기 · 다른 놀이와 별개</h3><ul>{play.analysis.support.materials.map((item, index) => <li key={index}>{item}</li>)}</ul><p>교사가 해볼 말·지원: {play.analysis.support.teacher}</p><h4>눈여겨볼 행동</h4><ul>{play.analysis.support.watch.map((item, index) => <li key={index}>{item}</li>)}</ul><p>안전: {play.analysis.support.safety}</p><button type="button" onClick={() => { const next = [`사진 ${play.photo}의 놀이 · 아직 실행하지 않은 지원 계획`, ...play.analysis.support.materials, `교사 지원 제안: ${play.analysis.support.teacher}`, ...play.analysis.support.watch.map(value => `관찰 계획: ${value}`), `안전: ${play.analysis.support.safety}`].join("\n"); if (next.length > 2000) { setError("지원 제안이 깁니다. 아래 계획 칸에 필요한 부분만 골라 적어 주세요."); return; } if (extension && !window.confirm("현재 계획을 이 사진의 지원 계획으로 바꿀까요?")) return; setExtension(next); edit(); }}>사진 {play.photo}의 제안을 내 계획으로 가져오기</button></article>)}
+          {!analysis.plays && <>
           <h3>현재 놀이에서 이어갈 제안 · 아직 실행하지 않음</h3><ul>{analysis.support.materials.map((item, index) => <li key={index}>{item}</li>)}</ul><p>교사 말·지원: {analysis.support.teacher}</p><h3>관찰 포인트</h3><ul>{analysis.support.watch.map((item, index) => <li key={index}>{item}</li>)}</ul><p>안전 고려: {analysis.support.safety}</p>
           <button type="button" onClick={() => { if (extension && !window.confirm("현재 확장 계획을 AI 제안으로 바꿀까요?")) return; setExtension([...analysis.support.materials, `교사 지원 제안: ${analysis.support.teacher}`, ...analysis.support.watch.map(value => `관찰 계획: ${value}`), `안전: ${analysis.support.safety}`].join("\n")); edit(); }}>제안을 내 지원 계획으로 가져오기</button>
+          </>}
           {field("교사가 조절할 확장 계획 · 관찰 사실과 별도 저장", extension, setExtension, 2000)}
         </> : <p>먼저 사진과 관찰을 분석해 주세요.</p>)}
         {step === 4 && <>
@@ -298,7 +329,7 @@ export function SteamWorkflow({ userId, initial }: { userId: string; initial: Sa
       </section>
       <div className={styles.navigation}><button type="button" className="button secondary" disabled={step === 0} onClick={() => setStep(step - 1)}>이전 단계</button><span>{step + 1} / 6</span><button type="button" className="button primary" disabled={step === 5} onClick={() => setStep(step + 1)}>다음 단계</button></div>
     </fieldset>
-    <ObservationRecorder ref={recorder} userId={userId} onActivity={onActivity} onApply={(text, id) => { if (!recordingIds.includes(id) && recordingIds.length >= 50) throw new Error("연결 녹음은 최대 50개입니다."); const next = appendObservation(observation, text); setObservation(next); setRecordingIds(current => current.includes(id) ? current : [...current, id]); edit(); }} />
+    <ObservationRecorder ref={recorder} userId={userId} onActivity={onActivity} onApply={(text, id) => { if (!recordingIds.includes(id) && recordingIds.length >= 50) throw new Error("연결 녹음은 최대 50개입니다."); if (recordingPhoto) { const note = photoNotes[recordingPhoto] || { speech: "", action: "", flow: "" }; const next = appendObservation(note.flow, text); if (next.length > 750) throw new Error("이 사진의 놀이 흐름은 750자 이내로 정리해 주세요. 전사문을 수정한 뒤 다시 추가할 수 있습니다."); setPhotoNotes(current => ({ ...current, [recordingPhoto]: { ...note, flow: next } })); } else { const next = appendObservation(observation, text); setObservation(next); } setRecordingIds(current => current.includes(id) ? current : [...current, id]); edit(); }} />
     <p className="capture-note">작성 글은 계정별로 이 브라우저에 하루 동안 복원할 수 있습니다. 새 사진 파일은 화면 이동 중 유지되며, 저장 전 새로고침 시 다시 첨부해야 합니다.</p>
   </div>;
 }
